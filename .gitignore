@@ -53,6 +53,10 @@ coverage.xml
 .env
 .env.local
 
+# Google API credentials and tokens
+token.json
+google-credentials.json
+
 # Log files
 *.log
 app.log

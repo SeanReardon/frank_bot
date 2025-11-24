@@ -1,0 +1,168 @@
+{
+  "name": "frank-bot",
+  "version": "0.2.0",
+  "description": "Expose Google Calendar and Contacts via the Model Context Protocol.",
+  "description_for_human": "Lets ChatGPT check your Google Calendar and search Contacts.",
+  "description_for_model": "Provides tools to list the user's Google Calendar events for any day or time range and to search Google Contacts by name, email, or phone. Requires a pre-configured token.json with the appropriate Google scopes.",
+  "homepage": "https://github.com/seanr/frank_bot",
+  "license": "MIT",
+  "server": {
+    "command": "python",
+    "args": [
+      "app.py"
+    ],
+    "env": {
+      "HOST": "0.0.0.0",
+      "PORT": "8000"
+    }
+  },
+  "transport": {
+    "type": "http",
+    "url": "http://localhost:8000/mcp",
+    "mode": "streamable",
+    "supports": [
+      "application/json",
+      "text/event-stream"
+    ]
+  },
+  "health": "http://localhost:8000/health",
+  "tools": [
+    {
+      "name": "list_calendar_events",
+      "description": "Retrieve Google Calendar events for a specific day in your timezone or for any RFC3339 time range.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "description": "Optional ISO date (YYYY-MM-DD). When present, events for that day (in the configured DEFAULT_TIMEZONE) are returned."
+          },
+          "time_min": {
+            "type": "string",
+            "description": "Optional RFC3339 timestamp that overrides 'day'. Lower bound (inclusive) for event start times."
+          },
+          "time_max": {
+            "type": "string",
+            "description": "Optional RFC3339 timestamp upper bound (exclusive)."
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Maximum number of events to return."
+          },
+          "time_zone": {
+            "type": "string",
+            "description": "IANA timezone name used when deriving day ranges. Defaults to DEFAULT_TIMEZONE."
+          },
+          "calendar_id": {
+            "type": "string",
+            "description": "Optional calendar ID to query. Defaults to the primary calendar."
+          },
+          "calendar_name": {
+            "type": "string",
+            "description": "Optional display name of the calendar to query."
+          }
+        }
+      }
+    },
+    {
+      "name": "search_contacts",
+      "description": "Search Google Contacts / People API with free-form text (names, emails, or phone numbers).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Free-form text to match against contact names, emails, or phone numbers."
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Maximum number of contacts to return."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "create_calendar_event",
+      "description": "Create a Google Calendar event with optional attendees.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string",
+            "description": "Start time in ISO8601 format."
+          },
+          "end": {
+            "type": "string",
+            "description": "End time in ISO8601 format."
+          },
+          "attendees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of attendee email addresses."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description/body for the event."
+          },
+          "time_zone": {
+            "type": "string",
+            "description": "Optional IANA timezone name (defaults to DEFAULT_TIMEZONE)."
+          },
+          "calendar_id": {
+            "type": "string",
+            "description": "Optional calendar ID to create the event in."
+          },
+          "calendar_name": {
+            "type": "string",
+            "description": "Optional calendar name to target instead of the default."
+          }
+        },
+        "required": [
+          "summary",
+          "start",
+          "end"
+        ]
+      }
+    },
+    {
+      "name": "list_calendars",
+      "description": "List calendars accessible to the authenticated user.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include_access_role": {
+            "type": "boolean",
+            "description": "Include the accessRole for each calendar."
+          },
+          "primary_only": {
+            "type": "boolean",
+            "description": "Return only the primary calendar if true."
+          }
+        }
+      }
+    },
+    {
+      "name": "hello_world",
+      "description": "Diagnostic tool returning a greeting.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Optional name to include in greeting."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}
+
