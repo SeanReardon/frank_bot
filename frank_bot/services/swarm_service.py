@@ -154,7 +154,7 @@ class SwarmService:
         )
 
 
-def describe_checkin(checkin: dict[str, Any]) -> dict[str, Any]:
+def describe_checkin(checkin: dict[str, Any], include_photos: bool = False) -> dict[str, Any]:
     """Normalize Swarm check-in JSON into a concise structure."""
     if not checkin:
         return {}
@@ -173,7 +173,11 @@ def describe_checkin(checkin: dict[str, Any]) -> dict[str, Any]:
         iso_time = dt.isoformat()
         relative_minutes = int((datetime.now(tz=timezone.utc) - dt).total_seconds() // 60)
 
-    return {
+    # Photo information
+    photos_data = checkin.get("photos") or {}
+    photo_count = photos_data.get("count", 0)
+
+    result = {
         "timestamp": created_at,
         "iso_time": iso_time,
         "minutes_since": relative_minutes,
@@ -186,7 +190,28 @@ def describe_checkin(checkin: dict[str, Any]) -> dict[str, Any]:
         "canonical_url": venue.get("canonicalUrl"),
         "categories": categories,
         "shout": checkin.get("shout"),
+        "photo_count": photo_count,
     }
+
+    # Optionally include full photo URLs
+    if include_photos and photo_count > 0:
+        photo_urls = []
+        for photo in photos_data.get("items", []):
+            prefix = photo.get("prefix", "")
+            suffix = photo.get("suffix", "")
+            width = photo.get("width")
+            height = photo.get("height")
+            if prefix and suffix:
+                # Use original size for best quality
+                url = f"{prefix}original{suffix}"
+                photo_urls.append({
+                    "url": url,
+                    "width": width,
+                    "height": height,
+                })
+        result["photos"] = photo_urls
+
+    return result
 
 
 def _build_display_name(user: dict[str, Any]) -> str:

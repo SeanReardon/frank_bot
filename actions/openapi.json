@@ -600,6 +600,24 @@
           },
           {
             "in": "query",
+            "name": "has_photos",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "If true, only return check-ins that have photos attached."
+          },
+          {
+            "in": "query",
+            "name": "include_photos",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "If true, include photo URLs in the response. Use this when the user wants to see the actual photos."
+          },
+          {
+            "in": "query",
             "name": "stale_minutes",
             "schema": {
               "type": "integer"
@@ -1227,6 +1245,25 @@
           }
         }
       },
+      "SwarmPhoto": {
+        "type": "object",
+        "description": "A photo attached to a check-in.",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Full URL to the photo image. Can be rendered directly by ChatGPT."
+          },
+          "width": {
+            "type": "integer",
+            "description": "Photo width in pixels."
+          },
+          "height": {
+            "type": "integer",
+            "description": "Photo height in pixels."
+          }
+        }
+      },
       "SwarmCheckinEntry": {
         "type": "object",
         "properties": {
@@ -1262,6 +1299,17 @@
               "$ref": "#/components/schemas/SwarmCompanion"
             },
             "description": "People you checked in with at this venue."
+          },
+          "photo_count": {
+            "type": "integer",
+            "description": "Number of photos attached to this check-in."
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SwarmPhoto"
+            },
+            "description": "Photo URLs (only included when include_photos=true)."
           }
         }
       },
@@ -1289,6 +1337,12 @@
           },
           "category": {
             "type": "string"
+          },
+          "has_photos": {
+            "type": "boolean"
+          },
+          "include_photos": {
+            "type": "boolean"
           }
         }
       },
@@ -1325,6 +1379,14 @@
           "category": {
             "type": "string",
             "description": "Filter by venue category (e.g., 'restaurant', 'coffee', 'bar')."
+          },
+          "has_photos": {
+            "type": "boolean",
+            "description": "If true, only return check-ins that have photos attached."
+          },
+          "include_photos": {
+            "type": "boolean",
+            "description": "If true, include photo URLs in the response. Use when user wants to see actual photos."
           },
           "stale_minutes": {
             "type": "integer",

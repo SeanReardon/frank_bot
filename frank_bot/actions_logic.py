@@ -463,6 +463,10 @@ async def list_my_swarm_checkins_action(
     # Category filtering
     category_filter = (args.get("category") or "").strip().lower()
 
+    # Photo filtering
+    has_photos = _coerce_bool(args.get("has_photos"))  # Filter to only checkins with photos
+    include_photos = _coerce_bool(args.get("include_photos"))  # Include photo URLs in response
+
     # Build timestamp filters
     after_timestamp: int | None = None
     before_timestamp: int | None = None
@@ -494,7 +498,8 @@ async def list_my_swarm_checkins_action(
     def fetch_and_filter_checkins():
         service = SwarmService()
         # Fetch more than requested if filtering, since we'll filter down
-        fetch_limit = max_results * 5 if (companion_names or only_with_companions or category_filter) else max_results
+        needs_filtering = companion_names or only_with_companions or category_filter or has_photos
+        fetch_limit = max_results * 5 if needs_filtering else max_results
 
         checkins_raw = service.get_self_checkins(
             limit=min(fetch_limit, 250),
@@ -541,9 +546,10 @@ async def list_my_swarm_checkins_action(
             if only_with_companions and not companions:
                 continue
 
-            # Extract venue info
-            info = describe_checkin(item)
+            # Extract venue info (include photos if requested)
+            info = describe_checkin(item, include_photos=include_photos)
             categories = info.get("categories") or []
+            photo_count = info.get("photo_count", 0)
 
             # Filter by category
             if category_filter:
@@ -553,28 +559,37 @@ async def list_my_swarm_checkins_action(
                 if not category_match:
                     continue
 
-            entries.append(
-                {
-                    "iso_time": info.get("iso_time"),
-                    "minutes_since": info.get("minutes_since"),
-                    "stale": (
-                        info.get("minutes_since") is None
-                        or info.get("minutes_since") > stale_minutes
-                    ),
-                    "venue": {
-                        "name": info.get("venue_name"),
-                        "city": info.get("city"),
-                        "state": info.get("state"),
-                        "country": info.get("country"),
-                        "latitude": info.get("latitude"),
-                        "longitude": info.get("longitude"),
-                        "canonical_url": info.get("canonical_url"),
-                    },
-                    "categories": categories,
-                    "shout": info.get("shout"),
-                    "companions": companions,
-                }
-            )
+            # Filter to only checkins with photos
+            if has_photos and photo_count == 0:
+                continue
+
+            entry = {
+                "iso_time": info.get("iso_time"),
+                "minutes_since": info.get("minutes_since"),
+                "stale": (
+                    info.get("minutes_since") is None
+                    or info.get("minutes_since") > stale_minutes
+                ),
+                "venue": {
+                    "name": info.get("venue_name"),
+                    "city": info.get("city"),
+                    "state": info.get("state"),
+                    "country": info.get("country"),
+                    "latitude": info.get("latitude"),
+                    "longitude": info.get("longitude"),
+                    "canonical_url": info.get("canonical_url"),
+                },
+                "categories": categories,
+                "shout": info.get("shout"),
+                "companions": companions,
+                "photo_count": photo_count,
+            }
+
+            # Include photo URLs if requested
+            if include_photos and info.get("photos"):
+                entry["photos"] = info["photos"]
+
+            entries.append(entry)
 
             if len(entries) >= max_results:
                 break
@@ -603,6 +618,9 @@ async def list_my_swarm_checkins_action(
     if category_filter:
         filters_desc.append(f"in '{category_filter}' venues")
 
+    if has_photos:
+        filters_desc.append("with photos")
+
     if filters_desc:
         filter_str = " ".join(filters_desc)
         message = f"Found {len(checkins)} check-in(s) {filter_str}."
@@ -623,6 +641,8 @@ async def list_my_swarm_checkins_action(
             "with_companion": companion_names or None,
             "only_with_companions": only_with_companions,
             "category": category_filter or None,
+            "has_photos": has_photos,
+            "include_photos": include_photos,
         },
     }
 
