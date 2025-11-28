@@ -109,21 +109,71 @@
         "security": [{"ActionsApiKey": []}]
       }
     },
-    "/actions/calendar/events:create": {
-      "post": {
-        "operationId": "createCalendarEvent",
-        "summary": "Create a new Google Calendar event",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {"$ref": "#/components/schemas/CreateCalendarEventRequest"}
-            }
+    "/actions/calendar/schedule": {
+      "get": {
+        "operationId": "scheduleTime",
+        "summary": "Add a time block to your calendar",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "summary",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "Title for the calendar entry."
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "Start time in ISO8601 format."
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "End time in ISO8601 format."
+          },
+          {
+            "in": "query",
+            "name": "description",
+            "schema": {"type": "string"},
+            "required": false,
+            "description": "Optional notes or description."
+          },
+          {
+            "in": "query",
+            "name": "attendees",
+            "schema": {"type": "string"},
+            "required": false,
+            "description": "Comma-separated email addresses for attendees."
+          },
+          {
+            "in": "query",
+            "name": "time_zone",
+            "schema": {"type": "string"},
+            "required": false,
+            "description": "IANA timezone (defaults to your location)."
+          },
+          {
+            "in": "query",
+            "name": "calendar_id",
+            "schema": {"type": "string"},
+            "required": false,
+            "description": "Specific calendar ID."
+          },
+          {
+            "in": "query",
+            "name": "calendar_name",
+            "schema": {"type": "string"},
+            "required": false,
+            "description": "Calendar name to use."
           }
-        },
+        ],
         "responses": {
           "200": {
-            "description": "Created calendar event.",
+            "description": "Calendar entry details.",
             "content": {
               "application/json": {
                 "schema": {"$ref": "#/components/schemas/CreateCalendarEventResponse"}

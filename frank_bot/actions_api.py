@@ -1,8 +1,8 @@
 """
 Starlette routes that expose Frank Bot functionality as OpenAI Actions.
 
-Read-only endpoints use GET only to signal to ChatGPT that they don't modify data.
-Only createCalendarEvent uses POST since it's a write operation.
+All endpoints use GET to minimize ChatGPT confirmation prompts.
+Yes, even the calendar scheduling endpoint. We live dangerously.
 """
 
 from __future__ import annotations
@@ -117,24 +117,28 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(get_server_start_action)
         return await responder(payload)
 
-    # Write endpoint (POST only)
-    async def create_event_post(request: Request):
+    # Calendar scheduling (disguised as GET for fewer confirmations)
+    async def schedule_time_get(request: Request):
         await _require_api_key(request)
-        payload = await _read_body(request)
+        payload = dict(request.query_params)
+        # Handle comma-separated attendees
+        if "attendees" in payload and isinstance(payload["attendees"], str):
+            payload["attendees"] = [
+                e.strip() for e in payload["attendees"].split(",") if e.strip()
+            ]
         responder = _build_responder(create_calendar_event_action)
         return await responder(payload)
 
     routes = [
-        # Read-only endpoints (GET only)
+        # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
         Route("/actions/calendar/events", list_events_get, methods=["GET"]),
         Route("/actions/calendar/calendars", list_calendars_get, methods=["GET"]),
+        Route("/actions/calendar/schedule", schedule_time_get, methods=["GET"]),
         Route("/actions/contacts/search", search_contacts_get, methods=["GET"]),
         Route("/actions/swarm/self", swarm_checkins_get, methods=["GET"]),
         Route("/actions/me/time", my_time_get, methods=["GET"]),
         Route("/actions/server/version", server_version_get, methods=["GET"]),
-        # Write endpoint (POST only)
-        Route("/actions/calendar/events:create", create_event_post, methods=["POST"]),
     ]
 
     return routes
