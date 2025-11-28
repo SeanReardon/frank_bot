@@ -1,113 +1,81 @@
 """
-Factory helpers for the Starlette HTTP application (Streamable HTTP transport).
+Factory helpers for the Starlette HTTP application (Actions transport only).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import time
-from asyncio import CancelledError
-from contextlib import asynccontextmanager
-from typing import Any
 
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, Response
-from starlette.routing import Mount, Route
+from starlette.routing import Route
 
-from mcp.server import Server
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-
+from frank_bot.actions_api import build_action_routes
 from frank_bot.config import get_settings
+from frank_bot.manifests import (
+    build_actions_manifest,
+    build_ai_plugin_manifest,
+)
+from frank_bot.openapi import load_openapi_document
 
 logger = logging.getLogger(__name__)
 
 
-def _normalise_endpoint(path: str) -> str:
-    """Ensure the MCP endpoint always starts with a slash and has no trailing slash."""
-    if not path.startswith("/"):
-        path = "/" + path
-    return path.rstrip("/") or "/"
-
-
-def create_starlette_app(mcp_server: Server) -> Starlette:
-    """Create and configure the Starlette application using Streamable HTTP."""
+def create_starlette_app() -> Starlette:
+    """Create and configure the Starlette application for Actions access."""
 
     settings = get_settings()
-    mcp_endpoint = _normalise_endpoint(settings.mcp_endpoint)
-    session_manager = StreamableHTTPSessionManager(
-        mcp_server,
-        json_response=settings.streamable_json_response,
-        stateless=settings.streamable_stateless,
-    )
-
-    async def streamable_http_asgi(scope, receive, send):
-        """Delegate HTTP traffic to the MCP Streamable HTTP session manager."""
-        await session_manager.handle_request(scope, receive, send)
+    action_routes = build_action_routes(settings)
+    openapi_document = load_openapi_document(settings)
+    ai_plugin_manifest = build_ai_plugin_manifest(settings)
+    actions_manifest = build_actions_manifest(settings)
 
     async def health_check(_request):
         return JSONResponse({"status": "healthy", "server": "frank-bot"})
 
-    async def root_endpoint(request):
-        """Root endpoint - handle discovery and log unexpected traffic."""
-        body = None
-        body_json = None
-        if request.method == "POST":
-            try:
-                body = await request.body()
-                if body:
-                    try:
-                        body_json = json.loads(body.decode())
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        body = body.decode("utf-8", errors="replace")
-            except Exception as exc:
-                logger.warning("Could not read request body: %s", exc)
-
-        request_data = {
-            "method": request.method,
-            "path": str(request.url.path),
-            "headers": dict(request.headers),
-            "query_params": dict(request.query_params),
-            "body": body_json or body,
-        }
-        logger.info("=== ChatGPT Request: Root Endpoint ===")
-        logger.info(
-            "=== Request Details (JSON) ===\n%s",
-            json.dumps(request_data, indent=2, default=str),
-        )
-
+    async def root_endpoint(_request):
         return JSONResponse(
             {
                 "server": "frank-bot",
-                "mcp_server": True,
+                "status": "running",
+                "actions_available": True,
                 "endpoints": {
-                    mcp_endpoint: "Streamable HTTP endpoint for MCP protocol",
+                    "/actions/openapi.json": "OpenAPI 3.1 schema",
+                    "/.well-known/actions.json": "OpenAI Actions manifest",
+                    "/.well-known/ai-plugin.json": "ChatGPT plugin manifest",
                     "/health": "Health check endpoint",
                 },
-                "status": "running",
             }
         )
 
-    @asynccontextmanager
-    async def lifespan(app: Starlette):
-        async with session_manager.run():
-            yield
+    async def openapi_handler(_request):
+        return JSONResponse(openapi_document)
 
-    mcp_mounts = [
-        Mount(mcp_endpoint, app=streamable_http_asgi),
-    ]
-    if mcp_endpoint != "/":
-        mcp_mounts.append(Mount(f"{mcp_endpoint}/", app=streamable_http_asgi))
+    async def ai_plugin_handler(_request):
+        return JSONResponse(ai_plugin_manifest)
 
-    routes = mcp_mounts + [
+    async def actions_manifest_handler(_request):
+        return JSONResponse(actions_manifest)
+
+    routes = action_routes + [
+        Route("/actions/openapi.json", openapi_handler, methods=["GET"]),
+        Route(
+            "/.well-known/ai-plugin.json",
+            ai_plugin_handler,
+            methods=["GET"],
+        ),
+        Route(
+            "/.well-known/actions.json",
+            actions_manifest_handler,
+            methods=["GET"],
+        ),
         Route("/health", health_check, methods=["GET"]),
-        Route("/", root_endpoint, methods=["GET", "POST"]),
+        Route("/", root_endpoint, methods=["GET"]),
     ]
 
-    app = Starlette(routes=routes, lifespan=lifespan)
-    app.state.shutting_down = False
-    app.state.session_manager = session_manager
+    app = Starlette(routes=routes)
 
     app.add_middleware(
         CORSMiddleware,
@@ -119,14 +87,11 @@ def create_starlette_app(mcp_server: Server) -> Starlette:
 
     @app.on_event("startup")
     async def startup_event():
-        app.state.shutting_down = False
-        logger.info("Starlette app started - routes configured")
-        logger.info("Streamable HTTP endpoint available at %s", mcp_endpoint)
+        logger.info("Starlette app started - Actions endpoints configured")
 
     @app.on_event("shutdown")
     async def shutdown_event():
-        app.state.shutting_down = True
-        logger.info("Shutdown signal received - terminating Streamable HTTP sessions")
+        logger.info("Shutdown signal received - terminating HTTP server")
 
     @app.exception_handler(404)
     async def not_found_handler(request, _exc):
@@ -157,47 +122,8 @@ def create_starlette_app(mcp_server: Server) -> Starlette:
                 request.client.port,
             )
 
-        body_logging_allowed = not request.url.path.startswith(mcp_endpoint)
-        if request.method in ("POST", "PUT", "PATCH"):
-            if body_logging_allowed:
-                try:
-                    body = await request.body()
-                    if body:
-                        try:
-                            body_json = json.loads(body.decode())
-                            logger.info(
-                                "Request Body (JSON):\n%s",
-                                json.dumps(body_json, indent=2, default=str),
-                            )
-                        except (json.JSONDecodeError, UnicodeDecodeError):
-                            body_str = body.decode("utf-8", errors="replace")
-                            if len(body_str) > 1000:
-                                logger.info(
-                                    "Request Body (text, truncated):\n%s... (%s chars)",
-                                    body_str[:1000],
-                                    len(body_str),
-                                )
-                            else:
-                                logger.info(
-                                    "Request Body (text):\n%s",
-                                    body_str,
-                                )
-                except Exception as exc:
-                    logger.warning("Could not read request body: %s", exc)
-            else:
-                logger.info(
-                    "Request body logging skipped to avoid draining MCP streams"
-                )
-
         try:
             response = await call_next(request)
-        except CancelledError:
-            elapsed_time = time.time() - start_time
-            logger.info("=== HTTP REQUEST #%s CANCELLED ===", request_id)
-            logger.info("Request cancelled during shutdown")
-            logger.info("Elapsed Time: %.4fs", elapsed_time)
-            logger.info("=" * 80)
-            return Response("Server shutting down", status_code=503)
         except Exception:
             elapsed_time = time.time() - start_time
             logger.error(
@@ -218,4 +144,3 @@ def create_starlette_app(mcp_server: Server) -> Starlette:
             return response
 
     return app
-

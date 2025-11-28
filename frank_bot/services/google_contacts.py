@@ -105,6 +105,26 @@ class GoogleContactsService:
         )
         return [result.get("person", {}) for result in response.get("results", [])]
 
+    def find_contact_by_email(
+        self,
+        email: str,
+    ) -> dict[str, Any] | None:
+        """Return the contact that owns the provided email address, if any."""
+        email = (email or "").strip().lower()
+        if not email:
+            return None
+        results = self.search_contacts(email)
+        for person in results:
+            for entry in person.get("emailAddresses") or []:
+                value = (entry.get("value") or "").strip().lower()
+                if value == email:
+                    return person
+        return None
+
+    def contact_exists(self, email: str) -> bool:
+        """Boolean helper for verifying a contact contains the email."""
+        return self.find_contact_by_email(email) is not None
+
     def create_contact(
         self,
         *,
