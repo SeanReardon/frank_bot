@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Frank Bot",
-    "version": "0.4.0",
-    "description": "Personal assistant for Google Calendar, Contacts, and Swarm location sharing with friends."
+    "version": "0.5.0",
+    "description": "Personal assistant for Google Calendar, Contacts, and Swarm location history."
   },
   "servers": [
     {
@@ -13,8 +13,8 @@
   "paths": {
     "/actions/hello": {
       "get": {
-        "operationId": "helloWorldGet",
-        "summary": "Quick greeting (query)",
+        "operationId": "sayHello",
+        "summary": "Quick greeting",
         "parameters": [
           {
             "in": "query",
@@ -36,238 +36,88 @@
                 }
               }
             }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
           }
         },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
-      },
-      "post": {
-        "operationId": "helloWorldPost",
-        "summary": "Quick greeting (JSON body)",
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HelloWorldRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Greeting response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HelloWorldResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
+        "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/calendar/events": {
       "get": {
-        "operationId": "listCalendarEventsGet",
-        "summary": "List calendar events via query parameters.",
+        "operationId": "listCalendarEvents",
+        "summary": "List upcoming calendar events (read-only)",
         "parameters": [
           {
             "in": "query",
             "name": "day",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": false,
-            "description": "ISO date (YYYY-MM-DD)."
+            "description": "ISO date (YYYY-MM-DD) to list events for that day."
           },
           {
             "in": "query",
             "name": "time_min",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": false,
             "description": "Lower bound (inclusive) in RFC3339/ISO8601 format."
           },
           {
             "in": "query",
             "name": "time_max",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": false,
             "description": "Upper bound (exclusive) in RFC3339/ISO8601 format."
           },
           {
             "in": "query",
             "name": "max_results",
-            "schema": {
-              "type": "integer"
-            },
+            "schema": {"type": "integer"},
             "required": false,
             "description": "Maximum events to return (1-50)."
           },
           {
             "in": "query",
             "name": "time_zone",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": false,
             "description": "IANA timezone name."
           },
           {
             "in": "query",
             "name": "calendar_id",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": false,
             "description": "Specific calendar ID."
           },
           {
             "in": "query",
             "name": "calendar_name",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": false,
-            "description": "Display name used to resolve a calendar."
+            "description": "Display name to resolve a calendar."
           }
         ],
         "responses": {
           "200": {
-            "description": "Successfully listed events.",
+            "description": "List of calendar events.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListCalendarEventsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
+                "schema": {"$ref": "#/components/schemas/ListCalendarEventsResponse"}
               }
             }
           }
         },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
-      }
-    },
-    "/actions/calendar/events:list": {
-      "post": {
-        "operationId": "listCalendarEventsPost",
-        "summary": "List calendar events via JSON body.",
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ListCalendarEventsRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successfully listed events.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListCalendarEventsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
+        "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/calendar/events:create": {
       "post": {
         "operationId": "createCalendarEvent",
-        "summary": "Create a Google Calendar event.",
+        "summary": "Create a new Google Calendar event",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateCalendarEventRequest"
-              }
+              "schema": {"$ref": "#/components/schemas/CreateCalendarEventRequest"}
             }
           }
         },
@@ -276,60 +126,38 @@
             "description": "Created calendar event.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateCalendarEventResponse"
-                }
+                "schema": {"$ref": "#/components/schemas/CreateCalendarEventResponse"}
               }
             }
           },
           "400": {
-            "description": "Invalid request body.",
+            "description": "Invalid request.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
               }
             }
           }
         },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
+        "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/calendar/calendars": {
       "get": {
-        "operationId": "listCalendarsGet",
-        "summary": "List calendars available to the authenticated user.",
+        "operationId": "listCalendars",
+        "summary": "List available calendars (read-only)",
         "parameters": [
           {
             "in": "query",
             "name": "include_access_role",
-            "schema": {
-              "type": "boolean"
-            },
+            "schema": {"type": "boolean"},
             "required": false,
             "description": "Include accessRole metadata when true."
           },
           {
             "in": "query",
             "name": "primary_only",
-            "schema": {
-              "type": "boolean"
-            },
+            "schema": {"type": "boolean"},
             "required": false,
             "description": "Return only the primary calendar when true."
           }
@@ -339,103 +167,30 @@
             "description": "List of calendars.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListCalendarsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
+                "schema": {"$ref": "#/components/schemas/ListCalendarsResponse"}
               }
             }
           }
         },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
-      }
-    },
-    "/actions/calendar/calendars:list": {
-      "post": {
-        "operationId": "listCalendarsPost",
-        "summary": "List calendars via JSON body.",
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ListCalendarsRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "List of calendars.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListCalendarsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
+        "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/contacts/search": {
       "get": {
-        "operationId": "searchContactsGet",
-        "summary": "Search Google Contacts via query parameters.",
+        "operationId": "searchContacts",
+        "summary": "Search Google Contacts (read-only)",
         "parameters": [
           {
             "in": "query",
             "name": "query",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": true,
             "description": "Search text (names, emails, or phone numbers)."
           },
           {
             "in": "query",
             "name": "max_results",
-            "schema": {
-              "type": "integer"
-            },
+            "schema": {"type": "integer"},
             "required": false,
             "description": "Maximum results to return."
           }
@@ -445,185 +200,81 @@
             "description": "Search results.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SearchContactsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Missing query parameter.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
+                "schema": {"$ref": "#/components/schemas/SearchContactsResponse"}
               }
             }
           }
         },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
-      },
-      "post": {
-        "operationId": "searchContactsPost",
-        "summary": "Search Google Contacts via JSON body.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SearchContactsRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Search results.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SearchContactsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
+        "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/swarm/self": {
       "get": {
-        "operationId": "listMySwarmCheckinsGet",
-        "summary": "List your Swarm check-ins with optional filtering by date, companions, or category. Use to answer questions like 'What restaurant did Jimmy and I go to in 2024?' or 'Show check-ins with Linda'.",
+        "operationId": "listMySwarmCheckins",
+        "summary": "List your Swarm check-ins with filtering (read-only). Use to answer 'What restaurant did Jimmy and I go to in 2024?' or 'Show check-ins with Linda'.",
         "parameters": [
           {
             "in": "query",
             "name": "max_results",
-            "schema": {
-              "type": "integer"
-            },
+            "schema": {"type": "integer"},
             "required": false,
             "description": "Number of check-ins to return (default 10, max 250)."
           },
           {
             "in": "query",
             "name": "year",
-            "schema": {
-              "type": "integer"
-            },
+            "schema": {"type": "integer"},
             "required": false,
             "description": "Filter to check-ins from a specific year (e.g., 2024)."
           },
           {
             "in": "query",
             "name": "after_date",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": false,
-            "description": "Filter to check-ins after this date (YYYY-MM-DD format)."
+            "description": "Filter to check-ins after this date (YYYY-MM-DD)."
           },
           {
             "in": "query",
             "name": "before_date",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": false,
-            "description": "Filter to check-ins before this date (YYYY-MM-DD format)."
+            "description": "Filter to check-ins before this date (YYYY-MM-DD)."
           },
           {
             "in": "query",
             "name": "with_companion",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": false,
-            "description": "Filter to check-ins where you were with this person (name or partial name). Can be comma-separated for multiple people."
+            "description": "Filter to check-ins with this person (name). Comma-separate for multiple people."
           },
           {
             "in": "query",
             "name": "only_with_companions",
-            "schema": {
-              "type": "boolean"
-            },
+            "schema": {"type": "boolean"},
             "required": false,
             "description": "If true, only return check-ins where you were with someone."
           },
           {
             "in": "query",
             "name": "category",
-            "schema": {
-              "type": "string"
-            },
+            "schema": {"type": "string"},
             "required": false,
             "description": "Filter by venue category (e.g., 'restaurant', 'coffee', 'bar')."
           },
           {
             "in": "query",
             "name": "has_photos",
-            "schema": {
-              "type": "boolean"
-            },
+            "schema": {"type": "boolean"},
             "required": false,
-            "description": "If true, only return check-ins that have photos attached."
+            "description": "If true, only return check-ins that have photos."
           },
           {
             "in": "query",
             "name": "include_photos",
-            "schema": {
-              "type": "boolean"
-            },
+            "schema": {"type": "boolean"},
             "required": false,
-            "description": "If true, include photo URLs in the response. Use this when the user wants to see the actual photos."
-          },
-          {
-            "in": "query",
-            "name": "stale_minutes",
-            "schema": {
-              "type": "integer"
-            },
-            "required": false,
-            "description": "Minutes before a check-in is considered stale (default 180)."
+            "description": "If true, include photo URLs in the response for rendering."
           }
         ],
         "responses": {
@@ -631,355 +282,88 @@
             "description": "Your Swarm check-ins matching the filters.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwarmMyCheckinsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
+                "schema": {"$ref": "#/components/schemas/SwarmMyCheckinsResponse"}
               }
             }
           }
         },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
-      },
-      "post": {
-        "operationId": "listMySwarmCheckinsPost",
-        "summary": "List your Swarm check-ins with optional filtering via JSON body.",
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwarmMyCheckinsRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Your Swarm check-ins matching the filters.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwarmMyCheckinsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
+        "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/me/time": {
       "get": {
-        "operationId": "getMyTimeGet",
-        "summary": "Return the current local time and timezone for the authenticated user.",
+        "operationId": "getMyTime",
+        "summary": "Get current local time based on your location (read-only)",
         "responses": {
           "200": {
             "description": "Current local time information.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CurrentTimeResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
+                "schema": {"$ref": "#/components/schemas/CurrentTimeResponse"}
               }
             }
           }
         },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
-      },
-      "post": {
-        "operationId": "getMyTimePost",
-        "summary": "Return the current local time and timezone for the authenticated user.",
-        "responses": {
-          "200": {
-            "description": "Current local time information.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CurrentTimeResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
+        "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/server/version": {
       "get": {
-        "operationId": "getServerVersionGet",
-        "summary": "Return the container start time and current uptime.",
+        "operationId": "getServerVersion",
+        "summary": "Get server uptime info (read-only)",
         "responses": {
           "200": {
-            "description": "Start info for the running Docker instance.",
+            "description": "Server start time and uptime.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerVersionResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
+                "schema": {"$ref": "#/components/schemas/ServerVersionResponse"}
               }
             }
           }
         },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
-      },
-      "post": {
-        "operationId": "getServerVersionPost",
-        "summary": "Return the container start time and current uptime.",
-        "responses": {
-          "200": {
-            "description": "Start info for the running Docker instance.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerVersionResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid API key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
+        "security": [{"ActionsApiKey": []}]
       }
     }
   },
   "components": {
     "schemas": {
-      "HelloWorldRequest": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Optional name to use in the greeting."
-          }
-        }
-      },
       "HelloWorldResponse": {
         "type": "object",
         "properties": {
-          "message": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
+          "message": {"type": "string"},
+          "name": {"type": "string"}
         },
-        "required": [
-          "message",
-          "name"
-        ]
-      },
-      "ListCalendarEventsRequest": {
-        "type": "object",
-        "properties": {
-          "day": {
-            "type": "string",
-            "description": "ISO date (YYYY-MM-DD). When provided all events for that day are returned."
-          },
-          "time_min": {
-            "type": "string",
-            "description": "Lower bound (inclusive) in RFC3339/ISO8601 format."
-          },
-          "time_max": {
-            "type": "string",
-            "description": "Upper bound (exclusive) in RFC3339/ISO8601 format."
-          },
-          "max_results": {
-            "type": "integer",
-            "description": "Maximum events to return (1-50)."
-          },
-          "time_zone": {
-            "type": "string",
-            "description": "IANA timezone name to use for day ranges."
-          },
-          "calendar_id": {
-            "type": "string",
-            "description": "Specific calendar ID to query."
-          },
-          "calendar_name": {
-            "type": "string",
-            "description": "Display name used to resolve a calendar."
-          }
-        }
+        "required": ["message", "name"]
       },
       "CalendarDescriptor": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
-          }
+          "id": {"type": "string"},
+          "label": {"type": "string"}
         }
       },
       "TimeWindow": {
         "type": "object",
         "properties": {
-          "time_min": {
-            "type": "string"
-          },
-          "time_max": {
-            "type": "string"
-          },
-          "time_zone": {
-            "type": "string"
-          }
+          "time_min": {"type": "string"},
+          "time_max": {"type": "string"},
+          "time_zone": {"type": "string"}
         }
       },
       "CalendarEvent": {
         "type": "object",
-        "description": "Subset of Google Calendar event resource.",
+        "description": "Google Calendar event.",
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "Unique event identifier."
-          },
-          "summary": {
-            "type": "string",
-            "description": "Event title."
-          },
-          "description": {
-            "type": "string",
-            "description": "Optional event description/body."
-          },
-          "location": {
-            "type": "string",
-            "description": "Event location if provided."
-          },
-          "htmlLink": {
-            "type": "string",
-            "format": "uri",
-            "description": "Google Calendar web URL for the event."
-          },
-          "start": {
-            "type": "object",
-            "description": "Google Calendar start object.",
-            "additionalProperties": true
-          },
-          "end": {
-            "type": "object",
-            "description": "Google Calendar end object.",
-            "additionalProperties": true
-          },
+          "id": {"type": "string"},
+          "summary": {"type": "string"},
+          "description": {"type": "string"},
+          "location": {"type": "string"},
+          "htmlLink": {"type": "string", "format": "uri"},
+          "start": {"type": "object", "additionalProperties": true},
+          "end": {"type": "object", "additionalProperties": true},
           "attendees": {
             "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "email": {
-                  "type": "string",
-                  "format": "email"
-                },
-                "responseStatus": {
-                  "type": "string"
-                }
-              },
-              "additionalProperties": true
-            },
-            "description": "List of attendee objects when present."
+            "items": {"type": "object", "additionalProperties": true}
           }
         },
         "additionalProperties": true
@@ -987,493 +371,186 @@
       "ListCalendarEventsResponse": {
         "type": "object",
         "properties": {
-          "message": {
-            "type": "string"
-          },
-          "calendar": {
-            "$ref": "#/components/schemas/CalendarDescriptor"
-          },
-          "time_window": {
-            "$ref": "#/components/schemas/TimeWindow"
-          },
-          "count": {
-            "type": "integer"
-          },
+          "message": {"type": "string"},
+          "calendar": {"$ref": "#/components/schemas/CalendarDescriptor"},
+          "time_window": {"$ref": "#/components/schemas/TimeWindow"},
+          "count": {"type": "integer"},
           "events": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CalendarEvent"
-            }
+            "items": {"$ref": "#/components/schemas/CalendarEvent"}
           }
         },
-        "required": [
-          "message",
-          "calendar",
-          "time_window",
-          "count",
-          "events"
-        ]
+        "required": ["message", "calendar", "time_window", "count", "events"]
       },
       "CreateCalendarEventRequest": {
         "type": "object",
         "properties": {
-          "summary": {
-            "type": "string"
-          },
-          "start": {
-            "type": "string",
-            "description": "Start time in ISO8601 format."
-          },
-          "end": {
-            "type": "string",
-            "description": "End time in ISO8601 format."
-          },
+          "summary": {"type": "string"},
+          "start": {"type": "string", "description": "Start time in ISO8601 format."},
+          "end": {"type": "string", "description": "End time in ISO8601 format."},
           "attendees": {
             "type": "array",
-            "items": {
-              "type": "string"
-            },
+            "items": {"type": "string"},
             "description": "Email addresses for attendees."
           },
-          "description": {
-            "type": "string"
-          },
-          "time_zone": {
-            "type": "string",
-            "description": "IANA timezone for the event block."
-          },
-          "calendar_id": {
-            "type": "string"
-          },
-          "calendar_name": {
-            "type": "string"
-          }
+          "description": {"type": "string"},
+          "time_zone": {"type": "string"},
+          "calendar_id": {"type": "string"},
+          "calendar_name": {"type": "string"}
         },
-        "required": [
-          "summary",
-          "start",
-          "end"
-        ]
+        "required": ["summary", "start", "end"]
       },
       "CreateCalendarEventResponse": {
         "type": "object",
         "properties": {
-          "message": {
-            "type": "string"
-          },
-          "calendar": {
-            "$ref": "#/components/schemas/CalendarDescriptor"
-          },
-          "event": {
-            "$ref": "#/components/schemas/CalendarEvent"
-          }
+          "message": {"type": "string"},
+          "calendar": {"$ref": "#/components/schemas/CalendarDescriptor"},
+          "event": {"$ref": "#/components/schemas/CalendarEvent"}
         },
-        "required": [
-          "message",
-          "calendar",
-          "event"
-        ]
-      },
-      "ListCalendarsRequest": {
-        "type": "object",
-        "properties": {
-          "include_access_role": {
-            "type": "boolean",
-            "description": "Include Google accessRole information when true."
-          },
-          "primary_only": {
-            "type": "boolean",
-            "description": "Restrict to the primary calendar when true."
-          }
-        }
+        "required": ["message", "calendar", "event"]
       },
       "CalendarSummary": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "summary": {
-            "type": "string"
-          },
-          "timeZone": {
-            "type": "string"
-          },
-          "primary": {
-            "type": "boolean"
-          },
-          "accessRole": {
-            "type": "string"
-          }
+          "id": {"type": "string"},
+          "summary": {"type": "string"},
+          "timeZone": {"type": "string"},
+          "primary": {"type": "boolean"},
+          "accessRole": {"type": "string"}
         }
       },
       "ListCalendarsResponse": {
         "type": "object",
         "properties": {
-          "message": {
-            "type": "string"
-          },
-          "count": {
-            "type": "integer"
-          },
+          "message": {"type": "string"},
+          "count": {"type": "integer"},
           "calendars": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CalendarSummary"
-            }
+            "items": {"$ref": "#/components/schemas/CalendarSummary"}
           }
         },
-        "required": [
-          "message",
-          "count",
-          "calendars"
-        ]
-      },
-      "SearchContactsRequest": {
-        "type": "object",
-        "properties": {
-          "query": {
-            "type": "string",
-            "description": "Free-form text containing names, emails, or phone numbers."
-          },
-          "max_results": {
-            "type": "integer",
-            "description": "Maximum contacts to return (1-50)."
-          }
-        },
-        "required": [
-          "query"
-        ]
+        "required": ["message", "count", "calendars"]
       },
       "ContactResult": {
         "type": "object",
         "properties": {
-          "resource_name": {
-            "type": "string"
-          },
-          "display_name": {
-            "type": "string"
-          },
-          "emails": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "phones": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "additionalProperties": false
+          "resource_name": {"type": "string"},
+          "display_name": {"type": "string"},
+          "emails": {"type": "array", "items": {"type": "string"}},
+          "phones": {"type": "array", "items": {"type": "string"}}
+        }
       },
       "SearchContactsResponse": {
         "type": "object",
         "properties": {
-          "message": {
-            "type": "string"
-          },
-          "query": {
-            "type": "string"
-          },
-          "count": {
-            "type": "integer"
-          },
+          "message": {"type": "string"},
+          "query": {"type": "string"},
+          "count": {"type": "integer"},
           "contacts": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ContactResult"
-            }
+            "items": {"$ref": "#/components/schemas/ContactResult"}
           }
         },
-        "required": [
-          "message",
-          "query",
-          "count",
-          "contacts"
-        ]
+        "required": ["message", "query", "count", "contacts"]
       },
       "SwarmVenue": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string",
-            "description": "Name of the venue."
-          },
-          "city": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string"
-          },
-          "country": {
-            "type": "string"
-          },
-          "latitude": {
-            "type": "number",
-            "description": "Latitude coordinate of the venue."
-          },
-          "longitude": {
-            "type": "number",
-            "description": "Longitude coordinate of the venue."
-          },
-          "canonical_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "Foursquare URL for the venue."
-          }
+          "name": {"type": "string"},
+          "city": {"type": "string"},
+          "state": {"type": "string"},
+          "country": {"type": "string"},
+          "latitude": {"type": "number"},
+          "longitude": {"type": "number"},
+          "canonical_url": {"type": "string", "format": "uri"}
         }
       },
       "SwarmCompanion": {
         "type": "object",
-        "description": "A person you checked in with.",
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "Swarm user ID."
-          },
-          "first_name": {
-            "type": "string"
-          },
-          "last_name": {
-            "type": "string"
-          },
-          "display_name": {
-            "type": "string"
-          }
+          "id": {"type": "string"},
+          "first_name": {"type": "string"},
+          "last_name": {"type": "string"},
+          "display_name": {"type": "string"}
         }
       },
       "SwarmPhoto": {
         "type": "object",
-        "description": "A photo attached to a check-in.",
         "properties": {
-          "url": {
-            "type": "string",
-            "format": "uri",
-            "description": "Full URL to the photo image. Can be rendered directly by ChatGPT."
-          },
-          "width": {
-            "type": "integer",
-            "description": "Photo width in pixels."
-          },
-          "height": {
-            "type": "integer",
-            "description": "Photo height in pixels."
-          }
+          "url": {"type": "string", "format": "uri", "description": "Photo URL for rendering."},
+          "width": {"type": "integer"},
+          "height": {"type": "integer"}
         }
       },
       "SwarmCheckinEntry": {
         "type": "object",
         "properties": {
-          "iso_time": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "minutes_since": {
-            "type": "integer",
-            "description": "Minutes since this check-in occurred."
-          },
-          "stale": {
-            "type": "boolean",
-            "description": "True if the check-in is older than the stale_minutes threshold."
-          },
-          "venue": {
-            "$ref": "#/components/schemas/SwarmVenue"
-          },
-          "categories": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Venue categories (e.g., 'Coffee Shop', 'Restaurant', 'Bar')."
-          },
-          "shout": {
-            "type": "string",
-            "description": "Optional message the user posted with their check-in."
-          },
+          "iso_time": {"type": "string", "format": "date-time"},
+          "minutes_since": {"type": "integer"},
+          "stale": {"type": "boolean"},
+          "venue": {"$ref": "#/components/schemas/SwarmVenue"},
+          "categories": {"type": "array", "items": {"type": "string"}},
+          "shout": {"type": "string"},
           "companions": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SwarmCompanion"
-            },
-            "description": "People you checked in with at this venue."
+            "items": {"$ref": "#/components/schemas/SwarmCompanion"}
           },
-          "photo_count": {
-            "type": "integer",
-            "description": "Number of photos attached to this check-in."
-          },
+          "photo_count": {"type": "integer"},
           "photos": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SwarmPhoto"
-            },
-            "description": "Photo URLs (only included when include_photos=true)."
+            "items": {"$ref": "#/components/schemas/SwarmPhoto"}
           }
         }
       },
       "SwarmCheckinsFilters": {
         "type": "object",
-        "description": "Applied filters for the check-in query.",
         "properties": {
-          "year": {
-            "type": "integer"
-          },
-          "after_date": {
-            "type": "string"
-          },
-          "before_date": {
-            "type": "string"
-          },
-          "with_companion": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "only_with_companions": {
-            "type": "boolean"
-          },
-          "category": {
-            "type": "string"
-          },
-          "has_photos": {
-            "type": "boolean"
-          },
-          "include_photos": {
-            "type": "boolean"
-          }
-        }
-      },
-      "SwarmMyCheckinsRequest": {
-        "type": "object",
-        "properties": {
-          "max_results": {
-            "type": "integer",
-            "description": "Number of check-ins to return (default 10, max 250)."
-          },
-          "year": {
-            "type": "integer",
-            "description": "Filter to check-ins from a specific year (e.g., 2024)."
-          },
-          "after_date": {
-            "type": "string",
-            "description": "Filter to check-ins after this date (YYYY-MM-DD format)."
-          },
-          "before_date": {
-            "type": "string",
-            "description": "Filter to check-ins before this date (YYYY-MM-DD format)."
-          },
-          "with_companion": {
-            "oneOf": [
-              {"type": "string"},
-              {"type": "array", "items": {"type": "string"}}
-            ],
-            "description": "Filter to check-ins with specific person(s). Can be a name or array of names."
-          },
-          "only_with_companions": {
-            "type": "boolean",
-            "description": "If true, only return check-ins where you were with someone."
-          },
-          "category": {
-            "type": "string",
-            "description": "Filter by venue category (e.g., 'restaurant', 'coffee', 'bar')."
-          },
-          "has_photos": {
-            "type": "boolean",
-            "description": "If true, only return check-ins that have photos attached."
-          },
-          "include_photos": {
-            "type": "boolean",
-            "description": "If true, include photo URLs in the response. Use when user wants to see actual photos."
-          },
-          "stale_minutes": {
-            "type": "integer",
-            "description": "Minutes before a check-in is considered stale (default 180)."
-          }
+          "year": {"type": "integer"},
+          "after_date": {"type": "string"},
+          "before_date": {"type": "string"},
+          "with_companion": {"type": "array", "items": {"type": "string"}},
+          "only_with_companions": {"type": "boolean"},
+          "category": {"type": "string"},
+          "has_photos": {"type": "boolean"},
+          "include_photos": {"type": "boolean"}
         }
       },
       "SwarmMyCheckinsResponse": {
         "type": "object",
         "properties": {
-          "message": {
-            "type": "string"
-          },
-          "count": {
-            "type": "integer"
-          },
+          "message": {"type": "string"},
+          "count": {"type": "integer"},
           "checkins": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SwarmCheckinEntry"
-            }
+            "items": {"$ref": "#/components/schemas/SwarmCheckinEntry"}
           },
-          "filters": {
-            "$ref": "#/components/schemas/SwarmCheckinsFilters"
-          }
+          "filters": {"$ref": "#/components/schemas/SwarmCheckinsFilters"}
         },
-        "required": [
-          "message",
-          "count",
-          "checkins"
-        ]
+        "required": ["message", "count", "checkins"]
       },
       "CurrentTimeResponse": {
         "type": "object",
         "properties": {
-          "message": {
-            "type": "string"
-          },
-          "iso_time": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Current time in ISO 8601 format."
-          },
-          "timezone": {
-            "type": "string",
-            "description": "IANA timezone identifier."
-          },
-          "offset_minutes": {
-            "type": "integer",
-            "description": "UTC offset in minutes."
-          }
+          "message": {"type": "string"},
+          "iso_time": {"type": "string", "format": "date-time"},
+          "timezone": {"type": "string"},
+          "offset_minutes": {"type": "integer"}
         },
-        "required": [
-          "message",
-          "iso_time",
-          "timezone",
-          "offset_minutes"
-        ]
+        "required": ["message", "iso_time", "timezone", "offset_minutes"]
       },
       "ServerVersionResponse": {
         "type": "object",
         "properties": {
-          "message": {
-            "type": "string"
-          },
-          "startup_iso_time": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Timestamp when the container process started."
-          },
-          "uptime_seconds": {
-            "type": "integer",
-            "description": "Uptime calculated at the time of the request."
-          }
+          "message": {"type": "string"},
+          "startup_iso_time": {"type": "string", "format": "date-time"},
+          "uptime_seconds": {"type": "integer"}
         },
-        "required": [
-          "message",
-          "startup_iso_time",
-          "uptime_seconds"
-        ]
+        "required": ["message", "startup_iso_time", "uptime_seconds"]
       },
       "ErrorResponse": {
         "type": "object",
         "properties": {
-          "detail": {
-            "type": "string"
-          }
+          "detail": {"type": "string"}
         }
       }
     },
@@ -1482,13 +559,9 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-API-Key",
-        "description": "Server-side secret. Configure ACTIONS_API_KEY and send the same value in this header."
+        "description": "API key for authentication."
       }
     }
   },
-  "security": [
-    {
-      "ActionsApiKey": []
-    }
-  ]
+  "security": [{"ActionsApiKey": []}]
 }

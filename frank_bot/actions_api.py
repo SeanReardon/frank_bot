@@ -1,5 +1,8 @@
 """
 Starlette routes that expose Frank Bot functionality as OpenAI Actions.
+
+Read-only endpoints use GET only to signal to ChatGPT that they don't modify data.
+Only createCalendarEvent uses POST since it's a write operation.
 """
 
 from __future__ import annotations
@@ -71,12 +74,10 @@ def build_action_routes(settings: Settings) -> list[Route]:
                 detail="Invalid JSON payload",
             ) from exc
 
-    async def hello_endpoint(request: Request):
+    # Read-only GET endpoints
+    async def hello_get(request: Request):
         await _require_api_key(request)
-        if request.method == "GET":
-            payload = dict(request.query_params)
-        else:
-            payload = await _read_body(request)
+        payload = dict(request.query_params)
         responder = _build_responder(hello_world_action)
         return await responder(payload)
 
@@ -86,93 +87,54 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(list_calendar_events_action)
         return await responder(payload)
 
-    async def list_events_post(request: Request):
-        await _require_api_key(request)
-        payload = await _read_body(request)
-        responder = _build_responder(list_calendar_events_action)
-        return await responder(payload)
-
-    async def create_event_post(request: Request):
-        await _require_api_key(request)
-        payload = await _read_body(request)
-        responder = _build_responder(create_calendar_event_action)
-        return await responder(payload)
-
     async def list_calendars_get(request: Request):
         await _require_api_key(request)
         payload = dict(request.query_params)
         responder = _build_responder(list_calendars_action)
         return await responder(payload)
 
-    async def list_calendars_post(request: Request):
+    async def search_contacts_get(request: Request):
         await _require_api_key(request)
-        payload = await _read_body(request)
-        responder = _build_responder(list_calendars_action)
-        return await responder(payload)
-
-    async def search_contacts_endpoint(request: Request):
-        await _require_api_key(request)
-        if request.method == "GET":
-            payload = dict(request.query_params)
-        else:
-            payload = await _read_body(request)
+        payload = dict(request.query_params)
         responder = _build_responder(search_contacts_action)
         return await responder(payload)
 
-    async def swarm_self_checkins_endpoint(request: Request):
+    async def swarm_checkins_get(request: Request):
         await _require_api_key(request)
-        if request.method == "GET":
-            payload = dict(request.query_params)
-        else:
-            payload = await _read_body(request)
+        payload = dict(request.query_params)
         responder = _build_responder(list_my_swarm_checkins_action)
         return await responder(payload)
 
-    server_start_responder = _build_responder(get_server_start_action)
+    async def my_time_get(request: Request):
+        await _require_api_key(request)
+        payload = dict(request.query_params)
+        responder = _build_responder(get_my_time_action)
+        return await responder(payload)
+
+    async def server_version_get(request: Request):
+        await _require_api_key(request)
+        payload = dict(request.query_params)
+        responder = _build_responder(get_server_start_action)
+        return await responder(payload)
+
+    # Write endpoint (POST only)
+    async def create_event_post(request: Request):
+        await _require_api_key(request)
+        payload = await _read_body(request)
+        responder = _build_responder(create_calendar_event_action)
+        return await responder(payload)
 
     routes = [
-        Route("/actions/hello", hello_endpoint, methods=["GET", "POST"]),
+        # Read-only endpoints (GET only)
+        Route("/actions/hello", hello_get, methods=["GET"]),
         Route("/actions/calendar/events", list_events_get, methods=["GET"]),
-        Route(
-            "/actions/calendar/events:list",
-            list_events_post,
-            methods=["POST"],
-        ),
-        Route(
-            "/actions/calendar/events:create",
-            create_event_post,
-            methods=["POST"],
-        ),
-        Route(
-            "/actions/calendar/calendars",
-            list_calendars_get,
-            methods=["GET"],
-        ),
-        Route(
-            "/actions/calendar/calendars:list",
-            list_calendars_post,
-            methods=["POST"],
-        ),
-        Route(
-            "/actions/contacts/search",
-            search_contacts_endpoint,
-            methods=["GET", "POST"],
-        ),
-        Route(
-            "/actions/swarm/self",
-            swarm_self_checkins_endpoint,
-            methods=["GET", "POST"],
-        ),
-        Route(
-            "/actions/me/time",
-            _build_responder(get_my_time_action),
-            methods=["GET", "POST"],
-        ),
-        Route(
-            "/actions/server/version",
-            server_start_responder,
-            methods=["GET", "POST"],
-        ),
+        Route("/actions/calendar/calendars", list_calendars_get, methods=["GET"]),
+        Route("/actions/contacts/search", search_contacts_get, methods=["GET"]),
+        Route("/actions/swarm/self", swarm_checkins_get, methods=["GET"]),
+        Route("/actions/me/time", my_time_get, methods=["GET"]),
+        Route("/actions/server/version", server_version_get, methods=["GET"]),
+        # Write endpoint (POST only)
+        Route("/actions/calendar/events:create", create_event_post, methods=["POST"]),
     ]
 
     return routes
