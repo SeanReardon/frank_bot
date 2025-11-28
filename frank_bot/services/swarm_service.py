@@ -78,11 +78,30 @@ class SwarmService:
     # Public helpers
     # ------------------------------------------------------------------ #
 
-    def get_self_checkins(self, limit: int = 5) -> list[dict[str, Any]]:
-        response = self._request(
-            "users/self/checkins",
-            {"limit": max(1, min(limit, 50)), "sort": "newestfirst"},
-        )
+    def get_self_checkins(
+        self,
+        limit: int = 5,
+        after_timestamp: int | None = None,
+        before_timestamp: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Fetch the authenticated user's check-ins.
+
+        Args:
+            limit: Maximum number of check-ins to return (1-250)
+            after_timestamp: Unix timestamp - only return check-ins after this time
+            before_timestamp: Unix timestamp - only return check-ins before this time
+        """
+        params: dict[str, Any] = {
+            "limit": max(1, min(limit, 250)),
+            "sort": "newestfirst",
+        }
+        if after_timestamp is not None:
+            params["afterTimestamp"] = after_timestamp
+        if before_timestamp is not None:
+            params["beforeTimestamp"] = before_timestamp
+
+        response = self._request("users/self/checkins", params)
         return response.get("checkins", {}).get("items", [])
 
     def get_friends(self) -> list[SwarmUser]:

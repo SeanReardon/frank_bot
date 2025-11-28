@@ -416,12 +416,25 @@ async def list_calendars_action(
 async def list_my_swarm_checkins_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """
+    List your Swarm check-ins with optional filtering.
+
+    Supports:
+    - Date range filtering (year, or specific start/end dates)
+    - Filtering by companions (people you checked in with)
+    - Category filtering
+
+    Examples:
+    - "What restaurants did I go to with Linda in 2024?"
+    - "Where did Jimmy and I check in together?"
+    - "Show my check-ins from last month"
+    """
     args = arguments or {}
     max_results = _coerce_int(
         args.get("max_results"),
-        5,
+        10,
         minimum=1,
-        maximum=20,
+        maximum=250,
     )
     stale_minutes = _coerce_int(
         args.get("stale_minutes"),
@@ -430,12 +443,116 @@ async def list_my_swarm_checkins_action(
         maximum=1440,
     )
 
-    def fetch_self_checkins():
+    # Date filtering
+    year = args.get("year")
+    after_date = args.get("after_date")  # ISO date string YYYY-MM-DD
+    before_date = args.get("before_date")  # ISO date string YYYY-MM-DD
+
+    # Companion filtering - can be a single name or list of names
+    with_companion = args.get("with_companion")  # Filter to only checkins with someone
+    companion_names: list[str] = []
+    if with_companion:
+        if isinstance(with_companion, str):
+            companion_names = [with_companion.strip().lower()]
+        else:
+            companion_names = [name.strip().lower() for name in with_companion if name]
+
+    # If only_with_companions is true, filter to only checkins that have companions
+    only_with_companions = _coerce_bool(args.get("only_with_companions"))
+
+    # Category filtering
+    category_filter = (args.get("category") or "").strip().lower()
+
+    # Build timestamp filters
+    after_timestamp: int | None = None
+    before_timestamp: int | None = None
+
+    if year:
+        try:
+            year_int = int(year)
+            after_timestamp = int(datetime(year_int, 1, 1).timestamp())
+            before_timestamp = int(datetime(year_int, 12, 31, 23, 59, 59).timestamp())
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid year: {year}")
+
+    if after_date:
+        try:
+            dt = datetime.strptime(after_date, "%Y-%m-%d")
+            after_timestamp = int(dt.timestamp())
+        except ValueError:
+            raise ValueError(f"after_date must be YYYY-MM-DD format, got: {after_date}")
+
+    if before_date:
+        try:
+            dt = datetime.strptime(before_date, "%Y-%m-%d")
+            # End of the day
+            dt = dt.replace(hour=23, minute=59, second=59)
+            before_timestamp = int(dt.timestamp())
+        except ValueError:
+            raise ValueError(f"before_date must be YYYY-MM-DD format, got: {before_date}")
+
+    def fetch_and_filter_checkins():
         service = SwarmService()
-        checkins_raw = service.get_self_checkins(limit=max_results)
+        # Fetch more than requested if filtering, since we'll filter down
+        fetch_limit = max_results * 5 if (companion_names or only_with_companions or category_filter) else max_results
+
+        checkins_raw = service.get_self_checkins(
+            limit=min(fetch_limit, 250),
+            after_timestamp=after_timestamp,
+            before_timestamp=before_timestamp,
+        )
+
         entries: list[dict[str, Any]] = []
         for item in checkins_raw:
+            # Extract companions from the 'with' field
+            companions_raw = item.get("with") or []
+            companions = [
+                {
+                    "id": c.get("id"),
+                    "first_name": c.get("firstName"),
+                    "last_name": c.get("lastName"),
+                    "display_name": c.get("displayName") or f"{c.get('firstName', '')} {c.get('lastName', '')}".strip(),
+                }
+                for c in companions_raw
+            ]
+
+            # Filter by companion names if specified
+            if companion_names:
+                companion_display_names = [
+                    c["display_name"].lower() for c in companions
+                ]
+                companion_first_names = [
+                    (c["first_name"] or "").lower() for c in companions
+                ]
+                # Check if ALL requested companions are present
+                all_found = True
+                for name in companion_names:
+                    found = any(
+                        name in dn or name in fn
+                        for dn, fn in zip(companion_display_names, companion_first_names)
+                    )
+                    if not found:
+                        all_found = False
+                        break
+                if not all_found:
+                    continue
+
+            # Filter to only checkins with companions
+            if only_with_companions and not companions:
+                continue
+
+            # Extract venue info
             info = describe_checkin(item)
+            categories = info.get("categories") or []
+
+            # Filter by category
+            if category_filter:
+                category_match = any(
+                    category_filter in cat.lower() for cat in categories
+                )
+                if not category_match:
+                    continue
+
             entries.append(
                 {
                     "iso_time": info.get("iso_time"),
@@ -453,18 +570,61 @@ async def list_my_swarm_checkins_action(
                         "longitude": info.get("longitude"),
                         "canonical_url": info.get("canonical_url"),
                     },
-                    "categories": info.get("categories"),
+                    "categories": categories,
                     "shout": info.get("shout"),
+                    "companions": companions,
                 }
             )
+
+            if len(entries) >= max_results:
+                break
+
         return entries
 
-    checkins = await asyncio.to_thread(fetch_self_checkins)
-    message = (
-        f"Showing {len(checkins)} most recent Swarm check-in(s). "
-        f"The first entry represents your latest location."
-    )
-    return {"message": message, "count": len(checkins), "checkins": checkins}
+    checkins = await asyncio.to_thread(fetch_and_filter_checkins)
+
+    # Build descriptive message
+    filters_desc = []
+    if year:
+        filters_desc.append(f"in {year}")
+    elif after_date or before_date:
+        if after_date and before_date:
+            filters_desc.append(f"between {after_date} and {before_date}")
+        elif after_date:
+            filters_desc.append(f"after {after_date}")
+        else:
+            filters_desc.append(f"before {before_date}")
+
+    if companion_names:
+        filters_desc.append(f"with {', '.join(companion_names)}")
+    elif only_with_companions:
+        filters_desc.append("with companions")
+
+    if category_filter:
+        filters_desc.append(f"in '{category_filter}' venues")
+
+    if filters_desc:
+        filter_str = " ".join(filters_desc)
+        message = f"Found {len(checkins)} check-in(s) {filter_str}."
+    else:
+        message = (
+            f"Showing {len(checkins)} most recent Swarm check-in(s). "
+            f"The first entry represents your latest location."
+        )
+
+    return {
+        "message": message,
+        "count": len(checkins),
+        "checkins": checkins,
+        "filters": {
+            "year": year,
+            "after_date": after_date,
+            "before_date": before_date,
+            "with_companion": companion_names or None,
+            "only_with_companions": only_with_companions,
+            "category": category_filter or None,
+        },
+    }
 
 
 SERVER_START_TIME = datetime.now(timezone.utc)

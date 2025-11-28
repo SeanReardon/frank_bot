@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Frank Bot",
-    "version": "0.3.0",
-    "description": "Personal Google Calendar and Contacts assistant."
+    "version": "0.4.0",
+    "description": "Personal assistant for Google Calendar, Contacts, and Swarm location sharing with friends."
   },
   "servers": [
     {
@@ -533,7 +533,7 @@
     "/actions/swarm/self": {
       "get": {
         "operationId": "listMySwarmCheckinsGet",
-        "summary": "List recent Swarm check-ins for your account via query parameters.",
+        "summary": "List your Swarm check-ins with optional filtering by date, companions, or category. Use to answer questions like 'What restaurant did Jimmy and I go to in 2024?' or 'Show check-ins with Linda'.",
         "parameters": [
           {
             "in": "query",
@@ -542,7 +542,61 @@
               "type": "integer"
             },
             "required": false,
-            "description": "Number of check-ins to return (default 5, max 20)."
+            "description": "Number of check-ins to return (default 10, max 250)."
+          },
+          {
+            "in": "query",
+            "name": "year",
+            "schema": {
+              "type": "integer"
+            },
+            "required": false,
+            "description": "Filter to check-ins from a specific year (e.g., 2024)."
+          },
+          {
+            "in": "query",
+            "name": "after_date",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter to check-ins after this date (YYYY-MM-DD format)."
+          },
+          {
+            "in": "query",
+            "name": "before_date",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter to check-ins before this date (YYYY-MM-DD format)."
+          },
+          {
+            "in": "query",
+            "name": "with_companion",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter to check-ins where you were with this person (name or partial name). Can be comma-separated for multiple people."
+          },
+          {
+            "in": "query",
+            "name": "only_with_companions",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "If true, only return check-ins where you were with someone."
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter by venue category (e.g., 'restaurant', 'coffee', 'bar')."
           },
           {
             "in": "query",
@@ -556,7 +610,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Recent check-ins for your Swarm account.",
+            "description": "Your Swarm check-ins matching the filters.",
             "content": {
               "application/json": {
                 "schema": {
@@ -594,7 +648,7 @@
       },
       "post": {
         "operationId": "listMySwarmCheckinsPost",
-        "summary": "List recent Swarm check-ins for your account via JSON body.",
+        "summary": "List your Swarm check-ins with optional filtering via JSON body.",
         "requestBody": {
           "required": false,
           "content": {
@@ -607,7 +661,7 @@
         },
         "responses": {
           "200": {
-            "description": "Recent check-ins for your Swarm account.",
+            "description": "Your Swarm check-ins matching the filters.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1123,18 +1177,12 @@
           "contacts"
         ]
       },
-      "SwarmCheckinEntry": {
+      "SwarmVenue": {
         "type": "object",
         "properties": {
-          "iso_time": {
+          "name": {
             "type": "string",
-            "format": "date-time"
-          },
-          "minutes_since": {
-            "type": "integer"
-          },
-          "venue_name": {
-            "type": "string"
+            "description": "Name of the venue."
           },
           "city": {
             "type": "string"
@@ -1145,17 +1193,101 @@
           "country": {
             "type": "string"
           },
+          "latitude": {
+            "type": "number",
+            "description": "Latitude coordinate of the venue."
+          },
+          "longitude": {
+            "type": "number",
+            "description": "Longitude coordinate of the venue."
+          },
+          "canonical_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Foursquare URL for the venue."
+          }
+        }
+      },
+      "SwarmCompanion": {
+        "type": "object",
+        "description": "A person you checked in with.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Swarm user ID."
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          }
+        }
+      },
+      "SwarmCheckinEntry": {
+        "type": "object",
+        "properties": {
+          "iso_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "minutes_since": {
+            "type": "integer",
+            "description": "Minutes since this check-in occurred."
+          },
+          "stale": {
+            "type": "boolean",
+            "description": "True if the check-in is older than the stale_minutes threshold."
+          },
+          "venue": {
+            "$ref": "#/components/schemas/SwarmVenue"
+          },
           "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Venue categories (e.g., 'Coffee Shop', 'Restaurant', 'Bar')."
+          },
+          "shout": {
+            "type": "string",
+            "description": "Optional message the user posted with their check-in."
+          },
+          "companions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SwarmCompanion"
+            },
+            "description": "People you checked in with at this venue."
+          }
+        }
+      },
+      "SwarmCheckinsFilters": {
+        "type": "object",
+        "description": "Applied filters for the check-in query.",
+        "properties": {
+          "year": {
+            "type": "integer"
+          },
+          "after_date": {
+            "type": "string"
+          },
+          "before_date": {
+            "type": "string"
+          },
+          "with_companion": {
             "type": "array",
             "items": {
               "type": "string"
             }
           },
-          "canonical_url": {
-            "type": "string",
-            "format": "uri"
+          "only_with_companions": {
+            "type": "boolean"
           },
-          "shout": {
+          "category": {
             "type": "string"
           }
         }
@@ -1165,7 +1297,34 @@
         "properties": {
           "max_results": {
             "type": "integer",
-            "description": "Number of check-ins to return (default 5, max 20)."
+            "description": "Number of check-ins to return (default 10, max 250)."
+          },
+          "year": {
+            "type": "integer",
+            "description": "Filter to check-ins from a specific year (e.g., 2024)."
+          },
+          "after_date": {
+            "type": "string",
+            "description": "Filter to check-ins after this date (YYYY-MM-DD format)."
+          },
+          "before_date": {
+            "type": "string",
+            "description": "Filter to check-ins before this date (YYYY-MM-DD format)."
+          },
+          "with_companion": {
+            "oneOf": [
+              {"type": "string"},
+              {"type": "array", "items": {"type": "string"}}
+            ],
+            "description": "Filter to check-ins with specific person(s). Can be a name or array of names."
+          },
+          "only_with_companions": {
+            "type": "boolean",
+            "description": "If true, only return check-ins where you were with someone."
+          },
+          "category": {
+            "type": "string",
+            "description": "Filter by venue category (e.g., 'restaurant', 'coffee', 'bar')."
           },
           "stale_minutes": {
             "type": "integer",
@@ -1187,6 +1346,9 @@
             "items": {
               "$ref": "#/components/schemas/SwarmCheckinEntry"
             }
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SwarmCheckinsFilters"
           }
         },
         "required": [
