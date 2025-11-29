@@ -3,6 +3,7 @@ services:
     image: ghcr.io/seanreardon/frank_bot:latest
     container_name: frank-bot
     restart: unless-stopped
+    user: "${PUID:-108}:${PGID:-114}"
     ports:
       - "8000:8000"
     environment:
@@ -35,13 +36,16 @@ services:
 
       # Version
       APP_VERSION: "${APP_VERSION:-0.3.0}"
+
+      # Logging - write to mounted volume
+      LOG_FILE: "/app/logs/frank_bot-api.log"
     volumes:
       # Mount Google credentials (read-only for security)
       - ./google-credentials.json:/app/secrets/google-credentials.json:ro
       # Mount OAuth token (read-write so it can be refreshed)
       - ./token.json:/app/secrets/token.json
-      # Optional: persist logs
-      - ./logs:/root/logs
+      # Persist logs
+      - ./logs:/app/logs
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
