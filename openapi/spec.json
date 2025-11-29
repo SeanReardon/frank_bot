@@ -43,7 +43,7 @@
     },
     "/actions/calendar/events": {
       "get": {
-        "operationId": "listCalendarEvents",
+        "operationId": "getEvents",
         "summary": "List upcoming calendar events (read-only)",
         "parameters": [
           {
@@ -201,7 +201,7 @@
     },
     "/actions/calendar/calendars": {
       "get": {
-        "operationId": "listCalendars",
+        "operationId": "getCalendars",
         "summary": "List available calendars (read-only)",
         "parameters": [
           {
@@ -265,9 +265,9 @@
         "security": [{"ActionsApiKey": []}]
       }
     },
-    "/actions/swarm/self": {
+    "/actions/swarm/checkins": {
       "get": {
-        "operationId": "listMySwarmCheckins",
+        "operationId": "searchCheckins",
         "summary": "List your Swarm check-ins with filtering (read-only). Use to answer 'What restaurant did Jimmy and I go to in 2024?' or 'Show check-ins with Linda'.",
         "parameters": [
           {
@@ -356,7 +356,7 @@
     },
     "/actions/me/time": {
       "get": {
-        "operationId": "getMyTime",
+        "operationId": "getTime",
         "summary": "Get current local time based on your location (read-only)",
         "responses": {
           "200": {
@@ -371,9 +371,9 @@
         "security": [{"ActionsApiKey": []}]
       }
     },
-    "/actions/server/version": {
+    "/actions/server/status": {
       "get": {
-        "operationId": "getServerVersion",
+        "operationId": "getServerStatus",
         "summary": "Get server uptime info (read-only)",
         "responses": {
           "200": {
@@ -381,6 +381,23 @@
             "content": {
               "application/json": {
                 "schema": {"$ref": "#/components/schemas/ServerVersionResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/server/diagnostics": {
+      "get": {
+        "operationId": "getDiagnostics",
+        "summary": "Get service diagnostics and performance stats (read-only)",
+        "responses": {
+          "200": {
+            "description": "Comprehensive diagnostics including API stats, latency, and error logs.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/DiagnosticsResponse"}
               }
             }
           }
@@ -611,6 +628,38 @@
           "uptime_seconds": {"type": "integer"}
         },
         "required": ["message", "startup_iso_time", "uptime_seconds"]
+      },
+      "DiagnosticsResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "server": {
+            "type": "object",
+            "properties": {
+              "start_time": {"type": "string", "format": "date-time"},
+              "current_time": {"type": "string", "format": "date-time"},
+              "uptime_seconds": {"type": "integer"},
+              "uptime_human": {"type": "string"}
+            }
+          },
+          "interactions": {
+            "type": "object",
+            "properties": {
+              "total_api_calls": {"type": "integer"},
+              "by_endpoint": {"type": "array", "items": {"type": "object"}}
+            }
+          },
+          "services": {"type": "object", "additionalProperties": true},
+          "system": {
+            "type": "object",
+            "properties": {
+              "python_version": {"type": "string"},
+              "platform": {"type": "string"}
+            }
+          },
+          "recent_errors": {"type": "array", "items": {"type": "object"}}
+        },
+        "required": ["message", "server", "interactions"]
       },
       "ErrorResponse": {
         "type": "object",

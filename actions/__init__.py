@@ -9,25 +9,27 @@ Each module handles a specific domain:
 """
 
 from actions.calendar import (
-    create_calendar_event_action,
-    list_calendar_events_action,
-    list_calendars_action,
+    create_event_action,
+    get_calendars_action,
+    get_events_action,
 )
 from actions.contacts import search_contacts_action
-from actions.swarm import list_my_swarm_checkins_action
+from actions.diagnostics import get_diagnostics_action
+from actions.swarm import search_checkins_action
 from actions.system import (
-    get_my_time_action,
-    get_server_start_action,
+    get_server_status_action,
+    get_time_action,
     hello_world_action,
 )
 
 __all__ = [
     "hello_world_action",
-    "list_calendar_events_action",
+    "get_events_action",
+    "create_event_action",
+    "get_calendars_action",
     "search_contacts_action",
-    "create_calendar_event_action",
-    "list_calendars_action",
-    "list_my_swarm_checkins_action",
-    "get_my_time_action",
-    "get_server_start_action",
+    "search_checkins_action",
+    "get_time_action",
+    "get_server_status_action",
+    "get_diagnostics_action",
 ]

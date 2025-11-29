@@ -28,7 +28,7 @@ async def hello_world_action(
     return {"message": message, "name": name}
 
 
-async def get_my_time_action(
+async def get_time_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     _ = arguments  # unused
@@ -70,7 +70,7 @@ async def get_my_time_action(
     }
 
 
-async def get_server_start_action(
+async def get_server_status_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     _ = arguments  # unused
@@ -141,6 +141,6 @@ def _format_offset_label(minutes: int) -> str:
 
 __all__ = [
     "hello_world_action",
-    "get_my_time_action",
-    "get_server_start_action",
+    "get_time_action",
+    "get_server_status_action",
 ]

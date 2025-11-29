@@ -1,5 +1,5 @@
 """
-Google Calendar actions: list events, create events, list calendars.
+Google Calendar actions: get events, create events, get calendars.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from services.google_contacts import GoogleContactsService
 logger = logging.getLogger(__name__)
 
 
-async def list_calendar_events_action(
+async def get_events_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     args = arguments or {}
@@ -128,7 +128,7 @@ async def list_calendar_events_action(
     }
 
 
-async def create_calendar_event_action(
+async def create_event_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     args = arguments or {}
@@ -237,7 +237,7 @@ async def create_calendar_event_action(
     }
 
 
-async def list_calendars_action(
+async def get_calendars_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     args = arguments or {}
@@ -290,7 +290,7 @@ async def list_calendars_action(
 
 
 __all__ = [
-    "list_calendar_events_action",
-    "create_calendar_event_action",
-    "list_calendars_action",
+    "get_events_action",
+    "create_event_action",
+    "get_calendars_action",
 ]

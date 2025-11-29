@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional, Sequence
 
 from google.auth.transport.requests import Request
@@ -14,6 +15,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from config import get_settings
+from services.stats import stats
 
 logger = logging.getLogger(__name__)
 
@@ -95,15 +97,25 @@ class GoogleContactsService:
     ) -> List[Dict[str, Any]]:
         """Search contacts by free-form text."""
         logger.debug("Searching contacts for query=%s", query)
-        response = (
-            self._service.people()
-            .searchContacts(
-                query=query,
-                readMask=",".join(read_mask),
+        contacts_stats = stats.get_service_stats("google_contacts")
+        start = time.time()
+        try:
+            response = (
+                self._service.people()
+                .searchContacts(
+                    query=query,
+                    readMask=",".join(read_mask),
+                )
+                .execute()
             )
-            .execute()
-        )
-        return [result.get("person", {}) for result in response.get("results", [])]
+            elapsed_ms = (time.time() - start) * 1000
+            contacts_stats.record_request(elapsed_ms, success=True)
+            return [result.get("person", {}) for result in response.get("results", [])]
+        except Exception as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            contacts_stats.record_request(elapsed_ms, success=False, error=str(exc))
+            stats.record_error("google_contacts", str(exc), {"method": "search_contacts", "query": query})
+            raise
 
     def find_contact_by_email(
         self,

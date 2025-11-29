@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -15,6 +16,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from config import get_settings
+from services.stats import stats
 
 logger = logging.getLogger(__name__)
 
@@ -107,12 +109,23 @@ class GoogleCalendarService:
         }
         if time_max:
             params["timeMax"] = time_max
-        events_result = (
-            self._service.events()
-            .list(**params)
-            .execute()
-        )
-        return events_result.get("items", [])
+        
+        calendar_stats = stats.get_service_stats("google_calendar")
+        start = time.time()
+        try:
+            events_result = (
+                self._service.events()
+                .list(**params)
+                .execute()
+            )
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(elapsed_ms, success=True)
+            return events_result.get("items", [])
+        except Exception as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(elapsed_ms, success=False, error=str(exc))
+            stats.record_error("google_calendar", str(exc), {"method": "list_events"})
+            raise
 
     def create_event(
         self,
@@ -137,11 +150,22 @@ class GoogleCalendarService:
             body.update(extra_fields)
 
         logger.info("Creating Google Calendar event: %s", summary)
-        return (
-            self._service.events()
-            .insert(calendarId=calendar_id or self._calendar_id, body=body)
-            .execute()
-        )
+        calendar_stats = stats.get_service_stats("google_calendar")
+        start = time.time()
+        try:
+            result = (
+                self._service.events()
+                .insert(calendarId=calendar_id or self._calendar_id, body=body)
+                .execute()
+            )
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(elapsed_ms, success=True)
+            return result
+        except Exception as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(elapsed_ms, success=False, error=str(exc))
+            stats.record_error("google_calendar", str(exc), {"method": "create_event"})
+            raise
 
     def update_event(
         self,
@@ -186,17 +210,27 @@ class GoogleCalendarService:
 
     def list_calendars(self) -> List[Dict[str, Any]]:
         """Return metadata for calendars accessible to the user."""
-        calendars: List[Dict[str, Any]] = []
-        page_token = None
-        while True:
-            response = (
-                self._service.calendarList()
-                .list(pageToken=page_token, maxResults=250)
-                .execute()
-            )
-            calendars.extend(response.get("items", []))
-            page_token = response.get("nextPageToken")
-            if not page_token:
-                break
-        return calendars
+        calendar_stats = stats.get_service_stats("google_calendar")
+        start = time.time()
+        try:
+            calendars: List[Dict[str, Any]] = []
+            page_token = None
+            while True:
+                response = (
+                    self._service.calendarList()
+                    .list(pageToken=page_token, maxResults=250)
+                    .execute()
+                )
+                calendars.extend(response.get("items", []))
+                page_token = response.get("nextPageToken")
+                if not page_token:
+                    break
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(elapsed_ms, success=True)
+            return calendars
+        except Exception as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(elapsed_ms, success=False, error=str(exc))
+            stats.record_error("google_calendar", str(exc), {"method": "list_calendars"})
+            raise
 

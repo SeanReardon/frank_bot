@@ -1,5 +1,5 @@
 """
-Swarm/Foursquare actions: list checkins.
+Swarm/Foursquare actions: search checkins.
 """
 
 from __future__ import annotations
@@ -15,11 +15,11 @@ from services.swarm_service import SwarmService, describe_checkin
 logger = logging.getLogger(__name__)
 
 
-async def list_my_swarm_checkins_action(
+async def search_checkins_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    List your Swarm check-ins with optional filtering.
+    Search your Swarm check-ins with optional filtering.
 
     Supports:
     - Date range filtering (year, or specific start/end dates)
@@ -318,4 +318,4 @@ async def list_my_swarm_checkins_action(
     }
 
 
-__all__ = ["list_my_swarm_checkins_action"]
+__all__ = ["search_checkins_action"]

@@ -13,6 +13,7 @@ from typing import Any
 import requests
 
 from config import get_settings
+from services.stats import stats
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +69,14 @@ class SwarmService:
         logger.info("SWARM_REQUEST: %s params=%s", path, log_params)
 
         last_error: Exception | None = None
+        swarm_stats = stats.get_service_stats("swarm")
 
         for attempt in range(MAX_RETRIES):
+            start_time = time.time()
             try:
-                start_time = time.time()
                 response = self.session.get(url, params=query, timeout=15)
                 elapsed_ms = (time.time() - start_time) * 1000
+                response_bytes = len(response.content)
 
                 logger.info(
                     "SWARM_RESPONSE: %s status=%d elapsed=%.0fms attempt=%d",
@@ -84,6 +87,8 @@ class SwarmService:
                     data = response.json()
                 except ValueError as exc:
                     logger.error("SWARM_ERROR: %s invalid JSON response", path)
+                    swarm_stats.record_request(elapsed_ms, success=False, error="Invalid JSON response")
+                    stats.record_error("swarm", "Invalid JSON response", {"path": path})
                     raise SwarmAPIError("Swarm API returned invalid JSON") from exc
 
                 meta = data.get("meta", {})
@@ -102,7 +107,12 @@ class SwarmService:
                         time.sleep(sleep_time)
                         continue
 
+                    swarm_stats.record_request(elapsed_ms, success=False, error=f"{error_code}: {error_detail}")
+                    stats.record_error("swarm", f"API error: {error_detail}", {"path": path, "code": error_code})
                     raise SwarmAPIError(f"Swarm API error ({error_code}): {error_detail}")
+
+                # Record successful request
+                swarm_stats.record_request(elapsed_ms, success=True, bytes_received=response_bytes)
 
                 # Log success with result summary
                 response_data = data.get("response", {})
@@ -116,6 +126,7 @@ class SwarmService:
                 return response_data
 
             except requests.RequestException as exc:
+                elapsed_ms = (time.time() - start_time) * 1000
                 last_error = exc
                 logger.warning(
                     "SWARM_NETWORK_ERROR: %s error=%s attempt=%d",
@@ -128,6 +139,8 @@ class SwarmService:
                     time.sleep(sleep_time)
                     continue
 
+                swarm_stats.record_request(elapsed_ms, success=False, error=f"Network error: {exc}")
+                stats.record_error("swarm", f"Network error: {exc}", {"path": path})
                 raise SwarmAPIError(f"Network error calling Swarm API: {exc}") from exc
 
         # Should not reach here, but just in case

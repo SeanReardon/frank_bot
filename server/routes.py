@@ -15,16 +15,18 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from actions import (
-    create_calendar_event_action,
-    get_my_time_action,
-    get_server_start_action,
+    create_event_action,
+    get_calendars_action,
+    get_diagnostics_action,
+    get_events_action,
+    get_server_status_action,
+    get_time_action,
     hello_world_action,
-    list_calendar_events_action,
-    list_calendars_action,
-    list_my_swarm_checkins_action,
+    search_checkins_action,
     search_contacts_action,
 )
 from config import Settings
+from services.stats import stats
 
 HandlerFn = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -76,68 +78,84 @@ def build_action_routes(settings: Settings) -> list[Route]:
     # Read-only GET endpoints
     async def hello_get(request: Request):
         await _require_api_key(request)
+        stats.get_endpoint_stats("sayHello").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(hello_world_action)
         return await responder(payload)
 
-    async def list_events_get(request: Request):
+    async def get_events_handler(request: Request):
         await _require_api_key(request)
+        stats.get_endpoint_stats("getEvents").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(list_calendar_events_action)
+        responder = _build_responder(get_events_action)
         return await responder(payload)
 
-    async def list_calendars_get(request: Request):
+    async def get_calendars_handler(request: Request):
         await _require_api_key(request)
+        stats.get_endpoint_stats("getCalendars").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(list_calendars_action)
+        responder = _build_responder(get_calendars_action)
         return await responder(payload)
 
-    async def search_contacts_get(request: Request):
+    async def search_contacts_handler(request: Request):
         await _require_api_key(request)
+        stats.get_endpoint_stats("searchContacts").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(search_contacts_action)
         return await responder(payload)
 
-    async def swarm_checkins_get(request: Request):
+    async def search_checkins_handler(request: Request):
         await _require_api_key(request)
+        stats.get_endpoint_stats("searchCheckins").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(list_my_swarm_checkins_action)
+        responder = _build_responder(search_checkins_action)
         return await responder(payload)
 
-    async def my_time_get(request: Request):
+    async def get_time_handler(request: Request):
         await _require_api_key(request)
+        stats.get_endpoint_stats("getTime").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(get_my_time_action)
+        responder = _build_responder(get_time_action)
         return await responder(payload)
 
-    async def server_version_get(request: Request):
+    async def get_server_status_handler(request: Request):
         await _require_api_key(request)
+        stats.get_endpoint_stats("getServerStatus").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(get_server_start_action)
+        responder = _build_responder(get_server_status_action)
         return await responder(payload)
 
-    # Calendar scheduling (disguised as GET for fewer confirmations)
-    async def schedule_time_get(request: Request):
+    async def get_diagnostics_handler(request: Request):
         await _require_api_key(request)
+        stats.get_endpoint_stats("getDiagnostics").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_diagnostics_action)
+        return await responder(payload)
+
+    # Calendar event creation (disguised as GET for fewer confirmations)
+    async def schedule_time_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("scheduleTime").record_call()
         payload = dict(request.query_params)
         # Handle comma-separated attendees
         if "attendees" in payload and isinstance(payload["attendees"], str):
             payload["attendees"] = [
                 e.strip() for e in payload["attendees"].split(",") if e.strip()
             ]
-        responder = _build_responder(create_calendar_event_action)
+        responder = _build_responder(create_event_action)
         return await responder(payload)
 
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
-        Route("/actions/calendar/events", list_events_get, methods=["GET"]),
-        Route("/actions/calendar/calendars", list_calendars_get, methods=["GET"]),
-        Route("/actions/calendar/schedule", schedule_time_get, methods=["GET"]),
-        Route("/actions/contacts/search", search_contacts_get, methods=["GET"]),
-        Route("/actions/swarm/self", swarm_checkins_get, methods=["GET"]),
-        Route("/actions/me/time", my_time_get, methods=["GET"]),
-        Route("/actions/server/version", server_version_get, methods=["GET"]),
+        Route("/actions/calendar/events", get_events_handler, methods=["GET"]),
+        Route("/actions/calendar/calendars", get_calendars_handler, methods=["GET"]),
+        Route("/actions/calendar/schedule", schedule_time_handler, methods=["GET"]),
+        Route("/actions/contacts/search", search_contacts_handler, methods=["GET"]),
+        Route("/actions/swarm/checkins", search_checkins_handler, methods=["GET"]),
+        Route("/actions/me/time", get_time_handler, methods=["GET"]),
+        Route("/actions/server/status", get_server_status_handler, methods=["GET"]),
+        Route("/actions/server/diagnostics", get_diagnostics_handler, methods=["GET"]),
     ]
 
     return routes
