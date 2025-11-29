@@ -10,6 +10,8 @@ from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from rapidfuzz import fuzz
+
 from frank_bot.config import get_settings
 from frank_bot.services.google_calendar import GoogleCalendarService
 from frank_bot.services.google_contacts import GoogleContactsService
@@ -71,6 +73,40 @@ def _coerce_int(
     if maximum is not None:
         converted = min(maximum, converted)
     return converted
+
+
+def _fuzzy_name_match(query: str, target: str, threshold: int = 65) -> bool:
+    """
+    Check if query fuzzy-matches target name using rapidfuzz.
+    
+    Uses multiple matching strategies:
+    - Exact substring match (fast path)
+    - partial_ratio: Best partial string match (great for "mike" → "Michael")
+    - token_set_ratio: Ignores word order (great for "Smith John" → "John Smith")
+    
+    threshold is 0-100 (rapidfuzz uses percentages).
+    """
+    query = query.lower().strip()
+    target = target.lower().strip()
+    
+    if not query or not target:
+        return False
+    
+    # Exact substring match (fast path)
+    if query in target:
+        return True
+    
+    # partial_ratio finds best matching substring
+    # Great for: "mike" vs "michael", "jack" vs "jackson"
+    if fuzz.partial_ratio(query, target) >= threshold:
+        return True
+    
+    # token_set_ratio handles word reordering and partial tokens
+    # Great for: "john smith" vs "smith, john"
+    if fuzz.token_set_ratio(query, target) >= threshold:
+        return True
+    
+    return False
 
 
 async def hello_world_action(
@@ -284,6 +320,7 @@ async def create_calendar_event_action(
     ]
 
     description = args.get("description")
+    location = args.get("location")  # Simple string like "Nerdvana, Frisco, TX"
     settings = get_settings()
     time_zone = args.get("time_zone") or settings.default_timezone
     calendar_id_arg = args.get("calendar_id")
@@ -324,6 +361,9 @@ async def create_calendar_event_action(
                 for email in attendees_clean
             ]
 
+        if location:
+            extra_fields["location"] = location
+
         created = service.create_event(
             summary=summary,
             description=description,
@@ -345,11 +385,14 @@ async def create_calendar_event_action(
         or created_event.get("end")
     )
     calendar_label = calendar_name or resolved_calendar_id or "primary"
+    location_desc = created_event.get("location")
     message = (
         f"Created event '{created_event.get('summary', summary)}' "
         f"from {start_desc} to {end_desc} "
         f"on calendar '{calendar_label}'"
     )
+    if location_desc:
+        message += f" at {location_desc}"
 
     return {
         "message": message,
@@ -521,20 +564,16 @@ async def list_my_swarm_checkins_action(
                 for c in companions_raw
             ]
 
-            # Filter by companion names if specified
+            # Filter by companion names if specified (fuzzy matching)
             if companion_names:
-                companion_display_names = [
-                    c["display_name"].lower() for c in companions
-                ]
-                companion_first_names = [
-                    (c["first_name"] or "").lower() for c in companions
-                ]
                 # Check if ALL requested companions are present
                 all_found = True
-                for name in companion_names:
+                for query_name in companion_names:
                     found = any(
-                        name in dn or name in fn
-                        for dn, fn in zip(companion_display_names, companion_first_names)
+                        _fuzzy_name_match(query_name, c["display_name"])
+                        or _fuzzy_name_match(query_name, c["first_name"] or "")
+                        or _fuzzy_name_match(query_name, c["last_name"] or "")
+                        for c in companions
                     )
                     if not found:
                         all_found = False

@@ -144,6 +144,13 @@
           },
           {
             "in": "query",
+            "name": "location",
+            "schema": {"type": "string"},
+            "required": false,
+            "description": "Location or address for the event (e.g., 'Nerdvana, Frisco, TX' or '123 Main St')."
+          },
+          {
+            "in": "query",
             "name": "attendees",
             "schema": {"type": "string"},
             "required": false,
@@ -444,6 +451,7 @@
             "description": "Email addresses for attendees."
           },
           "description": {"type": "string"},
+          "location": {"type": "string", "description": "Location or address for the event."},
           "time_zone": {"type": "string"},
           "calendar_id": {"type": "string"},
           "calendar_name": {"type": "string"}
