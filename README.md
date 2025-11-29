@@ -53,6 +53,52 @@ pip install .
 python app.py
 ```
 
+## Project Structure
+
+```
+frank_bot/
+├── app.py                 # Server entrypoint (runs Starlette/uvicorn)
+├── config.py              # Application settings from environment
+├── logging_config.py      # Logging setup
+│
+├── server/                # HTTP transport layer
+│   ├── app.py             # Starlette app factory
+│   ├── routes.py          # Action route definitions
+│   ├── manifests.py       # OpenAI manifest generation
+│   └── openapi.py         # OpenAPI document loading
+│
+├── actions/               # Business logic (one file per domain)
+│   ├── calendar.py        # Google Calendar actions
+│   ├── contacts.py        # Google Contacts actions
+│   ├── swarm.py           # Swarm/Foursquare actions
+│   ├── system.py          # hello_world, time, server info
+│   └── helpers.py         # Shared utilities
+│
+├── services/              # External API integrations
+│   ├── google_calendar.py
+│   ├── google_contacts.py
+│   ├── ntp_time.py
+│   └── swarm_service.py
+│
+├── openapi/               # OpenAPI specification
+│   └── spec.json
+│
+├── tests/                 # Test suite
+│   └── test_*.py
+│
+├── scripts/               # Dev/maintenance utilities
+│   └── update_public_urls.py
+│
+├── docs/                  # Documentation
+│   └── GOOGLE_API_SETUP.md
+│
+├── pyproject.toml         # Poetry dependencies
+├── poetry.lock
+├── Dockerfile
+├── docker-compose.yml
+└── README.md
+```
+
 ## Available Tools
 
 - `hello_world` - A simple hello world tool that greets the user
@@ -85,10 +131,10 @@ python app.py
 | `ACTIONS_LOGO_URL` | _unset_ | Optional logo URL for manifests |
 | `ACTIONS_CONTACT_EMAIL` | _unset_ | Manifest contact email |
 | `ACTIONS_LEGAL_URL` | _unset_ | Terms/Privacy URL in manifest |
-| `ACTIONS_OPENAPI_PATH` | `actions/openapi.json` | Path to the OpenAPI document served at `/actions/openapi.json` |
+| `ACTIONS_OPENAPI_PATH` | `openapi/spec.json` | Path to the OpenAPI document |
 | `SWARM_OAUTH_TOKEN` | _unset_ | OAuth token for Swarm/Foursquare API access |
 | `SWARM_API_VERSION` | `20240501` | API version parameter passed to Swarm endpoints |
-| `APP_VERSION` | `0.3.0` | Version string used in metadata |
+| `APP_VERSION` | `0.5.0` | Version string used in metadata |
 
 ## Registering with OpenAI Actions
 
@@ -98,7 +144,7 @@ python app.py
    - `https://<your-domain>/actions/openapi.json`
 3. In ChatGPT (Settings → Actions → *Create*) or the Assistants dashboard, choose **Import from URL** and provide `https://<your-domain>/.well-known/actions.json`.
 4. When prompted for auth, pick **Custom** and set header `X-API-Key` to the same value you stored in `ACTIONS_API_KEY`.
-5. Save the Action and test it with a natural language request (e.g., “List my meetings today”).
+5. Save the Action and test it with a natural language request (e.g., "List my meetings today").
 
 ## OpenAI Actions API
 
@@ -106,16 +152,14 @@ Frank Bot exposes these HTTP routes once the server is reachable from the public
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET/POST` | `/actions/hello` | Diagnostic greeting |
+| `GET` | `/actions/hello` | Diagnostic greeting |
 | `GET` | `/actions/calendar/events` | List events via query params |
-| `POST` | `/actions/calendar/events:list` | List events via JSON payload |
-| `POST` | `/actions/calendar/events:create` | Create a calendar event |
-| `GET` | `/actions/calendar/calendars` | List calendars via query params |
-| `POST` | `/actions/calendar/calendars:list` | List calendars via JSON |
-| `GET/POST` | `/actions/contacts/search` | Search Google Contacts |
-| `GET/POST` | `/actions/swarm/self` | Latest check-ins for your own Swarm account |
-| `GET/POST` | `/actions/me/time` | Current time and timezone for you |
-| `GET/POST` | `/actions/server/version` | Docker start timestamp and uptime |
+| `GET` | `/actions/calendar/schedule` | Create a calendar event |
+| `GET` | `/actions/calendar/calendars` | List calendars |
+| `GET` | `/actions/contacts/search` | Search Google Contacts |
+| `GET` | `/actions/swarm/self` | Latest check-ins for your own Swarm account |
+| `GET` | `/actions/me/time` | Current time and timezone for you |
+| `GET` | `/actions/server/version` | Docker start timestamp and uptime |
 
 Helpful discovery endpoints:
 
@@ -132,47 +176,17 @@ Set `SWARM_OAUTH_TOKEN` (and optionally `SWARM_API_VERSION`) to enable the Swarm
 
 ## Maintaining the OpenAPI document
 
-The canonical specification lives at `actions/openapi.json`. Update that file whenever you change the HTTP surface, then restart the server (or redeploy) so the new document is served at `/actions/openapi.json`. A quick workflow:
+The canonical specification lives at `openapi/spec.json`. Update that file whenever you change the HTTP surface, then restart the server (or redeploy) so the new document is served at `/actions/openapi.json`. A quick workflow:
 
 ```bash
 # Validate formatting
-python -m json.tool actions/openapi.json > /tmp/openapi.pretty.json && mv /tmp/openapi.pretty.json actions/openapi.json
+python -m json.tool openapi/spec.json > /tmp/openapi.pretty.json && mv /tmp/openapi.pretty.json openapi/spec.json
 
 # Optional: lint with speccy / openapi-cli if installed
-npx @redocly/cli lint actions/openapi.json
-```
-
-If you prefer to regenerate the file from the current server, call `GET /actions/openapi.json` and overwrite `actions/openapi.json` with the response (or copy it straight from the repo before making changes). Once the spec is updated, tools like OpenAI Actions, Postman, or `openapi-python-client` can ingest it directly with no additional wiring.
-
-### Python client SDK & base URL updates
-
-A typed client lives in `clients/frank_bot_client`, generated with [`openapi-python-client`](https://github.com/openapi-generators/openapi-python-client). Regenerate it whenever the spec changes:
-
-```bash
-source venv/bin/activate
-openapi-python-client generate \
-  --path actions/openapi.json \
-  --config openapi-python-client.json \
-  --output-path clients \
-  --overwrite
+npx @redocly/cli lint openapi/spec.json
 
 # Update public URLs in static files (uses PUBLIC_BASE_URL)
 python scripts/update_public_urls.py
-```
-
-The config in `openapi-python-client.json` keeps the package name/version aligned with the server. After regeneration you can install the client into other projects via `pip install ./clients/frank_bot_client` or by following the instructions inside `clients/README.md`.
-
-## Project Structure
-
-```
-frank_bot/
-├── app.py              # Server entrypoint (runs Starlette/uvicorn)
-├── pyproject.toml      # Poetry dependencies & project config
-├── poetry.lock         # Locked dependency versions
-├── Dockerfile          # Container build (multi-stage with Poetry)
-├── .github/workflows/  # GitHub Actions (build_and_push.yml)
-├── .env.example        # Environment variable template
-└── README.md           # This file
 ```
 
 ## CI/CD
@@ -189,4 +203,3 @@ To pull the latest image:
 ```bash
 docker pull ghcr.io/seanreardon/frank_bot:latest
 ```
-

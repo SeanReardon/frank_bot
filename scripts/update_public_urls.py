@@ -16,7 +16,7 @@ DEFAULT_BASE = "http://localhost:8000"
 
 def main() -> None:
     base_url = (os.getenv("PUBLIC_BASE_URL") or DEFAULT_BASE).rstrip("/")
-    openapi_path = ROOT / "actions" / "openapi.json"
+    openapi_path = ROOT / "openapi" / "spec.json"
 
     _update_openapi(openapi_path, base_url)
 
@@ -33,4 +33,3 @@ def _update_openapi(path: Path, base_url: str) -> None:
 
 if __name__ == "__main__":
     main()
-

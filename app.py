@@ -10,9 +10,9 @@ import sys
 import uvicorn
 from dotenv import load_dotenv
 
-from frank_bot.config import get_settings
-from frank_bot.http_app import create_starlette_app
-from frank_bot.logging_config import configure_logging
+from config import get_settings
+from logging_config import configure_logging
+from server import create_starlette_app
 
 load_dotenv()
 settings = get_settings()

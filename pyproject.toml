@@ -1,10 +1,9 @@
 [tool.poetry]
 name = "frank-bot"
-version = "0.4.0"
+version = "0.5.0"
 description = "Personal assistant for Google Calendar, Contacts, and Swarm location sharing"
 authors = ["Sean Reardon"]
 readme = "README.md"
-packages = [{include = "frank_bot"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -21,7 +20,6 @@ google-api-python-client = "^2.0.0"
 tzdata = "^2023.3"
 
 [tool.poetry.group.dev.dependencies]
-openapi-python-client = "^0.27.0"
 ruff = "^0.2.0"
 pytest = "^7.4.0"
 pytest-asyncio = "^0.21.0"
@@ -44,4 +42,3 @@ ignore = ["E501"]  # Line length handled separately
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-
