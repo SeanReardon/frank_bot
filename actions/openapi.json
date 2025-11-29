@@ -303,7 +303,14 @@
             "name": "with_companion",
             "schema": {"type": "string"},
             "required": false,
-            "description": "Filter to check-ins with this person (name). Comma-separate for multiple people."
+            "description": "Filter to check-ins with this person (name). Comma-separate for multiple (e.g., 'lauren, ekaterina'). Uses fuzzy matching for typos."
+          },
+          {
+            "in": "query",
+            "name": "companion_match",
+            "schema": {"type": "string", "enum": ["any", "all"]},
+            "required": false,
+            "description": "'any' (default) = OR, matches if ANY companion present; 'all' = AND, requires ALL companions."
           },
           {
             "in": "query",

@@ -75,16 +75,12 @@ def _coerce_int(
     return converted
 
 
-def _fuzzy_name_match(query: str, target: str, threshold: int = 65) -> bool:
+def _fuzzy_name_match(query: str, target: str, threshold: int = 73) -> bool:
     """
     Check if query fuzzy-matches target name using rapidfuzz.
     
-    Uses multiple matching strategies:
-    - Exact substring match (fast path)
-    - partial_ratio: Best partial string match (great for "mike" → "Michael")
-    - token_set_ratio: Ignores word order (great for "Smith John" → "John Smith")
-    
-    threshold is 0-100 (rapidfuzz uses percentages).
+    Uses multiple matching strategies to balance catching typos/nicknames
+    while avoiding false positives like "ekaterina" matching "linda".
     """
     query = query.lower().strip()
     target = target.lower().strip()
@@ -93,18 +89,34 @@ def _fuzzy_name_match(query: str, target: str, threshold: int = 65) -> bool:
         return False
     
     # Exact substring match (fast path)
-    if query in target:
+    if query in target or target in query:
         return True
     
-    # partial_ratio finds best matching substring
-    # Great for: "mike" vs "michael", "jack" vs "jackson"
-    if fuzz.partial_ratio(query, target) >= threshold:
-        return True
+    # Check each word in target separately (for "Lauren Reiter" etc.)
+    target_words = target.split()
     
-    # token_set_ratio handles word reordering and partial tokens
-    # Great for: "john smith" vs "smith, john"
-    if fuzz.token_set_ratio(query, target) >= threshold:
-        return True
+    for word in target_words:
+        # Prefix match - "laur" matches "lauren"
+        if word.startswith(query) or query.startswith(word):
+            return True
+        
+        # Same first char + decent partial AND ratio = likely same name
+        # This catches "mike" → "michael" (partial=67, ratio=55)
+        # But rejects "lauren" → "lisa" (partial=67, ratio=40)
+        if query[0] == word[0]:
+            partial = fuzz.partial_ratio(query, word)
+            ratio = fuzz.ratio(query, word)
+            if partial >= 65 and ratio >= 50:
+                return True
+        
+        # High-confidence standard ratio (catches typos like "jacksen" → "jackson")
+        if fuzz.ratio(query, word) >= threshold:
+            return True
+    
+    # For multi-word targets, also check overall similarity
+    if len(target_words) > 1:
+        if fuzz.ratio(query, target) >= threshold:
+            return True
     
     return False
 
@@ -491,14 +503,23 @@ async def list_my_swarm_checkins_action(
     after_date = args.get("after_date")  # ISO date string YYYY-MM-DD
     before_date = args.get("before_date")  # ISO date string YYYY-MM-DD
 
-    # Companion filtering - can be a single name or list of names
-    with_companion = args.get("with_companion")  # Filter to only checkins with someone
+    # Companion filtering - can be a single name, comma-separated names, or list of names
+    # Default is OR logic (any match), use companion_match=all for AND logic
+    with_companion = args.get("with_companion")
     companion_names: list[str] = []
     if with_companion:
         if isinstance(with_companion, str):
-            companion_names = [with_companion.strip().lower()]
+            # Support comma-separated names: "lauren, ekaterina"
+            companion_names = [
+                name.strip().lower()
+                for name in with_companion.split(",")
+                if name.strip()
+            ]
         else:
             companion_names = [name.strip().lower() for name in with_companion if name]
+
+    # "any" = OR logic (default), "all" = AND logic (all companions must be present)
+    companion_match = (args.get("companion_match") or "any").strip().lower()
 
     # If only_with_companions is true, filter to only checkins that have companions
     only_with_companions = _coerce_bool(args.get("only_with_companions"))
@@ -540,98 +561,123 @@ async def list_my_swarm_checkins_action(
 
     def fetch_and_filter_checkins():
         service = SwarmService()
-        # Fetch more than requested if filtering, since we'll filter down
         needs_filtering = companion_names or only_with_companions or category_filter or has_photos
-        fetch_limit = max_results * 5 if needs_filtering else max_results
-
-        checkins_raw = service.get_self_checkins(
-            limit=min(fetch_limit, 250),
-            after_timestamp=after_timestamp,
-            before_timestamp=before_timestamp,
-        )
-
+        
+        # For filtered searches, paginate through more results to find enough matches.
+        # Limit to 40 batches (10,000 check-ins max) to cover all-time searches.
+        max_batches = 40 if needs_filtering else 1
+        batch_size = 250
+        
         entries: list[dict[str, Any]] = []
-        for item in checkins_raw:
-            # Extract companions from the 'with' field
-            companions_raw = item.get("with") or []
-            companions = [
-                {
-                    "id": c.get("id"),
-                    "first_name": c.get("firstName"),
-                    "last_name": c.get("lastName"),
-                    "display_name": c.get("displayName") or f"{c.get('firstName', '')} {c.get('lastName', '')}".strip(),
-                }
-                for c in companions_raw
-            ]
+        current_before_timestamp = before_timestamp
+        
+        for _batch_num in range(max_batches):
+            checkins_raw = service.get_self_checkins(
+                limit=batch_size,
+                after_timestamp=after_timestamp,
+                before_timestamp=current_before_timestamp,
+            )
+            
+            if not checkins_raw:
+                break  # No more check-ins
+            
+            # Process this batch
+            for item in checkins_raw:
+                # Extract companions from the 'with' field
+                companions_raw = item.get("with") or []
+                companions = [
+                    {
+                        "id": c.get("id"),
+                        "first_name": c.get("firstName"),
+                        "last_name": c.get("lastName"),
+                        "display_name": c.get("displayName") or f"{c.get('firstName', '')} {c.get('lastName', '')}".strip(),
+                    }
+                    for c in companions_raw
+                ]
 
-            # Filter by companion names if specified (fuzzy matching)
-            if companion_names:
-                # Check if ALL requested companions are present
-                all_found = True
-                for query_name in companion_names:
-                    found = any(
-                        _fuzzy_name_match(query_name, c["display_name"])
-                        or _fuzzy_name_match(query_name, c["first_name"] or "")
-                        or _fuzzy_name_match(query_name, c["last_name"] or "")
-                        for c in companions
+                # Filter by companion names if specified (fuzzy matching)
+                if companion_names:
+                    def companion_matches(query_name: str) -> bool:
+                        return any(
+                            _fuzzy_name_match(query_name, c["display_name"])
+                            or _fuzzy_name_match(query_name, c["first_name"] or "")
+                            or _fuzzy_name_match(query_name, c["last_name"] or "")
+                            for c in companions
+                        )
+
+                    if companion_match == "all":
+                        # AND logic: ALL requested companions must be present
+                        if not all(companion_matches(name) for name in companion_names):
+                            continue
+                    else:
+                        # OR logic (default): ANY requested companion matches
+                        if not any(companion_matches(name) for name in companion_names):
+                            continue
+
+                # Filter to only checkins with companions
+                if only_with_companions and not companions:
+                    continue
+
+                # Extract venue info (include photos if requested)
+                info = describe_checkin(item, include_photos=include_photos)
+                categories = info.get("categories") or []
+                photo_count = info.get("photo_count", 0)
+
+                # Filter by category
+                if category_filter:
+                    category_match_found = any(
+                        category_filter in cat.lower() for cat in categories
                     )
-                    if not found:
-                        all_found = False
-                        break
-                if not all_found:
+                    if not category_match_found:
+                        continue
+
+                # Filter to only checkins with photos
+                if has_photos and photo_count == 0:
                     continue
 
-            # Filter to only checkins with companions
-            if only_with_companions and not companions:
-                continue
+                entry = {
+                    "iso_time": info.get("iso_time"),
+                    "minutes_since": info.get("minutes_since"),
+                    "stale": (
+                        info.get("minutes_since") is None
+                        or info.get("minutes_since") > stale_minutes
+                    ),
+                    "venue": {
+                        "name": info.get("venue_name"),
+                        "city": info.get("city"),
+                        "state": info.get("state"),
+                        "country": info.get("country"),
+                        "latitude": info.get("latitude"),
+                        "longitude": info.get("longitude"),
+                        "canonical_url": info.get("canonical_url"),
+                    },
+                    "categories": categories,
+                    "shout": info.get("shout"),
+                    "companions": companions,
+                    "photo_count": photo_count,
+                }
 
-            # Extract venue info (include photos if requested)
-            info = describe_checkin(item, include_photos=include_photos)
-            categories = info.get("categories") or []
-            photo_count = info.get("photo_count", 0)
+                # Include photo URLs if requested
+                if include_photos and info.get("photos"):
+                    entry["photos"] = info["photos"]
 
-            # Filter by category
-            if category_filter:
-                category_match = any(
-                    category_filter in cat.lower() for cat in categories
-                )
-                if not category_match:
-                    continue
+                entries.append(entry)
 
-            # Filter to only checkins with photos
-            if has_photos and photo_count == 0:
-                continue
-
-            entry = {
-                "iso_time": info.get("iso_time"),
-                "minutes_since": info.get("minutes_since"),
-                "stale": (
-                    info.get("minutes_since") is None
-                    or info.get("minutes_since") > stale_minutes
-                ),
-                "venue": {
-                    "name": info.get("venue_name"),
-                    "city": info.get("city"),
-                    "state": info.get("state"),
-                    "country": info.get("country"),
-                    "latitude": info.get("latitude"),
-                    "longitude": info.get("longitude"),
-                    "canonical_url": info.get("canonical_url"),
-                },
-                "categories": categories,
-                "shout": info.get("shout"),
-                "companions": companions,
-                "photo_count": photo_count,
-            }
-
-            # Include photo URLs if requested
-            if include_photos and info.get("photos"):
-                entry["photos"] = info["photos"]
-
-            entries.append(entry)
-
+                if len(entries) >= max_results:
+                    break
+            
+            # Check if we have enough results
             if len(entries) >= max_results:
                 break
+            
+            # Get timestamp of oldest check-in for next batch
+            oldest_checkin = checkins_raw[-1]
+            oldest_ts = oldest_checkin.get("createdAt")
+            if oldest_ts:
+                # Fetch check-ins before this timestamp in next batch
+                current_before_timestamp = oldest_ts
+            else:
+                break  # Can't paginate without timestamp
 
         return entries
 
@@ -650,7 +696,8 @@ async def list_my_swarm_checkins_action(
             filters_desc.append(f"before {before_date}")
 
     if companion_names:
-        filters_desc.append(f"with {', '.join(companion_names)}")
+        joiner = " and " if companion_match == "all" else " or "
+        filters_desc.append(f"with {joiner.join(companion_names)}")
     elif only_with_companions:
         filters_desc.append("with companions")
 
