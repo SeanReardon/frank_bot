@@ -8,6 +8,7 @@ import platform
 import sys
 from typing import Any
 
+from services.platform_info import get_platform_diagnostics
 from services.stats import stats
 
 
@@ -21,6 +22,7 @@ async def get_diagnostics_action(
     - Server uptime
     - API call counts by endpoint
     - Swarm API performance (latency, success rate, bytes transferred)
+    - Platform diagnostics (CPU, memory, network)
     - Recent errors
     - System info
     """
@@ -32,15 +34,57 @@ async def get_diagnostics_action(
         "platform": platform.platform(),
     }
     
+    # Add platform diagnostics
+    all_stats["platform"] = get_platform_diagnostics()
+    
     # Build a human-readable summary message
     server = all_stats["server"]
     interactions = all_stats["interactions"]
     services = all_stats.get("services", {})
+    plat = all_stats.get("platform", {})
     
     lines = [
         f"🟢 Frank Bot running for {server['uptime_human']}",
         f"📊 Total API calls: {interactions['total_api_calls']}",
     ]
+    
+    # Platform summary
+    host_info = plat.get("host", {})
+    mem_info = plat.get("memory", {})
+    cpu_info = plat.get("cpu", {})
+    net_info = plat.get("network", {})
+    proc_info = plat.get("process", {})
+    
+    # Host uptime
+    if host_info.get("uptime_human"):
+        lines.append(f"🖥️ Host uptime: {host_info['uptime_human']}")
+    
+    # Memory
+    sys_mem = mem_info.get("system", {})
+    proc_mem = proc_info.get("memory_rss", {})
+    if sys_mem and proc_mem:
+        lines.append(
+            f"💾 Memory: {proc_mem.get('human', '?')} used by Frank "
+            f"/ {sys_mem.get('used_human', '?')} system "
+            f"({sys_mem.get('used_percent', 0)}% of {sys_mem.get('total_human', '?')})"
+        )
+    
+    # CPU
+    cpu_snap = cpu_info.get("snapshot", {})
+    load = host_info.get("load_average", {})
+    if cpu_snap or load:
+        cpu_parts = []
+        if cpu_snap:
+            cpu_parts.append(f"{cpu_snap.get('busy_percent', 0)}% busy")
+        if load:
+            cpu_parts.append(f"load {load.get('1min', 0):.2f}/{load.get('5min', 0):.2f}/{load.get('15min', 0):.2f}")
+        lines.append(f"⚡ CPU: {', '.join(cpu_parts)}")
+    
+    # Network
+    if net_info.get("public_ip"):
+        lines.append(f"🌐 Public IP: {net_info['public_ip']}")
+    
+    lines.append("")  # Blank line before services
     
     # Service stats
     service_icons = {
