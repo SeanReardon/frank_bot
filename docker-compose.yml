@@ -1,8 +1,5 @@
 services:
   frank-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: ghcr.io/seanreardon/frank_bot:latest
     container_name: frank-bot
     restart: unless-stopped
