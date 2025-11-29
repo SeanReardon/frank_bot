@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse, Response
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from frank_bot.actions_api import build_action_routes
@@ -21,6 +22,9 @@ from frank_bot.manifests import (
 from frank_bot.openapi import load_openapi_document
 
 logger = logging.getLogger(__name__)
+
+# Favicon path - project root contains favicon.png
+FAVICON_PATH = Path(__file__).parent.parent / "favicon.png"
 
 
 def create_starlette_app() -> Starlette:
@@ -59,7 +63,13 @@ def create_starlette_app() -> Starlette:
     async def actions_manifest_handler(_request):
         return JSONResponse(actions_manifest)
 
+    async def favicon_handler(_request):
+        if FAVICON_PATH.exists():
+            return FileResponse(FAVICON_PATH, media_type="image/png")
+        return Response(status_code=404)
+
     routes = action_routes + [
+        Route("/favicon.ico", favicon_handler, methods=["GET"]),
         Route("/actions/openapi.json", openapi_handler, methods=["GET"]),
         Route(
             "/.well-known/ai-plugin.json",
