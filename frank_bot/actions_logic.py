@@ -568,10 +568,20 @@ async def list_my_swarm_checkins_action(
         max_batches = 40 if needs_filtering else 1
         batch_size = 250
         
+        # Log search parameters
+        logger.info(
+            "CHECKIN_SEARCH: companions=%s match=%s category=%s has_photos=%s "
+            "after=%s before=%s max_results=%d",
+            companion_names, companion_match, category_filter, has_photos,
+            after_timestamp, before_timestamp, max_results
+        )
+        
         entries: list[dict[str, Any]] = []
         current_before_timestamp = before_timestamp
+        total_scanned = 0
+        total_filtered_out = 0
         
-        for _batch_num in range(max_batches):
+        for batch_num in range(max_batches):
             checkins_raw = service.get_self_checkins(
                 limit=batch_size,
                 after_timestamp=after_timestamp,
@@ -579,7 +589,14 @@ async def list_my_swarm_checkins_action(
             )
             
             if not checkins_raw:
+                logger.info(
+                    "CHECKIN_SEARCH_DONE: batch=%d scanned=%d filtered_out=%d matched=%d (no more data)",
+                    batch_num + 1, total_scanned, total_filtered_out, len(entries)
+                )
                 break  # No more check-ins
+            
+            batch_scanned = len(checkins_raw)
+            total_scanned += batch_scanned
             
             # Process this batch
             for item in checkins_raw:
@@ -666,8 +683,19 @@ async def list_my_swarm_checkins_action(
                 if len(entries) >= max_results:
                     break
             
+            # Log batch progress
+            batch_matched = len(entries) - (total_scanned - batch_scanned - total_filtered_out)
+            logger.debug(
+                "CHECKIN_BATCH: batch=%d scanned=%d total_matched=%d",
+                batch_num + 1, batch_scanned, len(entries)
+            )
+            
             # Check if we have enough results
             if len(entries) >= max_results:
+                logger.info(
+                    "CHECKIN_SEARCH_DONE: batches=%d scanned=%d matched=%d (reached max_results)",
+                    batch_num + 1, total_scanned, len(entries)
+                )
                 break
             
             # Get timestamp of oldest check-in for next batch
@@ -677,7 +705,17 @@ async def list_my_swarm_checkins_action(
                 # Fetch check-ins before this timestamp in next batch
                 current_before_timestamp = oldest_ts
             else:
+                logger.info(
+                    "CHECKIN_SEARCH_DONE: batches=%d scanned=%d matched=%d (no timestamp for pagination)",
+                    batch_num + 1, total_scanned, len(entries)
+                )
                 break  # Can't paginate without timestamp
+        else:
+            # Exhausted all batches
+            logger.info(
+                "CHECKIN_SEARCH_DONE: batches=%d scanned=%d matched=%d (max batches reached)",
+                max_batches, total_scanned, len(entries)
+            )
 
         return entries
 

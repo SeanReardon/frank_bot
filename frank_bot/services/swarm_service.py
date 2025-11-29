@@ -5,6 +5,7 @@ Helpers for interacting with the Swarm/Foursquare API.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -14,6 +15,10 @@ import requests
 from frank_bot.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 1.0  # seconds
 
 
 class SwarmAPIError(RuntimeError):
@@ -56,23 +61,77 @@ class SwarmService:
                 "v": self.api_version,
             }
         )
-        logger.debug("Swarm API GET %s params=%s", url, query)
-        try:
-            response = self.session.get(url, params=query, timeout=15)
-        except requests.RequestException as exc:
-            raise SwarmAPIError(f"Network error calling Swarm API: {exc}") from exc
+        
+        # Log request details (mask token for security)
+        log_params = {k: v for k, v in query.items() if k != "oauth_token"}
+        log_params["oauth_token"] = "***"
+        logger.info("SWARM_REQUEST: %s params=%s", path, log_params)
+        
+        last_error: Exception | None = None
+        
+        for attempt in range(MAX_RETRIES):
+            try:
+                start_time = time.time()
+                response = self.session.get(url, params=query, timeout=15)
+                elapsed_ms = (time.time() - start_time) * 1000
+                
+                logger.info(
+                    "SWARM_RESPONSE: %s status=%d elapsed=%.0fms attempt=%d",
+                    path, response.status_code, elapsed_ms, attempt + 1
+                )
+                
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    logger.error("SWARM_ERROR: %s invalid JSON response", path)
+                    raise SwarmAPIError("Swarm API returned invalid JSON") from exc
 
-        try:
-            data = response.json()
-        except ValueError as exc:  # pragma: no cover
-            raise SwarmAPIError("Swarm API returned invalid JSON") from exc
+                meta = data.get("meta", {})
+                if meta.get("code") != 200:
+                    error_detail = meta.get("errorDetail") or meta.get("errorType") or "Unknown error"
+                    error_code = meta.get("code")
+                    logger.warning(
+                        "SWARM_API_ERROR: %s code=%s detail=%s attempt=%d",
+                        path, error_code, error_detail, attempt + 1
+                    )
+                    
+                    # Retry on server errors (5xx) or rate limits (429)
+                    if error_code in (429, 500, 502, 503, 504) and attempt < MAX_RETRIES - 1:
+                        sleep_time = RETRY_BACKOFF_BASE * (2 ** attempt)
+                        logger.info("SWARM_RETRY: sleeping %.1fs before retry", sleep_time)
+                        time.sleep(sleep_time)
+                        continue
+                    
+                    raise SwarmAPIError(f"Swarm API error ({error_code}): {error_detail}")
 
-        meta = data.get("meta", {})
-        if meta.get("code") != 200:
-            error_detail = meta.get("errorDetail") or meta.get("errorType") or "Unknown error"
-            raise SwarmAPIError(f"Swarm API error ({meta.get('code')}): {error_detail}")
+                # Log success with result summary
+                response_data = data.get("response", {})
+                checkins = response_data.get("checkins", {})
+                if checkins:
+                    item_count = len(checkins.get("items", []))
+                    logger.info("SWARM_SUCCESS: %s returned %d checkins", path, item_count)
+                else:
+                    logger.info("SWARM_SUCCESS: %s", path)
+                
+                return response_data
 
-        return data.get("response", {})
+            except requests.RequestException as exc:
+                last_error = exc
+                logger.warning(
+                    "SWARM_NETWORK_ERROR: %s error=%s attempt=%d",
+                    path, str(exc), attempt + 1
+                )
+                
+                if attempt < MAX_RETRIES - 1:
+                    sleep_time = RETRY_BACKOFF_BASE * (2 ** attempt)
+                    logger.info("SWARM_RETRY: sleeping %.1fs before retry", sleep_time)
+                    time.sleep(sleep_time)
+                    continue
+                
+                raise SwarmAPIError(f"Network error calling Swarm API: {exc}") from exc
+        
+        # Should not reach here, but just in case
+        raise SwarmAPIError(f"Swarm API failed after {MAX_RETRIES} attempts: {last_error}")
 
     # ------------------------------------------------------------------ #
     # Public helpers

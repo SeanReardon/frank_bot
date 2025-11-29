@@ -7,7 +7,7 @@ WORKDIR /app
 # Configure environment
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    LOG_FILE=/root/app.log \
+    LOG_FILE=~/logs/frank_bot-api.log \
     PORT=8000 \
     HOST=0.0.0.0
 
