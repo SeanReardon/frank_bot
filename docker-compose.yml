@@ -1,0 +1,54 @@
+services:
+  frank-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/seanreardon/frank_bot:latest
+    container_name: frank-bot
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Server configuration
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      LOG_LEVEL: "INFO"
+      DEFAULT_TIMEZONE: "America/Chicago"
+
+      # Public URL (update this to your actual domain)
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-http://localhost:8000}"
+
+      # API key for authentication (set in .env or override)
+      ACTIONS_API_KEY: "${ACTIONS_API_KEY:-}"
+
+      # Google API configuration
+      GOOGLE_TOKEN_FILE: "/app/secrets/token.json"
+      GOOGLE_CREDENTIALS_FILE: "/app/secrets/google-credentials.json"
+
+      # Swarm/Foursquare integration (optional)
+      SWARM_OAUTH_TOKEN: "${SWARM_OAUTH_TOKEN:-}"
+      SWARM_API_VERSION: "${SWARM_API_VERSION:-20240501}"
+
+      # Manifest metadata (optional overrides)
+      ACTIONS_NAME_FOR_HUMAN: "${ACTIONS_NAME_FOR_HUMAN:-Frank Bot}"
+      ACTIONS_NAME_FOR_MODEL: "${ACTIONS_NAME_FOR_MODEL:-frank_bot}"
+      ACTIONS_LOGO_URL: "${ACTIONS_LOGO_URL:-}"
+      ACTIONS_CONTACT_EMAIL: "${ACTIONS_CONTACT_EMAIL:-}"
+      ACTIONS_LEGAL_URL: "${ACTIONS_LEGAL_URL:-}"
+
+      # Version
+      APP_VERSION: "${APP_VERSION:-0.3.0}"
+    volumes:
+      # Mount Google credentials (read-only for security)
+      - ./google-credentials.json:/app/secrets/google-credentials.json:ro
+      # Mount OAuth token (read-write so it can be refreshed)
+      - ./token.json:/app/secrets/token.json
+      # Optional: persist logs
+      - ./logs:/root/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
