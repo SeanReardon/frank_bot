@@ -1,0 +1,47 @@
+[tool.poetry]
+name = "frank-bot"
+version = "0.4.0"
+description = "Personal assistant for Google Calendar, Contacts, and Swarm location sharing"
+authors = ["Sean Reardon"]
+readme = "README.md"
+packages = [{include = "frank_bot"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+python-dotenv = "^1.0.0"
+starlette = "^0.27.0"
+uvicorn = {extras = ["standard"], version = "^0.23.0"}
+requests = "^2.31.0"
+ntplib = "^0.4.0"
+rapidfuzz = "^3.0.0"
+google-auth = "^2.0.0"
+google-auth-oauthlib = "^1.0.0"
+google-auth-httplib2 = "^0.1.0"
+google-api-python-client = "^2.0.0"
+tzdata = "^2023.3"
+
+[tool.poetry.group.dev.dependencies]
+openapi-python-client = "^0.27.0"
+ruff = "^0.2.0"
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+
+[tool.poetry.scripts]
+frank-bot = "app:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]  # Line length handled separately
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+

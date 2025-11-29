@@ -1,7 +1,25 @@
 # Use Python 3.11 slim image
+FROM python:3.11-slim AS builder
+
+# Install Poetry
+ENV POETRY_VERSION=1.7.1 \
+    POETRY_HOME="/opt/poetry" \
+    POETRY_VIRTUALENVS_IN_PROJECT=true \
+    POETRY_NO_INTERACTION=1
+
+RUN pip install --no-cache-dir poetry==$POETRY_VERSION
+
+WORKDIR /app
+
+# Copy dependency files first for better caching
+COPY pyproject.toml poetry.lock* ./
+
+# Install dependencies (no dev dependencies in production)
+RUN poetry install --only=main --no-root
+
+# Production image
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
 # Configure environment
@@ -9,13 +27,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     LOG_FILE=~/logs/frank_bot-api.log \
     PORT=8000 \
-    HOST=0.0.0.0
+    HOST=0.0.0.0 \
+    PATH="/app/.venv/bin:$PATH"
 
-# Copy requirements first for better caching
-COPY requirements.txt ./
-
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy virtual environment from builder
+COPY --from=builder /app/.venv /app/.venv
 
 # Copy application code
 COPY . .
@@ -23,6 +39,5 @@ COPY . .
 # Expose port for HTTP transport
 EXPOSE 8000
 
-# Run the MCP server
+# Run the server
 CMD ["python", "app.py"]
-

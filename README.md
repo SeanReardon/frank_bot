@@ -20,14 +20,34 @@ The HTTP API (and OpenAI manifest) will now be reachable at `https://example.com
 
 ## Development
 
-To run locally without Docker:
+This project uses [Poetry](https://python-poetry.org/) for dependency management.
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
+# Install Poetry (if not already installed)
+curl -sSL https://install.python-poetry.org | python3 -
 
 # Install dependencies
-pip install -r requirements.txt
+poetry install
+
+# Run the server
+poetry run python app.py
+
+# Or activate the virtual environment and run directly
+poetry shell
+python app.py
+```
+
+### Alternative: pip install
+
+If you prefer not to use Poetry:
+
+```bash
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# Install from pyproject.toml
+pip install .
 
 # Run the server
 python app.py
@@ -147,9 +167,26 @@ The config in `openapi-python-client.json` keeps the package name/version aligne
 ```
 frank_bot/
 ├── app.py              # Server entrypoint (runs Starlette/uvicorn)
-├── requirements.txt    # Python dependencies
-├── Dockerfile          # Container build
+├── pyproject.toml      # Poetry dependencies & project config
+├── poetry.lock         # Locked dependency versions
+├── Dockerfile          # Container build (multi-stage with Poetry)
+├── .github/workflows/  # GitHub Actions (build_and_push.yml)
 ├── .env.example        # Environment variable template
 └── README.md           # This file
+```
+
+## CI/CD
+
+The project includes a GitHub Actions workflow (`.github/workflows/build_and_push.yml`) that:
+
+- Builds Docker images on push to `main` and on version tags (`v*`)
+- Pushes to GitHub Container Registry (`ghcr.io/seanreardon/frank_bot`)
+- Supports multi-architecture builds (amd64, arm64)
+- Uses GitHub Actions cache for faster builds
+
+To pull the latest image:
+
+```bash
+docker pull ghcr.io/seanreardon/frank_bot:latest
 ```
 
