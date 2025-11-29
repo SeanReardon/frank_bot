@@ -1,11 +1,32 @@
+# frank_bot docker-compose
+#
+# CI/CD: GitHub Actions builds and pushes images to GHCR on merge to main.
+#        See .github/workflows/build_and_push.yml
+#
+# Production deployment:
+#   docker compose pull
+#   docker compose up -d
+#
+# Local development (build from source):
+#   docker compose up -d --build
+#
+# Note: The 'build' directive exists for local dev convenience only.
+# Production should always pull pre-built images from GHCR - never build on the server.
+
 services:
+  # ==========================================================================
+  # Core Service
+  # ==========================================================================
   frank-bot:
     image: ghcr.io/seanreardon/frank_bot:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: frank-bot
     restart: unless-stopped
     user: "${PUID:-108}:${PGID:-114}"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       # Server configuration
       HOST: "0.0.0.0"
@@ -45,11 +66,16 @@ services:
       # Mount OAuth token (read-write so it can be refreshed)
       - ./token.json:/app/secrets/token.json
       # Persist logs
-      - ./logs:/app/logs
+      - ${LOG_PATH:-./logs}:/app/logs
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+    networks:
+      - frank-bot
 
+networks:
+  frank-bot:
+    driver: bridge
