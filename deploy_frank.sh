@@ -11,7 +11,7 @@ echo "Transferring image to onlogic-closet..."
 docker save frank_bot:latest | ssh onlogic-closet docker load
 
 echo "Starting new frank_bot container on onlogic-closet..."
-ssh onlogic-closet "docker run -d --name frank_bot --env-file /home/seanr/.env -p 8000:8000 frank_bot:latest"
+ssh onlogic-closet "docker run -d --name frank_bot --env-file /home/frank_bot/.env -p 8000:8000 frank_bot:latest"
 
 echo "Verifying deployment..."
 ssh onlogic-closet "docker ps --filter name=frank_bot"
