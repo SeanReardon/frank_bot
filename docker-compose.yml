@@ -24,7 +24,6 @@ services:
       dockerfile: Dockerfile
     container_name: frank-bot
     restart: unless-stopped
-    user: "${PUID:-108}:${PGID:-114}"
     ports:
       - "127.0.0.1:8000:8000"
     environment:
