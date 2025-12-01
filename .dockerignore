@@ -13,4 +13,12 @@ build/
 .gitignore
 .env
 .env.local
+.env.example
 
+# Google API credentials and tokens (mounted at runtime, not baked into image)
+token.json
+google-credentials.json
+
+# Logs
+*.log
+logs/
