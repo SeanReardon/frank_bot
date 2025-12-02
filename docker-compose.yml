@@ -27,39 +27,29 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
     environment:
-      # Server configuration
-      HOST: "0.0.0.0"
-      PORT: "8000"
+      # Container-specific settings (not from .env)
       LOG_LEVEL: "INFO"
       DEFAULT_TIMEZONE: "America/Chicago"
 
-      # Public URL (update this to your actual domain)
-      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-http://localhost:8000}"
-
-      # API key for authentication (set in .env or override)
-      ACTIONS_API_KEY: "${ACTIONS_API_KEY:-}"
-
-      # Google API configuration
+      # Container paths for Google credentials
       GOOGLE_TOKEN_FILE: "/app/secrets/token.json"
       GOOGLE_CREDENTIALS_FILE: "/app/secrets/google-credentials.json"
 
-      # Swarm/Foursquare integration (optional)
-      SWARM_OAUTH_TOKEN: "${SWARM_OAUTH_TOKEN:-}"
-      SWARM_API_VERSION: "${SWARM_API_VERSION:-20240501}"
+      # Container path for logs
+      LOG_FILE: "/app/logs/frank_bot-api.log"
 
-      # Manifest metadata (optional overrides)
+      # Optional manifest metadata (defaults if not in .env)
       ACTIONS_NAME_FOR_HUMAN: "${ACTIONS_NAME_FOR_HUMAN:-Frank Bot}"
       ACTIONS_NAME_FOR_MODEL: "${ACTIONS_NAME_FOR_MODEL:-frank_bot}"
       ACTIONS_LOGO_URL: "${ACTIONS_LOGO_URL:-}"
       ACTIONS_CONTACT_EMAIL: "${ACTIONS_CONTACT_EMAIL:-}"
       ACTIONS_LEGAL_URL: "${ACTIONS_LEGAL_URL:-}"
 
-      # Version
+      # Version (default if not in .env)
       APP_VERSION: "${APP_VERSION:-0.3.0}"
-
-      # Logging - write to mounted volume
-      LOG_FILE: "/app/logs/frank_bot-api.log"
     volumes:
       # Mount Google credentials (read-only for security)
       - ./google-credentials.json:/app/secrets/google-credentials.json:ro
