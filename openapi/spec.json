@@ -7,7 +7,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:8000"
+      "url": "https://frank-bot-api.contrived.com"
     }
   ],
   "paths": {
@@ -258,6 +258,48 @@
             "content": {
               "application/json": {
                 "schema": {"$ref": "#/components/schemas/SearchContactsResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/sms/send": {
+      "get": {
+        "operationId": "sendSMS",
+        "summary": "Send an SMS text message to a contact",
+        "description": "Send a text message to someone in your Google Contacts by name, or directly to a phone number. Messages are sent from your Telnyx phone number.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "recipient",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "Contact name to look up in Google Contacts, or a phone number directly."
+          },
+          {
+            "in": "query",
+            "name": "message",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "The text message content to send."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SMS sent successfully.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/SendSMSResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or SMS failed.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
               }
             }
           }
@@ -534,6 +576,19 @@
           }
         },
         "required": ["message", "query", "count", "contacts"]
+      },
+      "SendSMSResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string", "description": "Human-readable summary of the action."},
+          "success": {"type": "boolean"},
+          "recipient": {"type": "string", "description": "Contact name or phone number."},
+          "to_number": {"type": "string", "description": "The phone number the SMS was sent to."},
+          "from_number": {"type": "string", "description": "The Telnyx phone number used to send."},
+          "message_id": {"type": "string", "description": "Telnyx message ID for tracking."},
+          "text_preview": {"type": "string", "description": "Preview of the message text sent."}
+        },
+        "required": ["message", "success", "recipient", "to_number", "from_number"]
       },
       "SwarmVenue": {
         "type": "object",
