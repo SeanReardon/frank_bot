@@ -7,7 +7,7 @@
   },
   "servers": [
     {
-      "url": "https://frank-bot-api.contrived.com"
+      "url": "http://localhost:8000"
     }
   ],
   "paths": {
