@@ -48,6 +48,9 @@ class Settings:
     actions_openapi_path: str
     swarm_oauth_token: str | None
     swarm_api_version: str
+    telnyx_api_key: str | None
+    telnyx_phone_number: str | None
+    notify_numbers: tuple[str, ...]
 
 
 @lru_cache(maxsize=1)
@@ -101,5 +104,8 @@ def get_settings() -> Settings:
         ),
         swarm_oauth_token=os.getenv("SWARM_OAUTH_TOKEN"),
         swarm_api_version=os.getenv("SWARM_API_VERSION", "20240501"),
+        telnyx_api_key=os.getenv("TELNYX_LET_FOOD_INTO_CIVIC_KEY"),
+        telnyx_phone_number=os.getenv("TELNYX_PHONE_NUMBER"),
+        notify_numbers=_parse_scopes("NOTIFY_NUMBERS", ()),
     )
 

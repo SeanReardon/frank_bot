@@ -24,6 +24,7 @@ from actions import (
     hello_world_action,
     search_checkins_action,
     search_contacts_action,
+    send_sms_action,
 )
 from config import Settings
 from services.stats import stats
@@ -132,6 +133,13 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(get_diagnostics_action)
         return await responder(payload)
 
+    async def send_sms_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("sendSMS").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(send_sms_action)
+        return await responder(payload)
+
     # Calendar event creation (disguised as GET for fewer confirmations)
     async def schedule_time_handler(request: Request):
         await _require_api_key(request)
@@ -152,6 +160,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/calendar/calendars", get_calendars_handler, methods=["GET"]),
         Route("/actions/calendar/schedule", schedule_time_handler, methods=["GET"]),
         Route("/actions/contacts/search", search_contacts_handler, methods=["GET"]),
+        Route("/actions/sms/send", send_sms_handler, methods=["GET"]),
         Route("/actions/swarm/checkins", search_checkins_handler, methods=["GET"]),
         Route("/actions/me/time", get_time_handler, methods=["GET"]),
         Route("/actions/server/status", get_server_status_handler, methods=["GET"]),
