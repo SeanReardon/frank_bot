@@ -66,6 +66,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
 
       - name: Generate build summary
         run: |

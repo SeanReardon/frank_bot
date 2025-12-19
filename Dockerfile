@@ -22,6 +22,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Git commit hash baked in at build time
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT=$GIT_COMMIT
+
 # Configure environment
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

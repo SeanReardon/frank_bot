@@ -4,12 +4,17 @@ Diagnostics action: service stats, API performance, and health info.
 
 from __future__ import annotations
 
+import os
 import platform
 import sys
 from typing import Any
 
 from services.platform_info import get_platform_diagnostics
 from services.stats import stats
+
+# Git commit hash baked into Docker image at build time
+GIT_COMMIT = os.environ.get("GIT_COMMIT", "unknown")
+GITHUB_REPO = "SeanReardon/frank_bot"
 
 
 async def get_diagnostics_action(
@@ -34,6 +39,16 @@ async def get_diagnostics_action(
         "platform": platform.platform(),
     }
     
+    # Add build info with git commit
+    commit_url = None
+    if GIT_COMMIT != "unknown":
+        commit_url = f"https://github.com/{GITHUB_REPO}/commit/{GIT_COMMIT}"
+    all_stats["build"] = {
+        "git_commit": GIT_COMMIT,
+        "git_commit_short": GIT_COMMIT[:7] if GIT_COMMIT != "unknown" else "unknown",
+        "git_commit_url": commit_url,
+    }
+    
     # Add platform diagnostics
     all_stats["platform"] = get_platform_diagnostics()
     
@@ -43,8 +58,10 @@ async def get_diagnostics_action(
     services = all_stats.get("services", {})
     plat = all_stats.get("platform", {})
     
+    build = all_stats["build"]
     lines = [
         f"🟢 Frank Bot running for {server['uptime_human']}",
+        f"🏷️ Build: {build['git_commit_short']}",
         f"📊 Total API calls: {interactions['total_api_calls']}",
     ]
     
