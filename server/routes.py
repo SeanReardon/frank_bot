@@ -21,6 +21,7 @@ from actions import (
     get_events_action,
     get_server_status_action,
     get_time_action,
+    get_ups_status_action,
     hello_world_action,
     search_checkins_action,
     search_contacts_action,
@@ -133,6 +134,13 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(get_diagnostics_action)
         return await responder(payload)
 
+    async def get_ups_status_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("getUpsStatus").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_ups_status_action)
+        return await responder(payload)
+
     async def send_sms_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("sendSMS").record_call()
@@ -156,19 +164,47 @@ def build_action_routes(settings: Settings) -> list[Route]:
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
-        Route("/actions/calendar/events", get_events_handler, methods=["GET"]),
-        Route("/actions/calendar/calendars", get_calendars_handler, methods=["GET"]),
-        Route("/actions/calendar/schedule", schedule_time_handler, methods=["GET"]),
-        Route("/actions/contacts/search", search_contacts_handler, methods=["GET"]),
-        Route("/actions/sms/send", send_sms_handler, methods=["GET"]),
-        Route("/actions/swarm/checkins", search_checkins_handler, methods=["GET"]),
+        Route(
+            "/actions/calendar/events",
+            get_events_handler,
+            methods=["GET"],
+        ),
+        Route(
+            "/actions/calendar/calendars",
+            get_calendars_handler,
+            methods=["GET"],
+        ),
+        Route(
+            "/actions/calendar/schedule",
+            schedule_time_handler,
+            methods=["GET"],
+        ),
+        Route(
+            "/actions/contacts/search",
+            search_contacts_handler,
+            methods=["GET"],
+        ),
+        Route(
+            "/actions/sms/send",
+            send_sms_handler,
+            methods=["GET"],
+        ),
+        Route(
+            "/actions/swarm/checkins",
+            search_checkins_handler,
+            methods=["GET"],
+        ),
         Route("/actions/me/time", get_time_handler, methods=["GET"]),
         Route("/actions/server/status", get_server_status_handler, methods=["GET"]),
-        Route("/actions/server/diagnostics", get_diagnostics_handler, methods=["GET"]),
+        Route(
+            "/actions/server/diagnostics",
+            get_diagnostics_handler,
+            methods=["GET"],
+        ),
+        Route("/actions/ups/status", get_ups_status_handler, methods=["GET"]),
     ]
 
     return routes
 
 
 __all__ = ["build_action_routes"]
-

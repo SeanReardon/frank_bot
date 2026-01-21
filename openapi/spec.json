@@ -413,6 +413,23 @@
         "security": [{"ActionsApiKey": []}]
       }
     },
+    "/actions/ups/status": {
+      "get": {
+        "operationId": "getUpsStatus",
+        "summary": "Get home UPS status (read-only)",
+        "responses": {
+          "200": {
+            "description": "Home UPS runtime, charge, and temperature.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/UpsStatusResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
     "/actions/server/status": {
       "get": {
         "operationId": "getServerStatus",
@@ -674,6 +691,25 @@
           "offset_minutes": {"type": "integer"}
         },
         "required": ["message", "iso_time", "timezone", "offset_minutes"]
+      },
+      "UpsRuntime": {
+        "type": "object",
+        "properties": {
+          "hours": {"type": "integer", "minimum": 0},
+          "mins": {"type": "integer", "minimum": 0, "maximum": 59},
+          "human": {"type": "string", "description": "Human-readable runtime, e.g. '1h 22m'."}
+        },
+        "required": ["hours", "mins", "human"]
+      },
+      "UpsStatusResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "runtime": {"$ref": "#/components/schemas/UpsRuntime"},
+          "charge_percent": {"type": "integer", "minimum": 0, "maximum": 100},
+          "temperature_f": {"type": "number"}
+        },
+        "required": ["message", "runtime", "charge_percent", "temperature_f"]
       },
       "ServerVersionResponse": {
         "type": "object",

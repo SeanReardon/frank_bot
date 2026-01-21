@@ -23,6 +23,7 @@ from actions.system import (
     get_time_action,
     hello_world_action,
 )
+from actions.ups import get_ups_status_action
 
 __all__ = [
     "hello_world_action",
@@ -35,4 +36,5 @@ __all__ = [
     "get_time_action",
     "get_server_status_action",
     "get_diagnostics_action",
+    "get_ups_status_action",
 ]
