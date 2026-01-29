@@ -38,3 +38,26 @@ Added comprehensive unit tests for CalendarNamespace that verify the namespace m
 - Tests verify: parameter passing for all method signatures, default values, return value passthrough, and FrankAPI integration
 
 ---
+
+## 2026-01-29: frank_bot-00003 - Implement remaining namespace classes (contacts, sms, swarm, ups, time)
+
+### Summary
+Added comprehensive unit tests for all remaining namespace classes: ContactsNamespace, SMSNamespace, SwarmNamespace, UPSNamespace, and TimeNamespace. All namespace implementations were already complete in meta/api.py from task frank_bot-00001, so this task focused on creating tests to verify the wrappers work correctly.
+
+### Files Changed
+- tests/test_contacts_namespace.py (new)
+- tests/test_sms_namespace.py (new)
+- tests/test_swarm_namespace.py (new)
+- tests/test_ups_namespace.py (new)
+- tests/test_time_namespace.py (new)
+
+### Learnings
+- All namespace classes were already fully implemented in task 00001, not just stubs
+- SwarmNamespace.checkins() has the most parameters (11) including: year, after_date, before_date, category, with_companion, companion_match, only_with_companions, has_photos, include_photos, max_results, stale_minutes
+- TimeNamespace.now() accepts a timezone parameter for future compatibility, but the underlying action doesn't currently use it
+- UPSNamespace.status() takes no parameters and returns runtime, charge_percent, and temperature_f
+- SMSNamespace.send() requires both recipient (name or phone) and message as positional arguments
+- ContactsNamespace.search() requires query as a positional argument with optional max_results
+- Tests follow the same mocking pattern as CalendarNamespace: mock at the action layer since imports happen inside the methods
+
+---

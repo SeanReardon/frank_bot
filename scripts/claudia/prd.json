@@ -45,7 +45,7 @@
         "Unit tests for each namespace"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00001 and follows pattern from frank_bot-00002."
     },
     {
