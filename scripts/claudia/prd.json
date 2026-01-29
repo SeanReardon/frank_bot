@@ -190,7 +190,7 @@
         "Instructions reference /frank/meta for understanding capabilities"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": "Can be done after API implementation is complete. No hard dependencies but should reflect final API."
     },
     {

@@ -60,3 +60,68 @@ You have access to Frank Bot, a personal assistant API that connects to the user
 | "What restaurants did Linda and I go to in 2024?" | `searchCheckins` with `with_companion=Linda`, `category=restaurant`, `year=2024` |
 | "Places where Jimmy AND Lauren were both with me" | `searchCheckins` with `with_companion=Jimmy,Lauren`, `companion_match=all` |
 | "What time is it for me?" | `getTime` |
+
+## Script Execution API
+
+For complex queries that require **pagination**, **filtering**, **aggregation**, or **combining multiple data sources**, use the script execution API instead of making many individual action calls.
+
+### When to Use Script Execution
+
+Use `/frank/execute` when you need to:
+- **Paginate through large result sets** (e.g., all checkins from a year)
+- **Filter and aggregate data** (e.g., count unique venues by category)
+- **Combine multiple data sources** (e.g., match checkins with calendar events)
+- **Apply custom logic** (e.g., find gaps in data, compute statistics)
+
+**Important**: The execute endpoint is for **getting data**, not presenting it. Your script should return structured data, and you present it to the user afterward.
+
+### Workflow
+
+1. **GET /frank/meta** - Understand available FrankAPI capabilities and see example scripts
+2. **GET /frank/scripts** - Check if a reusable script already exists for your use case
+3. **POST /frank/execute** - Submit your script (or reference an existing script_id) with parameters
+4. **GET /frank/jobs/{job_id}** - Poll until `status='completed'`, then read the `result`
+5. **Present** - Format and present the `result` data to the user
+
+### Example: Hotels in San Francisco
+
+User asks: "What hotels have I stayed at in San Francisco?"
+
+This requires filtering checkins by category ("hotel") and location (San Francisco area). Here's the workflow:
+
+1. Check `/frank/scripts` for an existing hotel search script
+2. If none exists, POST to `/frank/execute`:
+   ```json
+   {
+     "slug": "hotels-in-city",
+     "code": "\"\"\"Find hotels in a specific city.\n\nParameters:\n    city (str): City name to search for\n    year (int): Year to filter (optional)\n\"\"\"\n\ndef main(frank, city, year=None):\n    kwargs = {'category': 'Hotel', 'max_results': 100}\n    if year:\n        kwargs['year'] = year\n    result = frank.swarm.checkins(**kwargs)\n    hotels = [\n        {'name': c['venue']['name'], 'city': c['venue'].get('city', ''), 'date': c['date']}\n        for c in result.get('checkins', [])\n        if city.lower() in c['venue'].get('city', '').lower()\n    ]\n    return {'hotels': hotels, 'count': len(hotels)}",
+     "params": {"city": "San Francisco"}
+   }
+   ```
+3. Poll `/frank/jobs/{job_id}` for completion
+4. Present the `result.hotels` data to the user
+
+### Script API Reference
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/frank/meta` | GET | FrankAPI documentation with method signatures and examples |
+| `/frank/scripts` | GET | List all saved scripts with metadata |
+| `/frank/scripts/{id}` | GET | Get a specific script's Python code |
+| `/frank/execute` | POST | Execute a script (new or existing) |
+| `/frank/jobs` | GET | List all job executions (optional `?status=` filter) |
+| `/frank/jobs/{id}` | GET | Get full job details including result, stdout, stderr |
+
+### Script Structure
+
+Scripts must define a `main(frank, ...)` function:
+- `frank`: FrankAPI instance with namespaces: `calendar`, `contacts`, `sms`, `swarm`, `ups`, `time`
+- Additional parameters passed from the `params` object in the execute request
+- Return a dict with your results; this becomes the job's `result` field
+
+### Tips
+
+- **Check /frank/scripts first** - Reusable scripts save time and reduce errors
+- **Check /frank/meta** - See all available FrankAPI methods and their parameters
+- **Scripts timeout after 10 minutes** - Design scripts to be efficient
+- **Use print() for debugging** - Output is captured in the job's `stdout` field

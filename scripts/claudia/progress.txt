@@ -212,3 +212,19 @@ Updated openapi/spec.json with all new /frank/* endpoints including paths, param
 - Spec passes linting with existing warnings (no new issues introduced)
 
 ---
+
+## 2026-01-29: frank_bot-00012 - Update instructions_for_chatgpt.txt with script execution guidance
+
+### Summary
+Added comprehensive script execution guidance to instructions_for_chatgpt.txt, including when to use the execute endpoint (pagination, filtering, aggregation, combining data sources), the full workflow (meta -> scripts -> execute -> jobs -> present), a complete hotels-in-SF example, API reference table, and tips for effective script usage.
+
+### Files Changed
+- instructions_for_chatgpt.txt
+
+### Learnings
+- The instructions file serves as the primary documentation for ChatGPT/AI assistants using the API
+- Clear workflow documentation (numbered steps) helps AI assistants understand the polling pattern
+- Concrete examples (hotels in SF) are more valuable than abstract descriptions
+- Emphasizing "for getting data, not presenting it" is important since AI assistants might try to embed formatting logic in scripts
+
+---
