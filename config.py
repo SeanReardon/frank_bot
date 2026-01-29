@@ -51,6 +51,10 @@ class Settings:
     telnyx_api_key: str | None
     telnyx_phone_number: str | None
     notify_numbers: tuple[str, ...]
+    telegram_api_id: int | None
+    telegram_api_hash: str | None
+    telegram_phone: str | None
+    telegram_session_name: str
 
 
 @lru_cache(maxsize=1)
@@ -107,5 +111,9 @@ def get_settings() -> Settings:
         telnyx_api_key=os.getenv("TELNYX_LET_FOOD_INTO_CIVIC_KEY"),
         telnyx_phone_number=os.getenv("TELNYX_PHONE_NUMBER"),
         notify_numbers=_parse_scopes("NOTIFY_NUMBERS", ()),
+        telegram_api_id=int(os.getenv("TELEGRAM_API_ID", "0")) or None,
+        telegram_api_hash=os.getenv("TELEGRAM_API_HASH") or None,
+        telegram_phone=os.getenv("TELEGRAM_PHONE") or None,
+        telegram_session_name=os.getenv("TELEGRAM_SESSION_NAME", "frank_bot"),
     )
 

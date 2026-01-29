@@ -27,6 +27,11 @@ from actions import (
     search_contacts_action,
     send_sms_action,
 )
+from actions.telegram import (
+    get_telegram_messages,
+    list_telegram_chats,
+    send_telegram_message,
+)
 from config import Settings
 from services.stats import stats
 
@@ -148,6 +153,28 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(send_sms_action)
         return await responder(payload)
 
+    # Telegram endpoints
+    async def telegram_send_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("telegramSend").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(send_telegram_message)
+        return await responder(payload)
+
+    async def telegram_messages_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("telegramMessages").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_telegram_messages)
+        return await responder(payload)
+
+    async def telegram_chats_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("telegramChats").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(list_telegram_chats)
+        return await responder(payload)
+
     # Calendar event creation (disguised as GET for fewer confirmations)
     async def schedule_time_handler(request: Request):
         await _require_api_key(request)
@@ -202,6 +229,10 @@ def build_action_routes(settings: Settings) -> list[Route]:
             methods=["GET"],
         ),
         Route("/actions/ups/status", get_ups_status_handler, methods=["GET"]),
+        # Telegram endpoints
+        Route("/actions/telegram/send", telegram_send_handler, methods=["GET"]),
+        Route("/actions/telegram/messages", telegram_messages_handler, methods=["GET"]),
+        Route("/actions/telegram/chats", telegram_chats_handler, methods=["GET"]),
     ]
 
     return routes

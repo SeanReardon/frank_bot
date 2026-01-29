@@ -218,7 +218,7 @@
         ".gitignore updated to ignore *.session files (Telethon session files)"
       ],
       "priority": 14,
-      "passes": false,
+      "passes": true,
       "notes": "Foundation task for Telegram integration - all other Telegram tasks depend on this."
     },
     {
@@ -234,7 +234,7 @@
         "Service handles missing credentials gracefully with clear error messages"
       ],
       "priority": 15,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00014. Core service wrapper - blocking for frank_bot-00016."
     },
     {
@@ -251,7 +251,7 @@
         "Unit tests with mocked Telethon client verify method behavior"
       ],
       "priority": 16,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00015. Implements the core Telegram functionality."
     },
     {
@@ -268,7 +268,7 @@
         "Unit tests verify action behavior with mocked TelegramClientService"
       ],
       "priority": 17,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00016. Action layer between routes and service."
     },
     {
@@ -284,7 +284,7 @@
         "Integration tests verify routes call correct actions"
       ],
       "priority": 18,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00017. Exposes Telegram functionality via HTTP."
     },
     {

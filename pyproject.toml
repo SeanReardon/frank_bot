@@ -19,6 +19,7 @@ google-auth-httplib2 = "^0.1.0"
 google-api-python-client = "^2.0.0"
 tzdata = "^2023.3"
 telnyx = "^2.0.0"
+telethon = "^1.34.0"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.2.0"

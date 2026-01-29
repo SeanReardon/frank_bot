@@ -228,3 +228,84 @@ Added comprehensive script execution guidance to instructions_for_chatgpt.txt, i
 - Emphasizing "for getting data, not presenting it" is important since AI assistants might try to embed formatting logic in scripts
 
 ---
+
+## 2026-01-29: frank_bot-00014 - Add Telethon dependency and Telegram configuration settings
+
+### Summary
+Added Telethon library dependency for Telegram integration. Updated config.py with new settings: TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_PHONE, and TELEGRAM_SESSION_NAME (defaults to 'frank_bot'). Updated .env.example with Telegram placeholders and .gitignore to ignore *.session files.
+
+### Files Changed
+- pyproject.toml (added telethon = "^1.34.0")
+- poetry.lock (updated with telethon and dependencies)
+- config.py (added telegram_* settings)
+- .env.example (added Telegram configuration section)
+- .gitignore (added *.session)
+
+### Learnings
+- Telethon uses session files (*.session) to store authentication state - these should be gitignored
+- TELEGRAM_API_ID needs int conversion with a fallback (0 -> None pattern)
+- Credentials come from my.telegram.org/apps, not Telegram bots API
+
+---
+
+## 2026-01-29: frank_bot-00015 - Create TelegramClientService with Telethon wrapper
+
+### Summary
+Created TelegramClientService in services/telegram_client.py following existing service patterns. Service wraps Telethon client with is_configured property, async connect/disconnect methods, and handles missing credentials gracefully with clear error messages.
+
+### Files Changed
+- services/telegram_client.py (new)
+
+### Learnings
+- Telethon client is async-native, so all service methods are async
+- Authorization check (is_user_authorized) happens on connect, directing users to setup script if not authorized
+- Service follows TelnyxSMSService pattern with similar structure
+
+---
+
+## 2026-01-29: frank_bot-00016 - Implement TelegramClientService message sending and retrieval methods
+
+### Summary
+Added core messaging methods to TelegramClientService: send_message(), get_messages(), get_dialogs(), and mark_read(). All methods return structured dataclass results (TelegramMessageResult, TelegramMessage, TelegramDialog) similar to SMSResult pattern. Includes error handling for rate limiting, recipient not found, and session invalidation.
+
+### Files Changed
+- services/telegram_client.py (methods added)
+
+### Learnings
+- Telethon's iter_messages() and iter_dialogs() are async generators - use async for
+- FloodWaitError contains seconds to wait - useful info for user feedback
+- Chat types detected via isinstance checks: User, Channel (broadcast/supergroup), Chat (group)
+- Stats tracking follows existing pattern with get_service_stats()
+
+---
+
+## 2026-01-29: frank_bot-00017 - Create Telegram action handlers
+
+### Summary
+Created actions/telegram.py with three action handlers: send_telegram_message(), get_telegram_messages(), and list_telegram_chats(). Actions follow the standard signature pattern and return structured dicts with success status. Limit parameters are clamped to 1-100 range.
+
+### Files Changed
+- actions/telegram.py (new)
+- tests/test_telegram_actions.py (new - 15 tests)
+
+### Learnings
+- Actions are thin wrappers around service methods, handling validation and result formatting
+- Limit clamping (max(1, min(100, limit))) prevents abuse and invalid values
+- Text preview truncation (100 chars + "...") provides summary without overwhelming response
+
+---
+
+## 2026-01-29: frank_bot-00018 - Add Telegram routes to server
+
+### Summary
+Added GET routes for /actions/telegram/send, /actions/telegram/messages, and /actions/telegram/chats to server/routes.py. Routes follow existing patterns with API key authentication and stats recording.
+
+### Files Changed
+- server/routes.py (imports and handlers added, routes added to list)
+
+### Learnings
+- All routes use GET method to minimize ChatGPT confirmation prompts
+- Stats endpoint names follow camelCase convention (telegramSend, telegramMessages, telegramChats)
+- Route handlers follow consistent pattern: auth check -> stats record -> payload -> responder
+
+---
