@@ -623,8 +623,8 @@
         "Workflow passes on PR and main branch"
       ],
       "priority": 39,
-      "passes": true,
-      "notes": "Depends on frank_bot-00030. Final deployment step for web dashboard."
+      "passes": false,
+      "notes": "Depends on frank_bot-00030. Final deployment step for web dashboard. BLOCKED: Workflow file changes require a GitHub token with workflow scope to push. The changes are prepared locally in .github/workflows/build_and_push.yml but need manual push."
     }
   ]
 }

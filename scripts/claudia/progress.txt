@@ -604,12 +604,16 @@ Created jobs-card.ts Lit web component that fetches and displays job executions.
 ### Summary
 Updated GitHub Actions workflow to build and push both the API and web containers. The web container builds from ./web/Dockerfile and pushes to ghcr.io/seanreardon/frank_bot-web:latest. Both jobs run in parallel.
 
+### Status
+BLOCKED: The workflow changes are prepared locally but cannot be pushed because the GitHub Personal Access Token lacks the `workflow` scope required to modify workflow files. The changes in .github/workflows/build_and_push.yml need to be pushed manually with a token that has the workflow scope.
+
 ### Files Changed
-- .github/workflows/build_and_push.yml (added build-and-push-web job)
+- .github/workflows/build_and_push.yml (added build-and-push-web job - not pushed)
 
 ### Learnings
 - GitHub Actions jobs run in parallel by default (no dependency needed)
 - Each job needs its own checkout, buildx setup, and registry login
 - The -web suffix distinguishes the web container image from the API image
+- Pushing workflow file changes requires a PAT with `workflow` scope
 
 ---
