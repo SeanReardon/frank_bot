@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frank-bot.contrived.com/schemas/jorb.schema.json",
+  "title": "Frank Bot Jorb",
+  "description": "Long-lived autonomous task definition for frank_bot",
+  "type": "object",
+  "required": ["id", "name", "status", "plan", "createdAt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the jorb (e.g., jorb_47)",
+      "pattern": "^jorb_[0-9]+$"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name for the jorb",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "status": {
+      "type": "string",
+      "enum": ["planning", "running", "paused", "complete", "failed", "cancelled"],
+      "description": "Current lifecycle state of the jorb"
+    },
+    "plan": {
+      "type": "string",
+      "description": "The full plan text designed by Sean + LLM"
+    },
+    "progressSummary": {
+      "type": "string",
+      "description": "Current summary of progress (updated on context resets and completions)"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when jorb was created"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last update"
+    },
+    "pausedReason": {
+      "type": "string",
+      "description": "Why the jorb is paused (if status is 'paused')"
+    },
+    "needsApprovalFor": {
+      "type": "string",
+      "enum": ["purchase", "commit", "cancel", "share_info", "other"],
+      "description": "What type of approval is needed (if paused for approval)"
+    },
+    "awaiting": {
+      "type": "string",
+      "description": "What the jorb is currently waiting for (response from Magic, user decision, etc.)"
+    },
+    "channels": {
+      "type": "array",
+      "description": "Communication channels this jorb uses",
+      "items": {
+        "type": "string",
+        "enum": ["telegram", "sms", "email"]
+      }
+    },
+    "contacts": {
+      "type": "array",
+      "description": "External parties involved in this jorb",
+      "items": {
+        "type": "object",
+        "required": ["identifier", "channel"],
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Username, phone number, or email"
+          },
+          "channel": {
+            "type": "string",
+            "enum": ["telegram", "sms", "email"]
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name (e.g., 'Magic Concierge', 'Hotel Nikko')"
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "description": "Policy overrides for this specific jorb",
+      "properties": {
+        "maxSpendWithoutApproval": {
+          "type": "number",
+          "description": "Spending limit in USD before requiring approval"
+        },
+        "maxDurationDays": {
+          "type": "integer",
+          "description": "Maximum days this jorb can run"
+        },
+        "requireApprovalFor": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["purchase", "commit", "cancel", "share_info"]
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "description": "Runtime metrics for the jorb",
+      "properties": {
+        "messagesIn": {
+          "type": "integer",
+          "description": "Total inbound messages received"
+        },
+        "messagesOut": {
+          "type": "integer",
+          "description": "Total outbound messages sent"
+        },
+        "tokensUsed": {
+          "type": "integer",
+          "description": "Total LLM tokens consumed"
+        },
+        "estimatedCost": {
+          "type": "number",
+          "description": "Estimated cost in USD (API + SMS)"
+        },
+        "contextResets": {
+          "type": "integer",
+          "description": "Number of 3-day context resets"
+        }
+      }
+    },
+    "checkpoints": {
+      "type": "array",
+      "description": "Context reset checkpoints (populated by frank_bot)",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "summary"],
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Agent's summary at checkpoint time"
+          },
+          "tokenCount": {
+            "type": "integer",
+            "description": "Tokens used in session before reset"
+          }
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "description": "Final outcome (populated when status is 'complete' or 'failed')",
+      "properties": {
+        "result": {
+          "type": "string",
+          "description": "Summary of what was achieved"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "failureReason": {
+          "type": "string",
+          "description": "Why the jorb failed (if status is 'failed')"
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional notes or context for the jorb"
+    }
+  }
+}
