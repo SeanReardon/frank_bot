@@ -309,3 +309,53 @@ Added GET routes for /actions/telegram/send, /actions/telegram/messages, and /ac
 - Route handlers follow consistent pattern: auth check -> stats record -> payload -> responder
 
 ---
+
+## 2026-01-29: frank_bot-00019 - Update OpenAPI spec with Telegram endpoints
+
+### Summary
+Added Telegram endpoints to openapi/spec.json: /actions/telegram/send, /actions/telegram/messages, and /actions/telegram/chats. Each endpoint includes query parameters, response schemas, and descriptions explaining the user account context (not a bot).
+
+### Files Changed
+- openapi/spec.json (paths and schemas added)
+
+### Learnings
+- Endpoint descriptions should clearly state that messages come from the user's personal account, not a bot
+- Response schemas include nullable fields (text, sender_id) since Telegram messages can be media-only
+- Chat type enum includes: user, group, supergroup, channel, unknown
+
+---
+
+## 2026-01-29: frank_bot-00020 - Create Telegram session setup script
+
+### Summary
+Created scripts/setup_telegram_session.py for interactive first-time Telegram authentication. Script prompts for credentials (or reads from environment), handles verification code and 2FA password input, and creates a .session file for persistent authentication. README updated with comprehensive Telegram setup instructions.
+
+### Files Changed
+- scripts/setup_telegram_session.py (new)
+- README.md (Telegram integration section added)
+
+### Learnings
+- Telethon's send_code_request() triggers verification via the Telegram app (preferred) or SMS (fallback)
+- Two-factor authentication requires a separate sign_in call with password parameter
+- Session files should be mentioned as security-sensitive (provide account access without re-verification)
+- getpass module provides secure password input that doesn't echo to terminal
+
+---
+
+## 2026-01-29: frank_bot-00021 - Add TelegramNamespace to FrankAPI for script execution
+
+### Summary
+Added TelegramNamespace class to meta/api.py with three methods: send(recipient, text), messages(chat, limit), and chats(limit). Updated FrankAPI to include telegram property. Updated introspection module to include TelegramNamespace in documentation. Created comprehensive unit tests.
+
+### Files Changed
+- meta/api.py (TelegramNamespace class and FrankAPI.telegram property added)
+- meta/introspection.py (TelegramNamespace added to namespace list)
+- tests/test_telegram_namespace.py (new - 11 tests)
+- tests/conftest.py (new - mock telethon module for testing without dependency)
+
+### Learnings
+- The conftest.py mock for telethon allows tests to run without the library installed
+- All namespace methods follow the same asyncio.run() pattern to wrap async actions
+- Introspection module's namespace list controls what appears in generated documentation
+
+---

@@ -17,6 +17,7 @@ from meta.api import (
     FrankAPI,
     SMSNamespace,
     SwarmNamespace,
+    TelegramNamespace,
     TimeNamespace,
     UPSNamespace,
 )
@@ -195,6 +196,7 @@ def generate_meta_documentation() -> str:
         ("swarm", SwarmNamespace, "Swarm/Foursquare check-in history"),
         ("ups", UPSNamespace, "UPS power status"),
         ("time", TimeNamespace, "Current time with timezone"),
+        ("telegram", TelegramNamespace, "Telegram messaging via personal account"),
     ]
 
     doc_parts.append("## Services\n")

@@ -299,6 +299,81 @@ class TimeNamespace:
         return asyncio.run(get_time_action())
 
 
+class TelegramNamespace:
+    """
+    Telegram operations.
+
+    Wraps Telegram actions for messaging via your personal Telegram account (not a bot).
+    Requires prior authentication via the setup script.
+    """
+
+    def send(
+        self,
+        recipient: str,
+        text: str,
+    ) -> dict[str, Any]:
+        """
+        Send a Telegram message.
+
+        Parameters:
+            recipient: Username (with or without @), phone number, or chat ID
+            text: Message text to send
+
+        Returns:
+            Dict with success status, recipient info, and message details
+        """
+        from actions.telegram import send_telegram_message
+
+        args = {
+            "recipient": recipient,
+            "text": text,
+        }
+        return asyncio.run(send_telegram_message(args))
+
+    def messages(
+        self,
+        chat: str,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """
+        Get messages from a Telegram chat.
+
+        Parameters:
+            chat: Username, phone number, or chat ID
+            limit: Maximum number of messages to retrieve (1-100, default 20)
+
+        Returns:
+            Dict with list of messages and metadata
+        """
+        from actions.telegram import get_telegram_messages
+
+        args = {
+            "chat": chat,
+            "limit": limit,
+        }
+        return asyncio.run(get_telegram_messages(args))
+
+    def chats(
+        self,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """
+        List recent Telegram conversations.
+
+        Parameters:
+            limit: Maximum number of chats to retrieve (1-100, default 20)
+
+        Returns:
+            Dict with list of chats and metadata
+        """
+        from actions.telegram import list_telegram_chats
+
+        args = {
+            "limit": limit,
+        }
+        return asyncio.run(list_telegram_chats(args))
+
+
 class FrankAPI:
     """
     Synchronous API for Frank Bot scripting.
@@ -321,6 +396,7 @@ class FrankAPI:
         self._swarm = SwarmNamespace()
         self._ups = UPSNamespace()
         self._time = TimeNamespace()
+        self._telegram = TelegramNamespace()
 
     @property
     def calendar(self) -> CalendarNamespace:
@@ -352,6 +428,11 @@ class FrankAPI:
         """Time operations (now)."""
         return self._time
 
+    @property
+    def telegram(self) -> TelegramNamespace:
+        """Telegram operations (send, messages, chats)."""
+        return self._telegram
+
 
 __all__ = [
     "FrankAPI",
@@ -361,4 +442,5 @@ __all__ = [
     "SwarmNamespace",
     "UPSNamespace",
     "TimeNamespace",
+    "TelegramNamespace",
 ]

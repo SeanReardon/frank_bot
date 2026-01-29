@@ -644,6 +644,125 @@
         },
         "security": [{"ActionsApiKey": []}]
       }
+    },
+    "/actions/telegram/send": {
+      "get": {
+        "operationId": "sendTelegramMessage",
+        "summary": "Send a Telegram message via your personal account",
+        "description": "Send a message to a Telegram user, group, or channel using your authenticated Telegram account (not a bot). Requires prior session setup via the setup script.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "recipient",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "Username (with or without @), phone number (E.164 format), or chat ID."
+          },
+          {
+            "in": "query",
+            "name": "text",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "The message text to send."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message sent successfully.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/TelegramSendResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or message failed.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/telegram/messages": {
+      "get": {
+        "operationId": "getTelegramMessages",
+        "summary": "Get messages from a Telegram chat via your personal account",
+        "description": "Retrieve recent messages from a Telegram conversation using your authenticated Telegram account (not a bot). Returns messages you have access to in the specified chat.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "chat",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "Username, phone number, or chat ID to get messages from."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100},
+            "required": false,
+            "description": "Maximum number of messages to retrieve (default 20, max 100)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Messages retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/TelegramMessagesResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or chat not accessible.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/telegram/chats": {
+      "get": {
+        "operationId": "listTelegramChats",
+        "summary": "List your Telegram conversations via your personal account",
+        "description": "List recent Telegram conversations (dialogs) from your authenticated Telegram account (not a bot). Includes direct messages, groups, and channels you have access to.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100},
+            "required": false,
+            "description": "Maximum number of chats to retrieve (default 20, max 100)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chats retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/TelegramChatsResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
     }
   },
   "components": {
@@ -1035,6 +1154,70 @@
           "error": {"type": "string", "description": "Error message if status is failed or timeout."}
         },
         "required": ["job_id", "script_id", "status", "params", "stdout", "stderr"]
+      },
+      "TelegramSendResponse": {
+        "type": "object",
+        "description": "Response from sending a Telegram message via user account.",
+        "properties": {
+          "message": {"type": "string", "description": "Human-readable summary of the action."},
+          "success": {"type": "boolean"},
+          "recipient": {"type": "string", "description": "Username, phone, or chat ID the message was sent to."},
+          "message_id": {"type": "integer", "description": "Telegram message ID for tracking."},
+          "text_preview": {"type": "string", "description": "Preview of the message text sent (max 100 chars)."}
+        },
+        "required": ["message", "success", "recipient"]
+      },
+      "TelegramMessage": {
+        "type": "object",
+        "description": "A Telegram message from a conversation.",
+        "properties": {
+          "id": {"type": "integer", "description": "Telegram message ID."},
+          "text": {"type": "string", "description": "Message text content (null for media-only messages)."},
+          "date": {"type": "string", "format": "date-time", "description": "When the message was sent."},
+          "sender_id": {"type": "integer", "description": "Telegram user ID of the sender."},
+          "sender_name": {"type": "string", "description": "Display name of the sender."},
+          "is_outgoing": {"type": "boolean", "description": "True if you sent this message."}
+        },
+        "required": ["id", "date", "is_outgoing"]
+      },
+      "TelegramMessagesResponse": {
+        "type": "object",
+        "description": "Response containing messages from a Telegram chat.",
+        "properties": {
+          "success": {"type": "boolean"},
+          "chat": {"type": "string", "description": "Chat identifier that was queried."},
+          "count": {"type": "integer", "description": "Number of messages returned."},
+          "messages": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/TelegramMessage"}
+          }
+        },
+        "required": ["success", "chat", "count", "messages"]
+      },
+      "TelegramChat": {
+        "type": "object",
+        "description": "A Telegram conversation/dialog.",
+        "properties": {
+          "id": {"type": "integer", "description": "Telegram chat ID."},
+          "name": {"type": "string", "description": "Chat name or contact name."},
+          "type": {"type": "string", "enum": ["user", "group", "supergroup", "channel", "unknown"], "description": "Type of chat."},
+          "unread_count": {"type": "integer", "description": "Number of unread messages."},
+          "last_message_date": {"type": "string", "format": "date-time", "description": "When the last message was sent."}
+        },
+        "required": ["id", "name", "type", "unread_count"]
+      },
+      "TelegramChatsResponse": {
+        "type": "object",
+        "description": "Response containing list of Telegram conversations.",
+        "properties": {
+          "success": {"type": "boolean"},
+          "count": {"type": "integer", "description": "Number of chats returned."},
+          "chats": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/TelegramChat"}
+          }
+        },
+        "required": ["success", "count", "chats"]
       }
     },
     "securitySchemes": {

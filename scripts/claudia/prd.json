@@ -299,7 +299,7 @@
         "Endpoint descriptions explain the user account context (not a bot)"
       ],
       "priority": 19,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00018. Documents API for ChatGPT/OpenAI integration."
     },
     {
@@ -315,7 +315,7 @@
         "README updated with Telegram setup instructions referencing this script"
       ],
       "priority": 20,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00015. Required for first-time Telegram authentication in server/Docker context."
     },
     {
@@ -332,7 +332,7 @@
         "Introspection module updated to include TelegramNamespace in documentation"
       ],
       "priority": 21,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00017. Enables Telegram access in meta script execution."
     }
   ]

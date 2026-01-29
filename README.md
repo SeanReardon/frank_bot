@@ -185,6 +185,44 @@ When `ACTIONS_API_KEY` is set, every Actions route expects `X-API-Key: <value>`.
 
 Set `SWARM_OAUTH_TOKEN` (and optionally `SWARM_API_VERSION`) to enable the Swarm-powered action `list_my_swarm_checkins`, which returns your current Swarm location plus the most recent venues you've visited. Tokens come from https://developer.foursquare.com/ after authorizing the Swarm app; if the token is missing the endpoint will return a descriptive error. The `get_my_time` action uses `DEFAULT_TIMEZONE`, so set that env var to your home location (default `America/Chicago`).
 
+### Telegram integration
+
+Frank Bot can send and receive Telegram messages using your personal Telegram account (not a bot). This allows messaging to any Telegram user, group, or channel you have access to.
+
+**Setup steps:**
+
+1. **Get API credentials** from https://my.telegram.org:
+   - Log in with your phone number
+   - Go to "API development tools"
+   - Create an application to get your `api_id` and `api_hash`
+
+2. **Set environment variables** in your `.env` file:
+   ```
+   TELEGRAM_API_ID=your_api_id
+   TELEGRAM_API_HASH=your_api_hash
+   TELEGRAM_PHONE=+15551234567
+   TELEGRAM_SESSION_NAME=frank_bot  # optional, default: frank_bot
+   ```
+
+3. **Run the setup script** to authenticate:
+   ```bash
+   poetry run python scripts/setup_telegram_session.py
+   ```
+   This will:
+   - Send a verification code to your Telegram app
+   - Prompt you to enter the code
+   - Handle 2FA if enabled
+   - Create a `.session` file for persistent authentication
+
+4. **Keep the session file secure** - it provides access to your Telegram account without needing the verification code again. The `.session` file should be in your `.gitignore`.
+
+**Available endpoints:**
+- `GET /actions/telegram/send?recipient=@username&text=Hello` - Send a message
+- `GET /actions/telegram/messages?chat=@username&limit=20` - Get messages from a chat
+- `GET /actions/telegram/chats?limit=20` - List recent conversations
+
+**Note:** Unlike SMS, Telegram messages are sent from YOUR personal account. Recipients will see messages coming from you, not from a service number.
+
 ## Maintaining the OpenAPI document
 
 The canonical specification lives at `openapi/spec.json`. Update that file whenever you change the HTTP surface, then restart the server (or redeploy) so the new document is served at `/actions/openapi.json`. A quick workflow:
