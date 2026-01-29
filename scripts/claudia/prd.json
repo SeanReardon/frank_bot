@@ -334,6 +334,297 @@
       "priority": 21,
       "passes": true,
       "notes": "Depends on frank_bot-00017. Enables Telegram access in meta script execution."
+    },
+    {
+      "id": "frank_bot-00022",
+      "title": "Update TelegramClientService to use DATA_DIR for session file location",
+      "acceptanceCriteria": [
+        "services/telegram_client.py updated to read DATA_DIR environment variable",
+        "Session file path constructed as: os.path.join(os.getenv('DATA_DIR', '.'), settings.telegram_session_name)",
+        "Session file is created in /app/data/ when DATA_DIR=/app/data",
+        "Existing session files in project root still work when DATA_DIR is not set",
+        "Unit test verifies session path construction logic"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": "Depends on frank_bot-00015. Required for sharing session between API and web containers via mounted volume."
+    },
+    {
+      "id": "frank_bot-00023",
+      "title": "Add GET /telegram/status endpoint",
+      "acceptanceCriteria": [
+        "GET /telegram/status route added to server/routes.py",
+        "Returns JSON: { status: 'not_configured' | 'needs_auth' | 'connected', account?: { name, username, phone } }",
+        "Status 'not_configured' when TELEGRAM_API_ID, TELEGRAM_API_HASH, or TELEGRAM_PHONE env vars missing",
+        "Status 'needs_auth' when env vars present but session file missing or unauthorized",
+        "Status 'connected' when session is authorized, includes account info from get_me()",
+        "Endpoint does NOT require Stytch auth (public status check)",
+        "Integration test verifies all three status states"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": "Depends on frank_bot-00015, frank_bot-00022. Foundation endpoint for web dashboard Telegram card."
+    },
+    {
+      "id": "frank_bot-00024",
+      "title": "Add Stytch session validation middleware for protected routes",
+      "acceptanceCriteria": [
+        "New middleware function validates stytch_session_token cookie",
+        "Middleware calls Stytch API to verify session is valid",
+        "STYTCH_PROJECT_ID and STYTCH_SECRET environment variables added to config",
+        "Invalid/missing session returns 401 Unauthorized JSON response",
+        "Middleware can be applied to specific routes via decorator or route configuration",
+        "Unit tests with mocked Stytch API verify validation logic"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": "No direct dependencies. Required for protecting Telegram auth endpoints. Reference ~/dev/contrived-site/ for Stytch integration patterns."
+    },
+    {
+      "id": "frank_bot-00025",
+      "title": "Add POST /telegram/auth/start endpoint",
+      "acceptanceCriteria": [
+        "POST /telegram/auth/start route added to server/routes.py",
+        "Accepts JSON body: { phone?: string } (optional, uses TELEGRAM_PHONE env var if not provided)",
+        "Returns JSON: { status: 'code_sent' | 'already_authorized' | 'error', phoneCodeHash?: string }",
+        "Calls Telethon send_code_request() to trigger verification code",
+        "Returns phoneCodeHash needed for verification step",
+        "Endpoint protected by Stytch session validation middleware",
+        "Integration test verifies code sending flow (mocked Telegram API)"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": "Depends on frank_bot-00015, frank_bot-00024. First step in web-based Telegram auth flow."
+    },
+    {
+      "id": "frank_bot-00026",
+      "title": "Add POST /telegram/auth/verify endpoint",
+      "acceptanceCriteria": [
+        "POST /telegram/auth/verify route added to server/routes.py",
+        "Accepts JSON body: { code: string, phoneCodeHash: string }",
+        "Returns JSON: { status: 'success' | 'invalid_code' | 'needs_2fa' | 'error' }",
+        "Calls Telethon sign_in() with verification code",
+        "Returns 'needs_2fa' if account has two-factor authentication enabled",
+        "On success, session file is created/updated",
+        "Endpoint protected by Stytch session validation middleware",
+        "Integration test verifies verification flow including 2FA detection"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": "Depends on frank_bot-00025. Second step in web-based Telegram auth flow."
+    },
+    {
+      "id": "frank_bot-00027",
+      "title": "Add POST /telegram/auth/2fa endpoint",
+      "acceptanceCriteria": [
+        "POST /telegram/auth/2fa route added to server/routes.py",
+        "Accepts JSON body: { password: string }",
+        "Returns JSON: { status: 'success' | 'invalid_password' | 'error' }",
+        "Calls Telethon sign_in() with 2FA password",
+        "On success, session file is created/updated",
+        "Endpoint protected by Stytch session validation middleware",
+        "Integration test verifies 2FA completion flow"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": "Depends on frank_bot-00026. Final step in web-based Telegram auth flow for 2FA accounts."
+    },
+    {
+      "id": "frank_bot-00028",
+      "title": "Add GET /telegram/test endpoint",
+      "acceptanceCriteria": [
+        "GET /telegram/test route added to server/routes.py",
+        "Returns JSON: { connected: boolean, dialogs?: [first 3 chats], error?: string }",
+        "When connected, fetches first 3 dialogs via get_dialogs(limit=3)",
+        "When not connected, returns connected: false with error message",
+        "Endpoint does NOT require Stytch auth (allows testing from ChatGPT)",
+        "Integration test verifies connected and disconnected states"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": "Depends on frank_bot-00016, frank_bot-00023. Provides connection test functionality for dashboard."
+    },
+    {
+      "id": "frank_bot-00029",
+      "title": "Create web/ directory with Vite + TypeScript + Lit project scaffold",
+      "acceptanceCriteria": [
+        "web/ directory created with package.json including: lit 3.x, vite 5.x, typescript",
+        "vite.config.ts configured with dual build mode (dev SPA + library IIFE bundle)",
+        "tsconfig.json with strict mode, decorators enabled, ES2020 target",
+        "web/src/ directory structure: components/, lib/, styles/",
+        "web/index.html for dev preview page",
+        "npm run dev starts Vite dev server with API proxy to http://frank-bot:8000",
+        "npm run build creates dist/ for dev and dist-lib/bundle.js for embedding"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": "No dependencies. Foundation for all frontend tasks. Follow ~/dev/claudia/web/ patterns."
+    },
+    {
+      "id": "frank_bot-00030",
+      "title": "Create web/Dockerfile with multi-stage build",
+      "acceptanceCriteria": [
+        "web/Dockerfile created with two stages: node:20-alpine builder, nginx:alpine production",
+        "Builder stage runs npm ci and npm run build:lib",
+        "Production stage copies dist-lib/bundle.js and nginx.conf",
+        "Health check configured for container",
+        "Image builds successfully: docker build -t frank_bot-web ./web",
+        "Container serves bundle.js at /bundle.js"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": "Depends on frank_bot-00029. Required for containerized deployment."
+    },
+    {
+      "id": "frank_bot-00031",
+      "title": "Create web/nginx.conf with API proxy and static file serving",
+      "acceptanceCriteria": [
+        "web/nginx.conf created with routing rules",
+        "/api/* requests proxied to http://frank-bot:8000/* (strip /api prefix)",
+        "/health returns 200 for container health checks",
+        "/* serves static files with SPA fallback (try_files $uri $uri/ /index.html)",
+        "/bundle.js served with CORS headers for contrived.com embedding",
+        "Gzip compression enabled for text, JSON, JS",
+        "Static assets (JS/CSS/images) served with long cache headers"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": "Depends on frank_bot-00029. Required for frank_bot-00030 Dockerfile."
+    },
+    {
+      "id": "frank_bot-00032",
+      "title": "Create API client module (web/src/lib/api.ts)",
+      "acceptanceCriteria": [
+        "web/src/lib/api.ts created following ~/dev/claudia/web/src/api.ts pattern",
+        "configure({ apiBase, sessionToken }) function for initialization",
+        "request<T>(path, options) wrapper with auth header and error handling",
+        "AuthError class for 401/403 responses",
+        "getTelegramStatus() function calls GET /telegram/status",
+        "startTelegramAuth(phone?) function calls POST /telegram/auth/start",
+        "verifyTelegramCode(code, phoneCodeHash) function calls POST /telegram/auth/verify",
+        "submitTelegram2FA(password) function calls POST /telegram/auth/2fa",
+        "testTelegramConnection() function calls GET /telegram/test",
+        "getScripts() function calls GET /frank/scripts",
+        "getJobs() function calls GET /frank/jobs"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": "Depends on frank_bot-00029. Required before any frontend components can be built."
+    },
+    {
+      "id": "frank_bot-00033",
+      "title": "Create CSS tokens file (web/src/styles/tokens.css)",
+      "acceptanceCriteria": [
+        "web/src/styles/tokens.css created with CSS custom property fallbacks",
+        "Fallback values for: --color-bg, --color-text, --color-primary, --color-border, --color-success, --color-error",
+        "Fallback values for: --font-family, --font-size-base, --spacing-unit, --border-radius",
+        "Values work standalone for dev mode and inherit from contrived-site when embedded",
+        "Tokens imported in main dashboard component"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": "Depends on frank_bot-00029. Provides theming foundation for components."
+    },
+    {
+      "id": "frank_bot-00034",
+      "title": "Create main dashboard component (frank-bot-dashboard.ts)",
+      "acceptanceCriteria": [
+        "web/src/frank-bot-dashboard.ts created as Lit web component",
+        "@customElement('frank-bot-dashboard') decorator applied",
+        "Accepts attributes: session-token (optional), api-base (default: /api)",
+        "Reads stytch_session_token from cookie if session-token attribute not provided",
+        "Initializes API client on connectedCallback()",
+        "Renders container with slots for child cards (telegram-card, scripts-card, jobs-card)",
+        "Includes activity-tracker-lite.js script for session keepalive",
+        "Component renders successfully in dev mode"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": "Depends on frank_bot-00032, frank_bot-00033. Entry point component for dashboard."
+    },
+    {
+      "id": "frank_bot-00035",
+      "title": "Create Telegram card component (telegram-card.ts)",
+      "acceptanceCriteria": [
+        "web/src/components/telegram-card.ts created as Lit web component",
+        "@customElement('telegram-card') decorator applied",
+        "Fetches status from /telegram/status on mount",
+        "Displays 'not_configured' state with message about missing env vars",
+        "Displays 'needs_auth' state with Connect Telegram button",
+        "Displays 'connected' state with account info (name, username, phone)",
+        "Connected state includes Test Connection button that calls /telegram/test",
+        "Uses CSS custom properties from tokens.css for styling"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": "Depends on frank_bot-00023, frank_bot-00032, frank_bot-00034. Basic status display without auth wizard."
+    },
+    {
+      "id": "frank_bot-00036",
+      "title": "Add Telegram auth wizard to telegram-card component",
+      "acceptanceCriteria": [
+        "telegram-card.ts extended with multi-step auth wizard",
+        "Step 1: Click Connect Telegram -> calls /telegram/auth/start -> shows code input",
+        "Step 2: Enter verification code -> calls /telegram/auth/verify",
+        "Step 3 (conditional): If needs_2fa, show password input -> calls /telegram/auth/2fa",
+        "Success state transitions to 'connected' display",
+        "Error states show clear messages and allow retry",
+        "Loading states shown during API calls",
+        "phoneCodeHash maintained in component state between steps"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": "Depends on frank_bot-00025, frank_bot-00026, frank_bot-00027, frank_bot-00035. Completes Telegram setup wizard."
+    },
+    {
+      "id": "frank_bot-00037",
+      "title": "Create scripts card component (scripts-card.ts)",
+      "acceptanceCriteria": [
+        "web/src/components/scripts-card.ts created as Lit web component",
+        "@customElement('scripts-card') decorator applied",
+        "Fetches scripts list from GET /frank/scripts on mount",
+        "Displays list of scripts with: name, description, execution count, last run time",
+        "Empty state shown when no scripts exist",
+        "Click on script shows expanded details (full description, example code)",
+        "Refresh button to reload scripts list",
+        "Uses CSS custom properties from tokens.css for styling"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": "Depends on frank_bot-00008, frank_bot-00032, frank_bot-00034. Displays meta scripts."
+    },
+    {
+      "id": "frank_bot-00038",
+      "title": "Create jobs card component (jobs-card.ts)",
+      "acceptanceCriteria": [
+        "web/src/components/jobs-card.ts created as Lit web component",
+        "@customElement('jobs-card') decorator applied",
+        "Fetches jobs list from GET /frank/jobs on mount",
+        "Displays list of jobs with: script name, status badge, started_at, duration",
+        "Status badges color-coded: pending (gray), running (blue), completed (green), failed (red)",
+        "Empty state shown when no jobs exist",
+        "Click on job shows expanded details (stdout, stderr, result/error)",
+        "Filter dropdown to filter by status (all, pending, running, completed, failed)",
+        "Auto-refresh toggle for polling running jobs"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": "Depends on frank_bot-00010, frank_bot-00032, frank_bot-00034. Displays job executions."
+    },
+    {
+      "id": "frank_bot-00039",
+      "title": "Add CI/CD workflow for web container build and push",
+      "acceptanceCriteria": [
+        ".github/workflows/build_and_push.yml updated to include web container build",
+        "Workflow builds ./web/Dockerfile",
+        "Image pushed to ghcr.io/seanreardon/frank_bot-web:latest",
+        "Build triggered on changes to web/ directory",
+        "Build uses same authentication/registry patterns as existing frank_bot image",
+        "Workflow passes on PR and main branch"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": "Depends on frank_bot-00030. Final deployment step for web dashboard."
     }
   ]
 }
