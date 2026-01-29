@@ -2,11 +2,16 @@
 Stytch session validation middleware for protected routes.
 
 Validates the stytch_session_token cookie by calling the Stytch API.
+
+Credentials are loaded from:
+1. Vault (if configured) - secret/frank-bot/stytch
+2. Environment variables (fallback) - STYTCH_PROJECT_ID, STYTCH_SECRET
 """
 
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import Callable, Awaitable
 
 import httpx
@@ -14,8 +19,41 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from config import get_settings
+from services.vault_client import get_stytch_credentials, vault_enabled
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _load_stytch_credentials() -> tuple[str | None, str | None]:
+    """
+    Load Stytch credentials from Vault or environment variables.
+    
+    Returns:
+        Tuple of (project_id, secret), or (None, None) if not configured.
+    """
+    # Try Vault first
+    if vault_enabled():
+        logger.info("Loading Stytch credentials from Vault...")
+        creds = get_stytch_credentials()
+        if creds:
+            project_id = creds.get("project_id")
+            secret = creds.get("secret")
+            if project_id and secret:
+                logger.info("Stytch credentials loaded from Vault")
+                return project_id, secret
+            logger.warning("Stytch credentials in Vault are incomplete")
+        else:
+            logger.warning("Failed to load Stytch credentials from Vault")
+    
+    # Fall back to environment variables
+    settings = get_settings()
+    if settings.stytch_project_id and settings.stytch_secret:
+        logger.info("Using Stytch credentials from environment variables")
+        return settings.stytch_project_id, settings.stytch_secret
+    
+    logger.warning("No Stytch credentials configured")
+    return None, None
 
 # Stytch API base URLs
 STYTCH_API_BASE = "https://api.stytch.com"
@@ -95,10 +133,11 @@ def require_stytch_session(
             return JSONResponse({"data": "protected"})
     """
     async def wrapper(request: Request) -> JSONResponse:
-        settings = get_settings()
+        # Load credentials (cached)
+        project_id, secret = _load_stytch_credentials()
 
         # Check if Stytch is configured
-        if not settings.stytch_project_id or not settings.stytch_secret:
+        if not project_id or not secret:
             logger.warning("Stytch not configured - rejecting protected request")
             return JSONResponse(
                 {"error": "Authentication not configured"},
@@ -115,10 +154,7 @@ def require_stytch_session(
             )
 
         # Validate with Stytch
-        validator = StytchSessionValidator(
-            settings.stytch_project_id,
-            settings.stytch_secret,
-        )
+        validator = StytchSessionValidator(project_id, secret)
 
         session_data = await validator.validate_session(session_token)
 

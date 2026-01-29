@@ -1,0 +1,183 @@
+"""
+Vault Client for Frank Bot
+
+Fetches secrets from HashiCorp Vault using AppRole authentication.
+Falls back to environment variables if Vault is unavailable.
+Includes retry with exponential backoff for transient failures.
+
+Pattern follows ~/dev/claudia/api/src/vault_client.py
+"""
+
+import logging
+import os
+import time
+from typing import Any
+
+import hvac
+
+
+# Vault configuration from environment
+VAULT_ADDR = os.environ.get("VAULT_ADDR", "")
+VAULT_ROLE_ID = os.environ.get("VAULT_ROLE_ID", "")
+VAULT_SECRET_ID = os.environ.get("VAULT_SECRET_ID", "")
+
+# Retry configuration
+MAX_RETRIES = 3
+INITIAL_BACKOFF_SECONDS = 1.0
+MAX_BACKOFF_SECONDS = 10.0
+BACKOFF_MULTIPLIER = 2.0
+
+# Cache for Vault client and secrets
+_vault_client: hvac.Client | None = None
+_secret_cache: dict[str, dict[str, Any]] = {}
+
+logger = logging.getLogger(__name__)
+
+
+def vault_enabled() -> bool:
+    """Check if Vault is configured."""
+    return bool(VAULT_ADDR and VAULT_ROLE_ID and VAULT_SECRET_ID)
+
+
+def _sleep_with_backoff(attempt: int) -> None:
+    """Sleep with exponential backoff."""
+    backoff = min(
+        INITIAL_BACKOFF_SECONDS * (BACKOFF_MULTIPLIER ** attempt),
+        MAX_BACKOFF_SECONDS
+    )
+    time.sleep(backoff)
+
+
+def _get_vault_client(retry: bool = True) -> hvac.Client | None:
+    """
+    Get authenticated Vault client, or None if Vault is unavailable.
+
+    Args:
+        retry: If True, retry with backoff on transient failures.
+    """
+    global _vault_client
+
+    if _vault_client is not None:
+        # Check if still authenticated
+        try:
+            if _vault_client.is_authenticated():
+                return _vault_client
+        except Exception:
+            pass
+        # Token expired or connection lost, clear and re-authenticate
+        _vault_client = None
+
+    if not vault_enabled():
+        logger.debug("Vault credentials not configured, skipping Vault")
+        return None
+
+    max_attempts = MAX_RETRIES if retry else 1
+    last_error: Exception | None = None
+
+    for attempt in range(max_attempts):
+        try:
+            client = hvac.Client(url=VAULT_ADDR)
+            client.auth.approle.login(
+                role_id=VAULT_ROLE_ID,
+                secret_id=VAULT_SECRET_ID,
+            )
+
+            if client.is_authenticated():
+                _vault_client = client
+                if attempt > 0:
+                    logger.info(f"Vault connection succeeded after {attempt + 1} attempts")
+                return _vault_client
+            else:
+                logger.warning("Vault authentication failed: client not authenticated")
+        except Exception as e:
+            last_error = e
+            if attempt < max_attempts - 1:
+                logger.warning(
+                    f"Vault connection attempt {attempt + 1} failed: {e}, retrying..."
+                )
+                _sleep_with_backoff(attempt)
+            else:
+                logger.error(f"Vault connection failed after {max_attempts} attempts: {e}")
+
+    return None
+
+
+def clear_client_cache() -> None:
+    """Clear the Vault client cache, forcing re-authentication on next request."""
+    global _vault_client
+    _vault_client = None
+
+
+def clear_secret_cache() -> None:
+    """Clear the secret cache, forcing fresh fetches from Vault."""
+    global _secret_cache
+    _secret_cache = {}
+
+
+def get_secret(path: str, retry: bool = True) -> dict[str, Any] | None:
+    """
+    Fetch a secret from Vault with retry and caching.
+
+    Args:
+        path: Secret path (e.g., "frank-bot/stytch")
+        retry: If True, retry with backoff on transient failures.
+
+    Returns:
+        Secret data dict or None if unavailable
+    """
+    # Check cache first
+    if path in _secret_cache:
+        return _secret_cache[path]
+
+    client = _get_vault_client(retry=retry)
+    if client is None:
+        return None
+
+    max_attempts = MAX_RETRIES if retry else 1
+
+    for attempt in range(max_attempts):
+        try:
+            response = client.secrets.kv.v2.read_secret_version(
+                mount_point="secret",
+                path=path,
+            )
+            secret_data = response["data"]["data"]
+            # Cache the result
+            _secret_cache[path] = secret_data
+            return secret_data
+        except hvac.exceptions.InvalidPath:
+            # Secret doesn't exist - don't retry, just return None
+            logger.warning(f"Secret not found at path: {path}")
+            return None
+        except Exception as e:
+            if attempt < max_attempts - 1:
+                logger.warning(
+                    f"Vault read attempt {attempt + 1} for {path} failed: {e}, retrying..."
+                )
+                _sleep_with_backoff(attempt)
+            else:
+                logger.error(f"Vault read failed for {path} after {max_attempts} attempts: {e}")
+
+    return None
+
+
+def get_stytch_credentials() -> dict[str, str] | None:
+    """
+    Get Stytch credentials from Vault.
+
+    Returns dict with:
+        - project_id: Stytch project ID
+        - secret: Stytch secret
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/stytch")
+
+
+__all__ = [
+    "vault_enabled",
+    "get_secret",
+    "get_stytch_credentials",
+    "clear_client_cache",
+    "clear_secret_cache",
+]

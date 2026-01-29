@@ -25,7 +25,7 @@ from meta.executor import execute_new_script, execute_script_async
 from meta.introspection import generate_meta_documentation
 from meta.jobs import Job, JobStatus, get_job, job_to_summary_dict, list_jobs
 from meta.scripts import get_script, list_scripts, script_metadata_to_dict
-from server.stytch_middleware import StytchSessionValidator
+from server.stytch_middleware import StytchSessionValidator, _load_stytch_credentials
 
 
 def build_meta_routes(settings: Settings) -> list[Route]:
@@ -45,19 +45,18 @@ def build_meta_routes(settings: Settings) -> list[Route]:
                 return None  # API key valid
 
         # Check Stytch session (for web dashboard access)
-        if settings.stytch_project_id and settings.stytch_secret:
+        # Load credentials from Vault or env vars
+        project_id, secret = _load_stytch_credentials()
+        if project_id and secret:
             session_token = request.cookies.get("stytch_session_token")
             if session_token:
-                validator = StytchSessionValidator(
-                    settings.stytch_project_id,
-                    settings.stytch_secret,
-                )
+                validator = StytchSessionValidator(project_id, secret)
                 session_data = await validator.validate_session(session_token)
                 if session_data:
                     return None  # Stytch session valid
 
         # Neither auth method succeeded
-        if not settings.actions_api_key and not settings.stytch_project_id:
+        if not settings.actions_api_key and not project_id:
             return None  # No auth configured, allow access
 
         return JSONResponse(
