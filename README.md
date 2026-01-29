@@ -86,6 +86,17 @@ frank_bot/
 ├── tests/                 # Test suite
 │   └── test_*.py
 │
+├── meta/                  # FrankAPI scripting module
+│   ├── api.py             # FrankAPI class and namespaces
+│   ├── scripts.py         # Script storage utilities
+│   ├── jobs.py            # Job management
+│   ├── executor.py        # Script execution
+│   └── introspection.py   # API documentation generation
+│
+├── data/                  # Persistent data (Docker volume)
+│   ├── scripts/           # Saved Python scripts
+│   └── jobs/              # Job execution records
+│
 ├── scripts/               # Dev/maintenance utilities
 │   └── update_public_urls.py
 │
@@ -203,3 +214,20 @@ To pull the latest image:
 ```bash
 docker pull ghcr.io/seanreardon/frank_bot:latest
 ```
+
+## Data Directory
+
+The `./data` directory is mounted as a volume to persist scripts and job records:
+
+```
+data/
+├── scripts/    # Saved Python scripts (*.py)
+│               # Filename format: {ISO8601-timestamp}-{slug}.py
+│               # Example: 2024-01-15T10-30-00Z-find-hotels.py
+│
+└── jobs/       # Job execution records (*.json)
+                # Filename format: {ISO8601-timestamp}-{slug}-run.json
+                # Contains: job_id, script_id, status, params, stdout, stderr, result, error
+```
+
+Scripts are executed via the `/frank/execute` endpoint and can be reused by referencing their `script_id`. Job records track execution status (pending, running, completed, failed, timeout) and capture output for later retrieval via `/frank/jobs/{id}`.

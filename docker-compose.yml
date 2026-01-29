@@ -46,6 +46,9 @@ services:
       # Container path for logs
       LOG_FILE: "/app/logs/frank_bot-api.log"
 
+      # Container path for data (scripts and jobs)
+      DATA_DIR: "/app/data"
+
       # Optional manifest metadata (defaults if not in .env)
       ACTIONS_NAME_FOR_HUMAN: "${ACTIONS_NAME_FOR_HUMAN:-Frank Bot}"
       ACTIONS_NAME_FOR_MODEL: "${ACTIONS_NAME_FOR_MODEL:-frank_bot}"
@@ -62,6 +65,8 @@ services:
       - ./token.json:/app/secrets/token.json
       # Persist logs
       - ${LOG_PATH:-./logs}:/app/logs
+      # Persist scripts and jobs data
+      - ./data:/app/data
     healthcheck:
       test:
         [

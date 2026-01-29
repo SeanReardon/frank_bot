@@ -61,3 +61,72 @@ Added comprehensive unit tests for all remaining namespace classes: ContactsName
 - Tests follow the same mocking pattern as CalendarNamespace: mock at the action layer since imports happen inside the methods
 
 ---
+
+## 2026-01-29: frank_bot-00004 - Implement script storage and parsing utilities
+
+### Summary
+Implemented script storage and parsing utilities in meta/scripts.py. Scripts are stored as .py files with timestamped filenames, and docstrings are parsed to extract metadata (description, parameters, example). Created comprehensive unit tests covering docstring parsing, filename handling, and CRUD operations.
+
+### Files Changed
+- meta/scripts.py (new)
+- tests/test_scripts.py (new)
+
+### Learnings
+- Script filenames use filesystem-safe ISO 8601 format: YYYY-MM-DDTHH-MM-SSZ (colons replaced with dashes)
+- Python's ast module is reliable for extracting module docstrings even without executing the code
+- Docstring parsing needs to handle both "Parameters:" and "Args:" section headers
+- ScriptMetadata dataclass provides clean abstraction for script information
+
+---
+
+## 2026-01-29: frank_bot-00005 - Implement job storage and management
+
+### Summary
+Implemented job storage and management in meta/jobs.py. Jobs track script executions with status (pending, running, completed, failed, timeout), capturing params, stdout, stderr, result, and error. Created comprehensive unit tests for all CRUD operations.
+
+### Files Changed
+- meta/jobs.py (new)
+- tests/test_jobs.py (new)
+
+### Learnings
+- JobStatus enum extends str for JSON serialization compatibility
+- Job filenames use pattern {timestamp}-{slug}-run.json to distinguish from scripts
+- Auto-setting completed_at for terminal statuses (completed, failed, timeout) simplifies update logic
+- Jobs are sorted by started_at descending for newest-first listing
+
+---
+
+## 2026-01-29: frank_bot-00007 - Implement introspection module for meta documentation generation
+
+### Summary
+Implemented the introspection module in meta/introspection.py that generates Markdown documentation from FrankAPI by inspecting namespace classes. Documentation includes quick start example, execution workflow, method tables for all services, and usage notes.
+
+### Files Changed
+- meta/introspection.py (updated from placeholder)
+- tests/test_introspection.py (new)
+
+### Learnings
+- Python's inspect module combined with get_type_hints() reliably extracts method signatures
+- Pipe characters in Markdown tables need escaping for valid output
+- Documentation structure should match API discovery workflow: quick start -> execution -> services -> notes
+- Code fence counts must balance (```python + ```json = ``` closers)
+
+---
+
+## 2026-01-29: frank_bot-00013 - Ensure data volume is mounted in Docker configuration
+
+### Summary
+Updated docker-compose.yml to mount ./data:/app/data volume for persisting scripts and jobs. Added DATA_DIR environment variable for container path configuration. Updated README with data directory documentation.
+
+### Files Changed
+- docker-compose.yml
+- README.md
+- meta/scripts.py (updated DEFAULT_SCRIPTS_DIR to use DATA_DIR env var)
+- meta/jobs.py (updated DEFAULT_JOBS_DIR to use DATA_DIR env var)
+
+### Learnings
+- Using environment variable (DATA_DIR) with fallback to relative path allows same code to work in both Docker and local development
+- Docker volume mount ./data:/app/data provides persistence across container restarts
+- README project structure should document the data/ directory for discoverability
+
+---

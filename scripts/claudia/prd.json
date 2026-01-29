@@ -61,7 +61,7 @@
         "Unit tests for docstring parsing"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00001 for module structure. Blocking for frank_bot-00006 and frank_bot-00007."
     },
     {
@@ -79,7 +79,7 @@
         "Unit tests for job CRUD operations"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00001. Blocking for frank_bot-00008."
     },
     {
@@ -113,7 +113,7 @@
         "Unit test verifies documentation structure"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00001, frank_bot-00002, frank_bot-00003 (needs complete FrankAPI to document)."
     },
     {
@@ -203,7 +203,7 @@
         "README documents the data directory structure"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": "Infrastructure task. Can be done early but testing requires the endpoints to exist."
     }
   ]
