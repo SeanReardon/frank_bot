@@ -3,10 +3,14 @@ Telegram client service using Telethon for user account messaging.
 
 This service wraps the Telethon library to provide Telegram messaging
 capabilities from the user's personal account (not a bot).
+
+Uses a singleton pattern with asyncio lock to prevent SQLite database
+locking issues from concurrent access to the session file.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -27,6 +31,10 @@ from config import get_settings
 from services.stats import stats
 
 logger = logging.getLogger(__name__)
+
+# Module-level singleton client and lock to prevent concurrent access
+_shared_client: TelegramClient | None = None
+_client_lock = asyncio.Lock()
 
 
 @dataclass
@@ -84,7 +92,11 @@ def _get_session_path(session_name: str) -> str:
 
 
 class TelegramClientService:
-    """Service for sending and receiving Telegram messages via user account."""
+    """Service for sending and receiving Telegram messages via user account.
+    
+    Uses a module-level singleton client with asyncio locking to prevent
+    SQLite database locking issues from concurrent access.
+    """
 
     def __init__(self):
         settings = get_settings()
@@ -93,7 +105,6 @@ class TelegramClientService:
         self._phone = settings.telegram_phone
         self._session_name = settings.telegram_session_name
         self._session_path = _get_session_path(self._session_name)
-        self._client: TelegramClient | None = None
 
     @property
     def is_configured(self) -> bool:
@@ -105,44 +116,61 @@ class TelegramClientService:
         """Return the path to the session file (including .session extension)."""
         return f"{self._session_path}.session"
 
+    async def _get_shared_client(self) -> TelegramClient:
+        """Get or create the shared client instance with proper locking."""
+        global _shared_client
+        
+        async with _client_lock:
+            if _shared_client is not None and _shared_client.is_connected():
+                return _shared_client
+            
+            if not self.is_configured:
+                raise ValueError(
+                    "Telegram is not configured. Set TELEGRAM_API_ID, "
+                    "TELEGRAM_API_HASH, and TELEGRAM_PHONE."
+                )
+            
+            # Disconnect old client if exists but not connected
+            if _shared_client is not None:
+                try:
+                    await _shared_client.disconnect()
+                except Exception:
+                    pass
+            
+            _shared_client = TelegramClient(
+                self._session_path,
+                self._api_id,
+                self._api_hash,
+            )
+            await _shared_client.connect()
+            logger.info("Telegram shared client connected")
+            return _shared_client
+
     async def connect(self) -> None:
         """Initialize and start the Telethon client."""
-        if not self.is_configured:
-            raise ValueError(
-                "Telegram is not configured. Set TELEGRAM_API_ID, "
-                "TELEGRAM_API_HASH, and TELEGRAM_PHONE."
-            )
-
-        if self._client is not None and self._client.is_connected():
-            return
-
-        self._client = TelegramClient(
-            self._session_path,
-            self._api_id,
-            self._api_hash,
-        )
-        await self._client.connect()
-
-        if not await self._client.is_user_authorized():
+        client = await self._get_shared_client()
+        
+        if not await client.is_user_authorized():
             raise ValueError(
                 "Telegram session not authorized. Run the setup script: "
                 "poetry run python scripts/setup_telegram_session.py"
             )
 
-        logger.info("Telegram client connected successfully")
+        logger.info("Telegram client connected and authorized")
 
     async def disconnect(self) -> None:
-        """Cleanly shut down the client."""
-        if self._client is not None:
-            await self._client.disconnect()
-            self._client = None
-            logger.info("Telegram client disconnected")
+        """Cleanly shut down the shared client."""
+        global _shared_client
+        
+        async with _client_lock:
+            if _shared_client is not None:
+                await _shared_client.disconnect()
+                _shared_client = None
+                logger.info("Telegram client disconnected")
 
     async def _ensure_connected(self) -> TelegramClient:
         """Ensure client is connected and return it."""
-        if self._client is None or not self._client.is_connected():
-            await self.connect()
-        return self._client
+        return await self._get_shared_client()
 
     def session_file_exists(self) -> bool:
         """Check if the session file exists."""
@@ -153,7 +181,7 @@ class TelegramClientService:
         Check if the session is authorized.
 
         Returns True if the session file exists and is authorized.
-        Does not require full connection for status check.
+        Uses the shared client to prevent database locking issues.
         """
         if not self.is_configured:
             return False
@@ -161,21 +189,13 @@ class TelegramClientService:
         if not self.session_file_exists():
             return False
 
-        # Create a temporary client to check authorization
-        client = TelegramClient(
-            self._session_path,
-            self._api_id,
-            self._api_hash,
-        )
         try:
-            await client.connect()
+            client = await self._get_shared_client()
             authorized = await client.is_user_authorized()
             return authorized
         except Exception as exc:
             logger.warning("Error checking authorization: %s", exc)
             return False
-        finally:
-            await client.disconnect()
 
     async def get_me(self) -> dict | None:
         """
@@ -483,15 +503,8 @@ class TelegramClientService:
                 error="Telegram API credentials not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH.",
             )
 
-        # Create a new client for auth flow
-        client = TelegramClient(
-            self._session_path,
-            self._api_id,
-            self._api_hash,
-        )
-
         try:
-            await client.connect()
+            client = await self._get_shared_client()
 
             # Check if already authorized
             if await client.is_user_authorized():
@@ -519,10 +532,6 @@ class TelegramClientService:
                 status="error",
                 error=str(exc),
             )
-
-        finally:
-            # Don't disconnect - keep session file for next step
-            pass
 
     async def sign_in_with_code(
         self,
@@ -555,14 +564,8 @@ class TelegramClientService:
                 error="Telegram API credentials not configured.",
             )
 
-        client = TelegramClient(
-            self._session_path,
-            self._api_id,
-            self._api_hash,
-        )
-
         try:
-            await client.connect()
+            client = await self._get_shared_client()
 
             # Check if already authorized
             if await client.is_user_authorized():
@@ -603,9 +606,6 @@ class TelegramClientService:
                 error=str(exc),
             )
 
-        finally:
-            await client.disconnect()
-
     async def sign_in_with_2fa(
         self,
         password: str,
@@ -625,14 +625,8 @@ class TelegramClientService:
                 error="Telegram API credentials not configured.",
             )
 
-        client = TelegramClient(
-            self._session_path,
-            self._api_id,
-            self._api_hash,
-        )
-
         try:
-            await client.connect()
+            client = await self._get_shared_client()
 
             # Check if already authorized
             if await client.is_user_authorized():
@@ -657,9 +651,6 @@ class TelegramClientService:
                 status="error",
                 error=str(exc),
             )
-
-        finally:
-            await client.disconnect()
 
 
 __all__ = [
