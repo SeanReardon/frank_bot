@@ -32,13 +32,35 @@ export class FrankBotDashboard extends LitElement {
 
     :host {
       display: block;
+      width: 100%;
+      /* Use min-height with fallback to viewport height for scrolling */
+      height: 100%;
+      min-height: 100vh;
+      max-height: 100vh;
       font-family: var(--font-family);
       color: var(--color-text);
+      background: var(--color-background);
+      overflow-y: auto;
+      overflow-x: hidden;
+      /* Ensure scrolling works with keyboard navigation */
+      scroll-behavior: smooth;
+      /* Prevent any parent overflow:hidden from blocking scrolling */
+      position: relative;
+      /* Support for keyboard scrolling */
+      outline: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    :host(:focus) {
+      outline: none;
     }
 
     .dashboard {
       display: grid;
       gap: var(--spacing-lg);
+      padding: var(--spacing-lg);
+      max-width: 1200px;
+      margin: 0 auto;
     }
 
     /* Kente-inspired decorative stripe at top of dashboard */
@@ -164,7 +186,57 @@ export class FrankBotDashboard extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this._initialize();
+    // Make element focusable and add keyboard handler
+    this.setAttribute('tabindex', '0');
+    this.addEventListener('keydown', this._handleKeydown);
   }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this.removeEventListener('keydown', this._handleKeydown);
+  }
+
+  private _handleKeydown = (e: KeyboardEvent) => {
+    // Handle keyboard scrolling
+    const scrollAmount = 100; // pixels to scroll per arrow key
+    const pageScrollAmount = this.clientHeight * 0.9; // 90% of visible height
+
+    switch (e.key) {
+      case 'ArrowDown':
+        this.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+        e.preventDefault();
+        break;
+      case 'ArrowUp':
+        this.scrollBy({ top: -scrollAmount, behavior: 'smooth' });
+        e.preventDefault();
+        break;
+      case 'PageDown':
+      case ' ': // Space
+        if (!e.shiftKey) {
+          this.scrollBy({ top: pageScrollAmount, behavior: 'smooth' });
+          e.preventDefault();
+        }
+        break;
+      case 'PageUp':
+        this.scrollBy({ top: -pageScrollAmount, behavior: 'smooth' });
+        e.preventDefault();
+        break;
+      case 'Home':
+        this.scrollTo({ top: 0, behavior: 'smooth' });
+        e.preventDefault();
+        break;
+      case 'End':
+        this.scrollTo({ top: this.scrollHeight, behavior: 'smooth' });
+        e.preventDefault();
+        break;
+    }
+
+    // Handle Shift+Space for page up
+    if (e.key === ' ' && e.shiftKey) {
+      this.scrollBy({ top: -pageScrollAmount, behavior: 'smooth' });
+      e.preventDefault();
+    }
+  };
 
   updated(changedProperties: Map<string, unknown>) {
     if (changedProperties.has('apiBase') || changedProperties.has('sessionToken')) {
