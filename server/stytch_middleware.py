@@ -39,7 +39,7 @@ class StytchSessionValidator:
 
     async def validate_session(self, session_token: str) -> dict | None:
         """
-        Validate a session token with the Stytch API.
+        Validate a session token with the Stytch B2B API.
 
         Args:
             session_token: The stytch_session_token cookie value.
@@ -47,7 +47,8 @@ class StytchSessionValidator:
         Returns:
             Session data dict if valid, None if invalid.
         """
-        url = f"{self._api_base}/v1/sessions/authenticate"
+        # Use B2B endpoint for organization-based auth
+        url = f"{self._api_base}/v1/b2b/sessions/authenticate"
 
         async with httpx.AsyncClient() as client:
             try:
