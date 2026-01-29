@@ -174,10 +174,67 @@ def get_stytch_credentials() -> dict[str, str] | None:
     return get_secret("frank-bot/stytch")
 
 
+def get_telegram_credentials() -> dict[str, str] | None:
+    """
+    Get Telegram credentials from Vault.
+
+    Returns dict with:
+        - api_id: Telegram API ID
+        - api_hash: Telegram API hash
+        - phone: Phone number
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/telegram")
+
+
+def get_telnyx_credentials() -> dict[str, str] | None:
+    """
+    Get Telnyx SMS credentials from Vault.
+
+    Returns dict with:
+        - api_key: Telnyx API key
+        - phone_number: Telnyx phone number
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/telnyx")
+
+
+def get_google_credentials() -> dict[str, str] | None:
+    """
+    Get Google OAuth credentials from Vault.
+
+    Returns dict with:
+        - client_id: Google client ID
+        - client_secret: Google client secret
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/google")
+
+
+def get_swarm_credentials() -> dict[str, str] | None:
+    """
+    Get Swarm/Foursquare credentials from Vault.
+
+    Returns dict with:
+        - oauth_token: Swarm OAuth token
+        - api_key: Foursquare API key
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/swarm")
+
+
 __all__ = [
     "vault_enabled",
     "get_secret",
     "get_stytch_credentials",
+    "get_telegram_credentials",
+    "get_telnyx_credentials",
+    "get_google_credentials",
+    "get_swarm_credentials",
     "clear_client_cache",
     "clear_secret_cache",
 ]

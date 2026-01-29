@@ -15,6 +15,6 @@ terraform {
 }
 
 provider "vault" {
-  address = "https://vault.concordia.contrived.com:8200"
+  # Address from VAULT_ADDR environment variable
   # Token from VAULT_TOKEN environment variable
 }

@@ -72,3 +72,10 @@ Thumbs.db
 node_modules/
 web/dist/
 web/dist-lib/
+
+# Terraform
+terraform/vault/.terraform/
+terraform/vault/.terraform.lock.hcl
+terraform/vault/terraform.tfstate
+terraform/vault/terraform.tfstate.backup
+terraform/vault/terraform.tfvars

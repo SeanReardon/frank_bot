@@ -81,6 +81,7 @@ services:
       start_period: 10s
     networks:
       - frank-bot
+      - concordia  # Access to Vault (concordia-vault:8200)
 
   # ==========================================================================
   # Web Dashboard
@@ -105,3 +106,5 @@ services:
 networks:
   frank-bot:
     driver: bridge
+  concordia:
+    external: true  # Shared network for Vault access
