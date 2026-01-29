@@ -346,7 +346,7 @@
         "Unit test verifies session path construction logic"
       ],
       "priority": 22,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00015. Required for sharing session between API and web containers via mounted volume."
     },
     {
@@ -362,7 +362,7 @@
         "Integration test verifies all three status states"
       ],
       "priority": 23,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00015, frank_bot-00022. Foundation endpoint for web dashboard Telegram card."
     },
     {
@@ -377,7 +377,7 @@
         "Unit tests with mocked Stytch API verify validation logic"
       ],
       "priority": 24,
-      "passes": false,
+      "passes": true,
       "notes": "No direct dependencies. Required for protecting Telegram auth endpoints. Reference ~/dev/contrived-site/ for Stytch integration patterns."
     },
     {
@@ -441,7 +441,7 @@
         "Integration test verifies connected and disconnected states"
       ],
       "priority": 28,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00016, frank_bot-00023. Provides connection test functionality for dashboard."
     },
     {
@@ -457,7 +457,7 @@
         "npm run build creates dist/ for dev and dist-lib/bundle.js for embedding"
       ],
       "priority": 29,
-      "passes": false,
+      "passes": true,
       "notes": "No dependencies. Foundation for all frontend tasks. Follow ~/dev/claudia/web/ patterns."
     },
     {
@@ -508,7 +508,7 @@
         "getJobs() function calls GET /frank/jobs"
       ],
       "priority": 32,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00029. Required before any frontend components can be built."
     },
     {
@@ -522,7 +522,7 @@
         "Tokens imported in main dashboard component"
       ],
       "priority": 33,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00029. Provides theming foundation for components."
     },
     {
@@ -539,7 +539,7 @@
         "Component renders successfully in dev mode"
       ],
       "priority": 34,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00032, frank_bot-00033. Entry point component for dashboard."
     },
     {

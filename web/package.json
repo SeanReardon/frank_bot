@@ -1,0 +1,21 @@
+{
+  "name": "frank-bot-web",
+  "version": "1.0.0",
+  "description": "Frank Bot web dashboard for Telegram setup and monitoring",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:lib": "VITE_BUILD_MODE=library vite build",
+    "build:all": "npm run build && npm run build:lib",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lit": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.10"
+  }
+}

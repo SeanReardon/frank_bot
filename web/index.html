@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Frank Bot Dashboard - Dev Preview</title>
+
+  <style>
+    :root {
+      /* Default theme tokens (overridden when embedded) */
+      --color-bg: #1a1a1a;
+      --color-text: #f0f0f0;
+      --color-primary: #4a9eff;
+      --color-border: #333;
+      --color-success: #4caf50;
+      --color-error: #f44336;
+      --font-family: system-ui, -apple-system, sans-serif;
+      --font-size-base: 14px;
+      --spacing-unit: 8px;
+      --border-radius: 4px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-family);
+      font-size: var(--font-size-base);
+      min-height: 100vh;
+    }
+
+    .dev-banner {
+      background: #ff9800;
+      color: #000;
+      text-align: center;
+      padding: 8px;
+      font-weight: bold;
+      font-size: 12px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 24px;
+      font-size: 24px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="dev-banner">DEV PREVIEW - API proxied to http://frank-bot:8000</div>
+
+  <div class="container">
+    <h1>Frank Bot Dashboard</h1>
+
+    <frank-bot-dashboard
+      api-base="/api"
+    ></frank-bot-dashboard>
+  </div>
+
+  <script type="module" src="/src/frank-bot-embed.ts"></script>
+</body>
+</html>

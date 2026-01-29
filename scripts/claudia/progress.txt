@@ -359,3 +359,93 @@ Added TelegramNamespace class to meta/api.py with three methods: send(recipient,
 - Introspection module's namespace list controls what appears in generated documentation
 
 ---
+
+## 2026-01-29: frank_bot-00022 - Update TelegramClientService to use DATA_DIR
+
+### Summary
+Updated TelegramClientService to construct session file path using DATA_DIR environment variable. Added _get_session_path() helper function that joins DATA_DIR (defaulting to ".") with session name. Session file path is now f"{data_dir}/{session_name}.session" instead of f"{session_name}.session".
+
+### Files Changed
+- services/telegram_client.py (added os import, _get_session_path helper, updated __init__ and connect)
+- tests/test_telegram_client_service.py (new - 10 tests for session path logic)
+
+### Learnings
+- Use `os.getenv("VAR") or "."` instead of `os.getenv("VAR", ".")` to handle empty string case
+- os.path.join("", "name") returns "name" not "./name"
+- Session path needs to be stored before extension is added for Telethon client
+
+---
+
+## 2026-01-29: frank_bot-00023 - Add GET /telegram/status endpoint
+
+### Summary
+Added /telegram/status endpoint that returns Telegram connection status: 'not_configured' (missing env vars), 'needs_auth' (session not authorized), or 'connected' (with account info). Added is_authorized() and get_me() methods to TelegramClientService. Endpoint is public (no API key required) for web dashboard use.
+
+### Files Changed
+- services/telegram_client.py (added session_file_exists, is_authorized, get_me methods)
+- actions/telegram.py (added get_telegram_status action)
+- server/routes.py (added /telegram/status route)
+- tests/test_telegram_actions.py (added 4 tests for status endpoint)
+
+### Learnings
+- Status endpoints should be public for dashboard pre-auth state checking
+- Temporary TelegramClient can be created just for auth check without full connection
+- get_me() returns User object with first_name, last_name, username, phone fields
+
+---
+
+## 2026-01-29: frank_bot-00024 - Add Stytch session validation middleware
+
+### Summary
+Created Stytch session validation middleware in server/stytch_middleware.py. StytchSessionValidator class calls Stytch API to verify session tokens. require_stytch_session decorator validates stytch_session_token cookie and returns 401 on failure. Added STYTCH_PROJECT_ID and STYTCH_SECRET to config.py.
+
+### Files Changed
+- config.py (added stytch_project_id and stytch_secret settings)
+- server/stytch_middleware.py (new - StytchSessionValidator class and require_stytch_session decorator)
+- tests/test_stytch_middleware.py (new - 9 tests for validator and middleware)
+
+### Learnings
+- Stytch test projects have project_id starting with "project-test-" and use test.stytch.com
+- Session validation uses POST to /v1/sessions/authenticate with basic auth (project_id:secret)
+- Decorator pattern works well for route protection - can be applied selectively
+
+---
+
+## 2026-01-29: frank_bot-00028 - Add GET /telegram/test endpoint
+
+### Summary
+Added /telegram/test endpoint that tests Telegram connection by fetching first 3 dialogs. Returns { connected: boolean, dialogs?: [...], error?: string }. Endpoint is public to allow testing from ChatGPT.
+
+### Files Changed
+- actions/telegram.py (added test_telegram_connection action)
+- server/routes.py (added /telegram/test route)
+- tests/test_telegram_actions.py (added 3 tests for test endpoint)
+
+### Learnings
+- Test endpoints should return meaningful data (dialogs) to verify full connectivity
+- Limit=3 is sufficient for connection test without excessive data transfer
+- Error message in response helps debugging connection issues
+
+---
+
+## 2026-01-29: frank_bot-00029 - Create web/ directory with Vite + TypeScript + Lit scaffold
+
+### Summary
+Created web dashboard scaffold with Vite 5.x + TypeScript 5.x + Lit 3.x. Dual build mode: SPA for dev (npm run build) and IIFE bundle for embedding (npm run build:lib). Directory structure: src/components/, src/lib/, src/styles/. API client with typed functions for all Frank Bot endpoints. CSS tokens with fallback values.
+
+### Files Changed
+- web/package.json (new - lit 3.1, vite 5.0, typescript 5.3)
+- web/tsconfig.json (new - strict mode, decorators enabled)
+- web/vite.config.ts (new - dual build mode, dev proxy to frank-bot:8000)
+- web/index.html (new - dev preview page)
+- web/src/frank-bot-embed.ts (new - main dashboard component)
+- web/src/lib/api.ts (new - typed API client)
+- web/src/styles/tokens.css (new - CSS custom properties)
+
+### Learnings
+- useDefineForClassFields: false is required for Lit decorators to work correctly
+- IIFE format with inlineDynamicImports creates single bundle file for easy embedding
+- CSS ?inline import in Vite allows embedding CSS in JS bundle
+- Lit web components use Shadow DOM by default - styles are scoped
+
+---

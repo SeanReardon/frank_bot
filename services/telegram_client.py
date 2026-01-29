@@ -8,6 +8,7 @@ capabilities from the user's personal account (not a bot).
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass
 
@@ -57,6 +58,18 @@ class TelegramDialog:
     last_message_date: str | None
 
 
+def _get_session_path(session_name: str) -> str:
+    """
+    Construct the full path to the Telegram session file.
+
+    Uses DATA_DIR environment variable if set, otherwise defaults to
+    current directory. This allows session files to be stored on
+    mounted volumes in containerized deployments.
+    """
+    data_dir = os.getenv("DATA_DIR") or "."
+    return os.path.join(data_dir, session_name)
+
+
 class TelegramClientService:
     """Service for sending and receiving Telegram messages via user account."""
 
@@ -66,6 +79,7 @@ class TelegramClientService:
         self._api_hash = settings.telegram_api_hash
         self._phone = settings.telegram_phone
         self._session_name = settings.telegram_session_name
+        self._session_path = _get_session_path(self._session_name)
         self._client: TelegramClient | None = None
 
     @property
@@ -75,8 +89,8 @@ class TelegramClientService:
 
     @property
     def session_file_path(self) -> str:
-        """Return the path to the session file."""
-        return f"{self._session_name}.session"
+        """Return the path to the session file (including .session extension)."""
+        return f"{self._session_path}.session"
 
     async def connect(self) -> None:
         """Initialize and start the Telethon client."""
@@ -90,7 +104,7 @@ class TelegramClientService:
             return
 
         self._client = TelegramClient(
-            self._session_name,
+            self._session_path,
             self._api_id,
             self._api_hash,
         )
@@ -116,6 +130,64 @@ class TelegramClientService:
         if self._client is None or not self._client.is_connected():
             await self.connect()
         return self._client
+
+    def session_file_exists(self) -> bool:
+        """Check if the session file exists."""
+        return os.path.exists(self.session_file_path)
+
+    async def is_authorized(self) -> bool:
+        """
+        Check if the session is authorized.
+
+        Returns True if the session file exists and is authorized.
+        Does not require full connection for status check.
+        """
+        if not self.is_configured:
+            return False
+
+        if not self.session_file_exists():
+            return False
+
+        # Create a temporary client to check authorization
+        client = TelegramClient(
+            self._session_path,
+            self._api_id,
+            self._api_hash,
+        )
+        try:
+            await client.connect()
+            authorized = await client.is_user_authorized()
+            return authorized
+        except Exception as exc:
+            logger.warning("Error checking authorization: %s", exc)
+            return False
+        finally:
+            await client.disconnect()
+
+    async def get_me(self) -> dict | None:
+        """
+        Get information about the authenticated user.
+
+        Returns a dict with name, username, and phone, or None if not connected.
+        """
+        try:
+            client = await self._ensure_connected()
+            me = await client.get_me()
+            if me is None:
+                return None
+
+            name = me.first_name or ""
+            if me.last_name:
+                name = f"{name} {me.last_name}".strip()
+
+            return {
+                "name": name or None,
+                "username": me.username,
+                "phone": me.phone,
+            }
+        except Exception as exc:
+            logger.warning("Error getting user info: %s", exc)
+            return None
 
     async def send_message(
         self,

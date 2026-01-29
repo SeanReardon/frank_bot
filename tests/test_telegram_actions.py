@@ -14,6 +14,8 @@ from actions.telegram import (
     send_telegram_message,
     get_telegram_messages,
     list_telegram_chats,
+    get_telegram_status,
+    test_telegram_connection,
 )
 from services.telegram_client import (
     TelegramMessageResult,
@@ -292,3 +294,134 @@ class TestListTelegramChats:
 
             with pytest.raises(ValueError, match="Telegram is not configured"):
                 await list_telegram_chats({})
+
+
+class TestGetTelegramStatus:
+    """Tests for get_telegram_status action."""
+
+    @pytest.mark.asyncio
+    async def test_status_not_configured(self) -> None:
+        """Returns not_configured when env vars are missing."""
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.is_configured = False
+            MockService.return_value = mock_instance
+
+            result = await get_telegram_status({})
+
+            assert result["status"] == "not_configured"
+            assert "account" not in result
+
+    @pytest.mark.asyncio
+    async def test_status_needs_auth(self) -> None:
+        """Returns needs_auth when session is not authorized."""
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.is_configured = True
+            mock_instance.is_authorized = AsyncMock(return_value=False)
+            MockService.return_value = mock_instance
+
+            result = await get_telegram_status({})
+
+            assert result["status"] == "needs_auth"
+            assert "account" not in result
+
+    @pytest.mark.asyncio
+    async def test_status_connected(self) -> None:
+        """Returns connected with account info when authorized."""
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.is_configured = True
+            mock_instance.is_authorized = AsyncMock(return_value=True)
+            mock_instance.get_me = AsyncMock(return_value={
+                "name": "John Doe",
+                "username": "johndoe",
+                "phone": "+15551234567",
+            })
+            MockService.return_value = mock_instance
+
+            result = await get_telegram_status({})
+
+            assert result["status"] == "connected"
+            assert result["account"]["name"] == "John Doe"
+            assert result["account"]["username"] == "johndoe"
+            assert result["account"]["phone"] == "+15551234567"
+
+    @pytest.mark.asyncio
+    async def test_status_connected_no_account_info(self) -> None:
+        """Returns connected even if get_me fails."""
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.is_configured = True
+            mock_instance.is_authorized = AsyncMock(return_value=True)
+            mock_instance.get_me = AsyncMock(side_effect=Exception("Connection error"))
+            MockService.return_value = mock_instance
+
+            result = await get_telegram_status({})
+
+            assert result["status"] == "connected"
+            assert result["account"] is None
+
+
+class TestTestTelegramConnection:
+    """Tests for test_telegram_connection action."""
+
+    @pytest.mark.asyncio
+    async def test_connection_not_configured(self) -> None:
+        """Returns not connected when env vars are missing."""
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.is_configured = False
+            MockService.return_value = mock_instance
+
+            result = await test_telegram_connection({})
+
+            assert result["connected"] is False
+            assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_connection_success(self) -> None:
+        """Returns connected with dialogs when successful."""
+        mock_dialogs = [
+            TelegramDialog(
+                id=1001,
+                name="John Doe",
+                chat_type="user",
+                unread_count=3,
+                last_message_date="2026-01-29T10:00:00+00:00",
+            ),
+            TelegramDialog(
+                id=-1002,
+                name="Family Group",
+                chat_type="group",
+                unread_count=0,
+                last_message_date="2026-01-28T15:00:00+00:00",
+            ),
+        ]
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.is_configured = True
+            mock_instance.get_dialogs = AsyncMock(return_value=mock_dialogs)
+            MockService.return_value = mock_instance
+
+            result = await test_telegram_connection({})
+
+            assert result["connected"] is True
+            assert len(result["dialogs"]) == 2
+            assert result["dialogs"][0]["name"] == "John Doe"
+            mock_instance.get_dialogs.assert_called_once_with(limit=3)
+
+    @pytest.mark.asyncio
+    async def test_connection_failure(self) -> None:
+        """Returns not connected with error when connection fails."""
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.is_configured = True
+            mock_instance.get_dialogs = AsyncMock(side_effect=Exception("Connection failed"))
+            MockService.return_value = mock_instance
+
+            result = await test_telegram_connection({})
+
+            assert result["connected"] is False
+            assert "Connection failed" in result["error"]

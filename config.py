@@ -55,6 +55,8 @@ class Settings:
     telegram_api_hash: str | None
     telegram_phone: str | None
     telegram_session_name: str
+    stytch_project_id: str | None
+    stytch_secret: str | None
 
 
 @lru_cache(maxsize=1)
@@ -115,5 +117,7 @@ def get_settings() -> Settings:
         telegram_api_hash=os.getenv("TELEGRAM_API_HASH") or None,
         telegram_phone=os.getenv("TELEGRAM_PHONE") or None,
         telegram_session_name=os.getenv("TELEGRAM_SESSION_NAME", "frank_bot"),
+        stytch_project_id=os.getenv("STYTCH_PROJECT_ID") or None,
+        stytch_secret=os.getenv("STYTCH_SECRET") or None,
     )
 

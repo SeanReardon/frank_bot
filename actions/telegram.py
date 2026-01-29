@@ -162,8 +162,89 @@ async def list_telegram_chats(
     }
 
 
+async def get_telegram_status(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Get the current Telegram connection status.
+
+    Returns:
+        Dict with status and optional account info.
+        - status: 'not_configured' | 'needs_auth' | 'connected'
+        - account: (only when connected) { name, username, phone }
+    """
+    service = TelegramClientService()
+
+    # Check if required env vars are configured
+    if not service.is_configured:
+        return {"status": "not_configured"}
+
+    # Check if session exists and is authorized
+    try:
+        authorized = await service.is_authorized()
+    except Exception as exc:
+        logger.warning("Error checking Telegram auth status: %s", exc)
+        authorized = False
+
+    if not authorized:
+        return {"status": "needs_auth"}
+
+    # Get account info
+    try:
+        account_info = await service.get_me()
+        return {
+            "status": "connected",
+            "account": account_info,
+        }
+    except Exception as exc:
+        logger.warning("Error getting Telegram account info: %s", exc)
+        return {
+            "status": "connected",
+            "account": None,
+        }
+
+
+async def test_telegram_connection(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Test the Telegram connection by fetching recent dialogs.
+
+    Returns:
+        Dict with connection status and first 3 chats.
+        - connected: boolean
+        - dialogs: (only when connected) first 3 chat names
+        - error: (only when not connected) error message
+    """
+    service = TelegramClientService()
+
+    if not service.is_configured:
+        return {
+            "connected": False,
+            "error": "Telegram is not configured. Set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE.",
+        }
+
+    try:
+        dialogs = await service.get_dialogs(limit=3)
+        return {
+            "connected": True,
+            "dialogs": [
+                {"id": d.id, "name": d.name, "type": d.chat_type}
+                for d in dialogs
+            ],
+        }
+    except Exception as exc:
+        logger.warning("Error testing Telegram connection: %s", exc)
+        return {
+            "connected": False,
+            "error": str(exc),
+        }
+
+
 __all__ = [
     "send_telegram_message",
     "get_telegram_messages",
     "list_telegram_chats",
+    "get_telegram_status",
+    "test_telegram_connection",
 ]

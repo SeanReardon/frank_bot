@@ -1,0 +1,45 @@
+/**
+ * CSS custom property tokens for Frank Bot dashboard.
+ *
+ * These provide fallback values that work standalone in dev mode,
+ * while inheriting from the parent app (contrived-site) when embedded.
+ */
+
+:host {
+  /* Colors */
+  --color-bg: var(--theme-color-bg, #1a1a1a);
+  --color-text: var(--theme-color-text, #f0f0f0);
+  --color-text-muted: var(--theme-color-text-muted, #888);
+  --color-primary: var(--theme-color-primary, #4a9eff);
+  --color-border: var(--theme-color-border, #333);
+  --color-success: var(--theme-color-success, #4caf50);
+  --color-error: var(--theme-color-error, #f44336);
+  --color-warning: var(--theme-color-warning, #ff9800);
+
+  /* Surface colors for cards */
+  --color-surface: var(--theme-color-surface, #242424);
+  --color-surface-hover: var(--theme-color-surface-hover, #2a2a2a);
+
+  /* Typography */
+  --font-family: var(--theme-font-family, system-ui, -apple-system, sans-serif);
+  --font-size-base: var(--theme-font-size-base, 14px);
+  --font-size-sm: var(--theme-font-size-sm, 12px);
+  --font-size-lg: var(--theme-font-size-lg, 16px);
+  --font-size-xl: var(--theme-font-size-xl, 20px);
+
+  /* Spacing */
+  --spacing-xs: var(--theme-spacing-xs, 4px);
+  --spacing-sm: var(--theme-spacing-sm, 8px);
+  --spacing-md: var(--theme-spacing-md, 16px);
+  --spacing-lg: var(--theme-spacing-lg, 24px);
+  --spacing-xl: var(--theme-spacing-xl, 32px);
+
+  /* Border radius */
+  --border-radius-sm: var(--theme-border-radius-sm, 4px);
+  --border-radius-md: var(--theme-border-radius-md, 8px);
+  --border-radius-lg: var(--theme-border-radius-lg, 12px);
+
+  /* Transitions */
+  --transition-fast: var(--theme-transition-fast, 150ms ease);
+  --transition-normal: var(--theme-transition-normal, 250ms ease);
+}

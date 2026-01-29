@@ -29,8 +29,10 @@ from actions import (
 )
 from actions.telegram import (
     get_telegram_messages,
+    get_telegram_status,
     list_telegram_chats,
     send_telegram_message,
+    test_telegram_connection,
 )
 from config import Settings
 from services.stats import stats
@@ -175,6 +177,20 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(list_telegram_chats)
         return await responder(payload)
 
+    # Telegram status endpoint (public - no API key required for web dashboard)
+    async def telegram_status_handler(request: Request):
+        stats.get_endpoint_stats("telegramStatus").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_telegram_status)
+        return await responder(payload)
+
+    # Telegram test endpoint (public - allows testing from ChatGPT)
+    async def telegram_test_handler(request: Request):
+        stats.get_endpoint_stats("telegramTest").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(test_telegram_connection)
+        return await responder(payload)
+
     # Calendar event creation (disguised as GET for fewer confirmations)
     async def schedule_time_handler(request: Request):
         await _require_api_key(request)
@@ -233,6 +249,9 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/telegram/send", telegram_send_handler, methods=["GET"]),
         Route("/actions/telegram/messages", telegram_messages_handler, methods=["GET"]),
         Route("/actions/telegram/chats", telegram_chats_handler, methods=["GET"]),
+        # Telegram dashboard endpoints (public - no API key required)
+        Route("/telegram/status", telegram_status_handler, methods=["GET"]),
+        Route("/telegram/test", telegram_test_handler, methods=["GET"]),
     ]
 
     return routes
