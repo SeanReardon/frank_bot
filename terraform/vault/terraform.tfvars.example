@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars and fill in values
+# DO NOT COMMIT terraform.tfvars
+
+# Stytch credentials (same as contrived-site production)
+# Get these from Vault: vault kv get contrived-site/prod/stytch
+stytch_project_id = "project-live-..."
+stytch_secret     = "secret-live-..."
+
+# Telegram credentials (from my.telegram.org)
+telegram_api_id   = "12345678"
+telegram_api_hash = "abc123..."
+telegram_phone    = "+15551234567"
+
+# Telnyx SMS credentials
+telnyx_api_key      = "KEY..."
+telnyx_phone_number = "+15551234567"
+
+# Google OAuth credentials
+google_client_id     = "123456789-....apps.googleusercontent.com"
+google_client_secret = "GOCSPX-..."
+
+# Swarm/Foursquare credentials
+swarm_oauth_token  = "..."
+foursquare_api_key = "fsq3..."
