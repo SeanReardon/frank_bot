@@ -25,6 +25,7 @@ from meta.executor import execute_new_script, execute_script_async
 from meta.introspection import generate_meta_documentation
 from meta.jobs import Job, JobStatus, get_job, job_to_summary_dict, list_jobs
 from meta.scripts import get_script, list_scripts, script_metadata_to_dict
+from server.stytch_middleware import StytchSessionValidator
 
 
 def build_meta_routes(settings: Settings) -> list[Route]:
@@ -32,17 +33,37 @@ def build_meta_routes(settings: Settings) -> list[Route]:
     Return a list of Starlette Routes for the meta API.
     """
 
-    async def _require_api_key(request: Request) -> JSONResponse | None:
-        """Check API key if configured. Returns error response or None."""
-        if not settings.actions_api_key:
-            return None
-        provided = request.headers.get("x-api-key")
-        if provided != settings.actions_api_key:
-            return JSONResponse(
-                {"detail": "Missing or invalid X-API-Key header"},
-                status_code=401,
-            )
-        return None
+    async def _require_auth(request: Request) -> JSONResponse | None:
+        """
+        Check authentication - accepts either API key OR Stytch session.
+        Returns error response if neither is valid, None if authenticated.
+        """
+        # Check API key first (for ChatGPT/programmatic access)
+        if settings.actions_api_key:
+            provided = request.headers.get("x-api-key")
+            if provided == settings.actions_api_key:
+                return None  # API key valid
+
+        # Check Stytch session (for web dashboard access)
+        if settings.stytch_project_id and settings.stytch_secret:
+            session_token = request.cookies.get("stytch_session_token")
+            if session_token:
+                validator = StytchSessionValidator(
+                    settings.stytch_project_id,
+                    settings.stytch_secret,
+                )
+                session_data = await validator.validate_session(session_token)
+                if session_data:
+                    return None  # Stytch session valid
+
+        # Neither auth method succeeded
+        if not settings.actions_api_key and not settings.stytch_project_id:
+            return None  # No auth configured, allow access
+
+        return JSONResponse(
+            {"detail": "Unauthorized - provide X-API-Key header or valid session"},
+            status_code=401,
+        )
 
     async def _read_json_body(request: Request) -> tuple[dict[str, Any] | None, JSONResponse | None]:
         """Read and parse JSON body from request. Returns (payload, error)."""
@@ -60,7 +81,7 @@ def build_meta_routes(settings: Settings) -> list[Route]:
 
     # GET /frank/meta - Return API documentation
     async def get_meta_handler(request: Request):
-        auth_error = await _require_api_key(request)
+        auth_error = await _require_auth(request)
         if auth_error:
             return auth_error
         documentation = generate_meta_documentation()
@@ -68,7 +89,7 @@ def build_meta_routes(settings: Settings) -> list[Route]:
 
     # GET /frank/scripts - List all scripts
     async def list_scripts_handler(request: Request):
-        auth_error = await _require_api_key(request)
+        auth_error = await _require_auth(request)
         if auth_error:
             return auth_error
         scripts = list_scripts()
@@ -79,7 +100,7 @@ def build_meta_routes(settings: Settings) -> list[Route]:
 
     # GET /frank/scripts/{id} - Get a specific script's code
     async def get_script_handler(request: Request):
-        auth_error = await _require_api_key(request)
+        auth_error = await _require_auth(request)
         if auth_error:
             return auth_error
         script_id = request.path_params["script_id"]
@@ -93,7 +114,7 @@ def build_meta_routes(settings: Settings) -> list[Route]:
 
     # POST /frank/execute - Execute a script
     async def execute_handler(request: Request):
-        auth_error = await _require_api_key(request)
+        auth_error = await _require_auth(request)
         if auth_error:
             return auth_error
 
@@ -138,7 +159,7 @@ def build_meta_routes(settings: Settings) -> list[Route]:
 
     # GET /frank/jobs - List all jobs
     async def list_jobs_handler(request: Request):
-        auth_error = await _require_api_key(request)
+        auth_error = await _require_auth(request)
         if auth_error:
             return auth_error
 
@@ -164,7 +185,7 @@ def build_meta_routes(settings: Settings) -> list[Route]:
 
     # GET /frank/jobs/{id} - Get a specific job
     async def get_job_handler(request: Request):
-        auth_error = await _require_api_key(request)
+        auth_error = await _require_auth(request)
         if auth_error:
             return auth_error
         job_id = request.path_params["job_id"]
