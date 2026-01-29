@@ -29,7 +29,7 @@
         "Unit tests verify the namespace methods work correctly"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00001. Template for other namespace implementations."
     },
     {

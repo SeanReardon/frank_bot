@@ -23,3 +23,18 @@ Created the meta/ module with FrankAPI class providing synchronous namespace-bas
 - executor.py and introspection.py are placeholder files for future tasks (frank_bot-00006 and frank_bot-00007)
 
 ---
+
+## 2026-01-29: frank_bot-00002 - Implement CalendarNamespace with sync wrappers for existing calendar actions
+
+### Summary
+Added comprehensive unit tests for CalendarNamespace that verify the namespace methods correctly wrap the underlying async calendar action handlers. The tests mock the action layer to avoid requiring actual API credentials while verifying parameter passing and return value handling.
+
+### Files Changed
+- tests/test_calendar_namespace.py (new)
+
+### Learnings
+- The CalendarNamespace was already implemented correctly in task frank_bot-00001 - the "stub methods" mentioned in that task were actually full implementations using asyncio.run()
+- Unit tests should mock at the action layer (`actions.calendar.get_events_action`) rather than at the meta.api layer since the imports happen inside the methods
+- Tests verify: parameter passing for all method signatures, default values, return value passthrough, and FrankAPI integration
+
+---
