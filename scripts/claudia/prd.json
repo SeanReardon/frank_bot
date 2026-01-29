@@ -556,7 +556,7 @@
         "Uses CSS custom properties from tokens.css for styling"
       ],
       "priority": 35,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00023, frank_bot-00032, frank_bot-00034. Basic status display without auth wizard."
     },
     {
@@ -573,7 +573,7 @@
         "phoneCodeHash maintained in component state between steps"
       ],
       "priority": 36,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00025, frank_bot-00026, frank_bot-00027, frank_bot-00035. Completes Telegram setup wizard."
     },
     {
@@ -590,7 +590,7 @@
         "Uses CSS custom properties from tokens.css for styling"
       ],
       "priority": 37,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00008, frank_bot-00032, frank_bot-00034. Displays meta scripts."
     },
     {
@@ -608,7 +608,7 @@
         "Auto-refresh toggle for polling running jobs"
       ],
       "priority": 38,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00010, frank_bot-00032, frank_bot-00034. Displays job executions."
     },
     {
@@ -623,7 +623,7 @@
         "Workflow passes on PR and main branch"
       ],
       "priority": 39,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00030. Final deployment step for web dashboard."
     }
   ]

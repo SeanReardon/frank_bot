@@ -533,3 +533,83 @@ Added /telegram/auth/2fa endpoint to complete Telegram authentication with 2FA p
 - sign_in(password=) is a separate call from sign_in(phone=, code=, phone_code_hash=)
 
 ---
+
+## 2026-01-29: frank_bot-00035 - Create Telegram card component (telegram-card.ts)
+
+### Summary
+Created telegram-card.ts Lit web component that fetches Telegram status and displays different states: not_configured (with env var guidance), needs_auth (with Connect button), and connected (with account info and Test Connection button).
+
+### Files Changed
+- web/src/components/telegram-card.ts (created)
+- web/src/frank-bot-embed.ts (updated to import and use telegram-card)
+
+### Learnings
+- Lit web components use @customElement decorator for registration
+- CSS custom properties from tokens.css enable theming and embedding
+- Status badges provide visual feedback for different states
+
+---
+
+## 2026-01-29: frank_bot-00036 - Add Telegram auth wizard to telegram-card component
+
+### Summary
+Extended telegram-card.ts with a multi-step authentication wizard. The flow: click Connect Telegram -> send code -> enter verification code -> (optional) enter 2FA password -> connected. All states have proper loading indicators and error handling.
+
+### Files Changed
+- web/src/components/telegram-card.ts (extended with auth wizard)
+
+### Learnings
+- phoneCodeHash must be maintained in component state between steps
+- Different error types (invalid_code, needs_2fa, invalid_password) require different UI feedback
+- Auth wizard state management uses a discriminated union type (AuthWizardStep)
+
+---
+
+## 2026-01-29: frank_bot-00037 - Create scripts card component (scripts-card.ts)
+
+### Summary
+Created scripts-card.ts Lit web component that fetches and displays meta scripts. Features expandable script details with description, parameters, example code, and full source code. Includes refresh button and empty state.
+
+### Files Changed
+- web/src/components/scripts-card.ts (created)
+- web/src/lib/api.ts (updated Script type to match backend, added getScriptCode function)
+- web/src/frank-bot-embed.ts (updated to import and use scripts-card)
+
+### Learnings
+- Script code is fetched lazily when expanding a script (reduces initial load)
+- Backend returns id, slug, description, parameters, example, created_at for scripts
+- Code blocks with monospace font and pre-wrap handle source code display
+
+---
+
+## 2026-01-29: frank_bot-00038 - Create jobs card component (jobs-card.ts)
+
+### Summary
+Created jobs-card.ts Lit web component that fetches and displays job executions. Features status filter dropdown, auto-refresh toggle (5s interval), expandable job details with stdout/stderr/result/error, and color-coded status badges.
+
+### Files Changed
+- web/src/components/jobs-card.ts (created)
+- web/src/lib/api.ts (updated Job types to match backend, added getJob function, added status parameter to getJobs)
+- web/src/frank-bot-embed.ts (updated to import and use jobs-card)
+
+### Learnings
+- Auto-refresh uses setInterval with proper cleanup in disconnectedCallback
+- Job details are fetched lazily when expanding (reduces initial load)
+- Duration calculation handles both completed and running jobs
+
+---
+
+## 2026-01-29: frank_bot-00039 - Add CI/CD workflow for web container build and push
+
+### Summary
+Updated GitHub Actions workflow to build and push both the API and web containers. The web container builds from ./web/Dockerfile and pushes to ghcr.io/seanreardon/frank_bot-web:latest. Both jobs run in parallel.
+
+### Files Changed
+- .github/workflows/build_and_push.yml (added build-and-push-web job)
+
+### Learnings
+- GitHub Actions jobs run in parallel by default (no dependency needed)
+- Each job needs its own checkout, buildx setup, and registry login
+- The -web suffix distinguishes the web container image from the API image
+
+---

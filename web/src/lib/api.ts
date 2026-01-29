@@ -106,32 +106,50 @@ export interface TelegramTestResponse {
   error?: string;
 }
 
-export interface Script {
+export interface ScriptParameter {
   name: string;
+  type: string | null;
   description: string;
-  execution_count: number;
-  last_run_at: string | null;
+}
+
+export interface Script {
+  id: string;
+  slug: string;
+  description: string;
+  parameters: ScriptParameter[];
+  example: string | null;
+  created_at: string;
 }
 
 export interface ScriptsResponse {
+  count: number;
   scripts: Script[];
 }
 
-export interface Job {
-  id: string;
-  script_name: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  started_at: string;
+export interface JobSummary {
+  job_id: string;
+  script_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout';
+  started_at: string | null;
   completed_at: string | null;
-  duration_ms: number | null;
-  stdout: string | null;
-  stderr: string | null;
+}
+
+export interface Job {
+  job_id: string;
+  script_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout';
+  params: Record<string, unknown>;
+  started_at: string | null;
+  completed_at: string | null;
+  stdout: string;
+  stderr: string;
   result: unknown;
   error: string | null;
 }
 
 export interface JobsResponse {
-  jobs: Job[];
+  count: number;
+  jobs: JobSummary[];
 }
 
 // API Functions
@@ -191,8 +209,36 @@ export async function getScripts(): Promise<ScriptsResponse> {
 }
 
 /**
+ * Get a script's source code by ID.
+ */
+export async function getScriptCode(scriptId: string): Promise<string> {
+  const response = await fetch(`${apiBase}/frank/scripts/${encodeURIComponent(scriptId)}`, {
+    credentials: 'include',
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new AuthError('Not authenticated', response.status);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API error ${response.status}: ${errorText}`);
+  }
+
+  return response.text();
+}
+
+/**
  * Get list of job executions.
  */
-export async function getJobs(): Promise<JobsResponse> {
-  return request<JobsResponse>('/frank/jobs');
+export async function getJobs(status?: string): Promise<JobsResponse> {
+  const params = status ? `?status=${encodeURIComponent(status)}` : '';
+  return request<JobsResponse>(`/frank/jobs${params}`);
+}
+
+/**
+ * Get a specific job by ID.
+ */
+export async function getJob(jobId: string): Promise<Job> {
+  return request<Job>(`/frank/jobs/${encodeURIComponent(jobId)}`);
 }

@@ -9,6 +9,11 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import * as api from './lib/api.js';
 
+// Import components
+import './components/telegram-card.js';
+import './components/scripts-card.js';
+import './components/jobs-card.js';
+
 // Import styles
 import tokensCSS from './styles/tokens.css?inline';
 
@@ -190,33 +195,11 @@ export class FrankBotDashboard extends LitElement {
 
     return html`
       <div class="dashboard">
-        <div class="card">
-          <div class="card-header">
-            <h3 class="card-title">Telegram</h3>
-            <span class="status-badge neutral">Loading...</span>
-          </div>
-          <p class="placeholder">
-            Telegram card component will be implemented in frank_bot-00035.
-          </p>
-        </div>
+        <telegram-card></telegram-card>
 
-        <div class="card">
-          <div class="card-header">
-            <h3 class="card-title">Scripts</h3>
-          </div>
-          <p class="placeholder">
-            Scripts card component will be implemented in frank_bot-00037.
-          </p>
-        </div>
+        <scripts-card></scripts-card>
 
-        <div class="card">
-          <div class="card-header">
-            <h3 class="card-title">Jobs</h3>
-          </div>
-          <p class="placeholder">
-            Jobs card component will be implemented in frank_bot-00038.
-          </p>
-        </div>
+        <jobs-card></jobs-card>
       </div>
     `;
   }
