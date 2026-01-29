@@ -4,7 +4,7 @@
  * Displays Telegram connection status and provides auth wizard.
  */
 
-import { LitElement, html, css, nothing } from 'lit';
+import { LitElement, html, css, unsafeCSS, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import * as api from '../lib/api.js';
 import type { TelegramStatus, TelegramTestResponse } from '../lib/api.js';
@@ -22,7 +22,7 @@ type AuthWizardStep = 'idle' | 'sending_code' | 'enter_code' | 'verifying_code' 
 @customElement('telegram-card')
 export class TelegramCard extends LitElement {
   static styles = css`
-    ${tokensCSS}
+    ${unsafeCSS(tokensCSS)}
 
     :host {
       display: block;

@@ -4,7 +4,7 @@
  * Displays list of job executions with status and details.
  */
 
-import { LitElement, html, css, nothing } from 'lit';
+import { LitElement, html, css, unsafeCSS, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import * as api from '../lib/api.js';
 import type { JobSummary, Job } from '../lib/api.js';
@@ -22,7 +22,7 @@ type StatusFilter = 'all' | 'pending' | 'running' | 'completed' | 'failed' | 'ti
 @customElement('jobs-card')
 export class JobsCard extends LitElement {
   static styles = css`
-    ${tokensCSS}
+    ${unsafeCSS(tokensCSS)}
 
     :host {
       display: block;

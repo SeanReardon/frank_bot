@@ -4,7 +4,7 @@
  * Displays list of meta scripts with details.
  */
 
-import { LitElement, html, css, nothing } from 'lit';
+import { LitElement, html, css, unsafeCSS, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import * as api from '../lib/api.js';
 import type { Script } from '../lib/api.js';
@@ -20,7 +20,7 @@ import tokensCSS from '../styles/tokens.css?inline';
 @customElement('scripts-card')
 export class ScriptsCard extends LitElement {
   static styles = css`
-    ${tokensCSS}
+    ${unsafeCSS(tokensCSS)}
 
     :host {
       display: block;

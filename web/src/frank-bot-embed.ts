@@ -5,7 +5,7 @@
  * It exports the dashboard component for embedding.
  */
 
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, unsafeCSS } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import * as api from './lib/api.js';
 
@@ -28,7 +28,7 @@ import tokensCSS from './styles/tokens.css?inline';
 @customElement('frank-bot-dashboard')
 export class FrankBotDashboard extends LitElement {
   static styles = css`
-    ${tokensCSS}
+    ${unsafeCSS(tokensCSS)}
 
     :host {
       display: block;
