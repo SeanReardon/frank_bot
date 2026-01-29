@@ -48,7 +48,7 @@ def get_ups_status() -> UpsStatus:
     return UpsStatus(
         runtime=runtime,
         charge_percent=0,
-        temperature_f=0asddasd.0,
+        temperature_f=0.0,
     )
 
 
