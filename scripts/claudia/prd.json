@@ -2,5 +2,209 @@
   "project": "frank_bot",
   "version": "0.1.0",
   "branchName": "main",
-  "userStories": []
+  "userStories": [
+    {
+      "id": "frank_bot-00001",
+      "title": "Create meta module structure and FrankAPI namespace classes",
+      "acceptanceCriteria": [
+        "Create meta/ directory with __init__.py, api.py, executor.py, introspection.py files",
+        "FrankAPI class exists with namespace properties: calendar, contacts, sms, swarm, ups, time",
+        "Each namespace class (CalendarNamespace, ContactsNamespace, etc.) is defined with stub methods",
+        "FrankAPI() can be instantiated without errors",
+        "Namespace methods are synchronous wrappers that will call existing async actions"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Foundation task - all other meta module tasks depend on this. Focus on structure, not implementation."
+    },
+    {
+      "id": "frank_bot-00002",
+      "title": "Implement CalendarNamespace with sync wrappers for existing calendar actions",
+      "acceptanceCriteria": [
+        "CalendarNamespace.events() calls the existing calendar events action synchronously via asyncio.run()",
+        "CalendarNamespace.create() wraps the create event action",
+        "CalendarNamespace.list() wraps the list calendars action",
+        "Methods accept the same parameters as the underlying actions",
+        "Methods return the same dict structure as the underlying actions",
+        "Unit tests verify the namespace methods work correctly"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Depends on frank_bot-00001. Template for other namespace implementations."
+    },
+    {
+      "id": "frank_bot-00003",
+      "title": "Implement remaining namespace classes (contacts, sms, swarm, ups, time)",
+      "acceptanceCriteria": [
+        "ContactsNamespace.search(query) wraps contact search action",
+        "SMSNamespace.send(recipient, message) wraps SMS send action",
+        "SwarmNamespace.checkins() wraps search_checkins_action with all parameters (year, category, with_companion, max_results)",
+        "UPSNamespace.status() wraps UPS status action",
+        "TimeNamespace.now(timezone=None) wraps time/NTP action",
+        "All methods are synchronous using asyncio.run()",
+        "Unit tests for each namespace"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Depends on frank_bot-00001 and follows pattern from frank_bot-00002."
+    },
+    {
+      "id": "frank_bot-00004",
+      "title": "Implement script storage and parsing utilities",
+      "acceptanceCriteria": [
+        "Scripts are stored as .py files in ./data/scripts/ directory",
+        "Script filenames follow pattern: {ISO8601-timestamp}-{slug}.py",
+        "Docstring parser extracts: description (first paragraph), parameters (from Parameters: section), example (from Example: section)",
+        "Function to list all scripts with metadata (id, description, parameters, example, created_at)",
+        "Function to get a specific script's code by ID",
+        "Function to save a new script with slug and code",
+        "Unit tests for docstring parsing"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Depends on frank_bot-00001 for module structure. Blocking for frank_bot-00006 and frank_bot-00007."
+    },
+    {
+      "id": "frank_bot-00005",
+      "title": "Implement job storage and management",
+      "acceptanceCriteria": [
+        "Jobs are stored as .json files in ./data/jobs/ directory",
+        "Job filenames follow pattern: {ISO8601-timestamp}-{slug}-run.json",
+        "Job JSON contains: job_id, script_id, status, params, started_at, completed_at, stdout, stderr, result, error",
+        "Status values: pending, running, completed, failed, timeout",
+        "Function to create a new job record",
+        "Function to update job status and results",
+        "Function to list all jobs with status",
+        "Function to get a specific job by ID",
+        "Unit tests for job CRUD operations"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Depends on frank_bot-00001. Blocking for frank_bot-00008."
+    },
+    {
+      "id": "frank_bot-00006",
+      "title": "Implement script executor with timeout and output capture",
+      "acceptanceCriteria": [
+        "executor.py has function to execute a script's main() function",
+        "FrankAPI instance is passed as first argument to main()",
+        "Script params are passed as keyword arguments",
+        "stdout and stderr are captured during execution",
+        "Return value from main() is captured as result",
+        "10-minute timeout implemented - script is terminated if exceeded",
+        "Timeout results in status='timeout' with clear error message",
+        "Exceptions during execution are caught and stored in error field",
+        "Execution runs in a background thread to not block",
+        "Unit tests with mock scripts verifying output capture, timeout, and error handling"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Depends on frank_bot-00001, frank_bot-00002, frank_bot-00003 (needs working FrankAPI), frank_bot-00004, frank_bot-00005."
+    },
+    {
+      "id": "frank_bot-00007",
+      "title": "Implement introspection module for meta documentation generation",
+      "acceptanceCriteria": [
+        "introspection.py generates Markdown documentation from FrankAPI",
+        "Documentation includes: quick start example, all services with method tables",
+        "Method tables show: method name, signature with parameters, description",
+        "Documentation includes execution instructions (POST /frank/execute workflow)",
+        "Generated documentation matches the format specified in the PRD",
+        "Unit test verifies documentation structure"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Depends on frank_bot-00001, frank_bot-00002, frank_bot-00003 (needs complete FrankAPI to document)."
+    },
+    {
+      "id": "frank_bot-00008",
+      "title": "Add GET /frank/meta and GET /frank/scripts endpoints",
+      "acceptanceCriteria": [
+        "GET /frank/meta returns Markdown documentation from introspection module",
+        "GET /frank/scripts returns JSON list of all saved scripts with metadata",
+        "GET /frank/scripts/{id} returns a specific script's code",
+        "Endpoints follow existing route patterns in server/routes.py",
+        "Endpoints are protected by existing API key auth",
+        "Integration tests for each endpoint"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "Depends on frank_bot-00004, frank_bot-00007."
+    },
+    {
+      "id": "frank_bot-00009",
+      "title": "Add POST /frank/execute endpoint",
+      "acceptanceCriteria": [
+        "POST /frank/execute accepts JSON with: slug, code, params (for new script)",
+        "POST /frank/execute accepts JSON with: script_id, params (for existing script)",
+        "Endpoint saves new script if code provided",
+        "Endpoint creates job record and starts execution in background",
+        "Returns immediately with job_id and status='running'",
+        "Multiple concurrent executions are supported",
+        "Endpoint protected by existing API key auth",
+        "Integration tests for both new script and existing script execution"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "Depends on frank_bot-00004, frank_bot-00005, frank_bot-00006."
+    },
+    {
+      "id": "frank_bot-00010",
+      "title": "Add GET /frank/jobs endpoints",
+      "acceptanceCriteria": [
+        "GET /frank/jobs returns JSON list of all job runs with status",
+        "GET /frank/jobs/{id} returns full job details: job_id, script_id, status, params, started_at, completed_at, stdout, stderr, result, error",
+        "Completed jobs include the result from main()",
+        "Failed/timeout jobs include error message",
+        "Endpoints protected by existing API key auth",
+        "Integration tests for job listing and retrieval"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "Depends on frank_bot-00005, frank_bot-00009 (needs jobs to exist)."
+    },
+    {
+      "id": "frank_bot-00011",
+      "title": "Update OpenAPI spec with new meta endpoints",
+      "acceptanceCriteria": [
+        "openapi/spec.json includes /frank/meta endpoint with response schema",
+        "openapi/spec.json includes /frank/scripts and /frank/scripts/{id} endpoints",
+        "openapi/spec.json includes /frank/execute endpoint with request/response schemas",
+        "openapi/spec.json includes /frank/jobs and /frank/jobs/{id} endpoints",
+        "Spec passes linting with npx @redocly/cli lint openapi/spec.json",
+        "Request/response schemas accurately reflect the API"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": "Depends on frank_bot-00008, frank_bot-00009, frank_bot-00010. Can be done in parallel with integration testing."
+    },
+    {
+      "id": "frank_bot-00012",
+      "title": "Update instructions_for_chatgpt.txt with script execution guidance",
+      "acceptanceCriteria": [
+        "Instructions explain when to use execute (pagination, filtering, aggregation, combining data sources)",
+        "Instructions describe the workflow: meta -> scripts -> execute -> jobs -> present",
+        "Instructions emphasize execute is for getting data, not presenting it",
+        "Instructions mention checking /frank/scripts for reusable scripts",
+        "Instructions include example use case (hotels in SF)",
+        "Instructions reference /frank/meta for understanding capabilities"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "Can be done after API implementation is complete. No hard dependencies but should reflect final API."
+    },
+    {
+      "id": "frank_bot-00013",
+      "title": "Ensure data volume is mounted in Docker configuration",
+      "acceptanceCriteria": [
+        "docker-compose.yml mounts ./data:/app/data volume",
+        "Container can write to ./data/scripts/ and ./data/jobs/ directories",
+        "Data persists across container restarts",
+        "README documents the data directory structure"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": "Infrastructure task. Can be done early but testing requires the endpoints to exist."
+    }
+  ]
 }
