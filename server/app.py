@@ -19,6 +19,7 @@ from server.manifests import (
     build_ai_plugin_manifest,
 )
 from server.openapi import load_openapi_document
+from server.meta_routes import build_meta_routes
 from server.routes import build_action_routes
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ def create_starlette_app() -> Starlette:
 
     settings = get_settings()
     action_routes = build_action_routes(settings)
+    meta_routes = build_meta_routes(settings)
     openapi_document = load_openapi_document(settings)
     ai_plugin_manifest = build_ai_plugin_manifest(settings)
     actions_manifest = build_actions_manifest(settings)
@@ -68,7 +70,7 @@ def create_starlette_app() -> Starlette:
             return FileResponse(FAVICON_PATH, media_type="image/png")
         return Response(status_code=404)
 
-    routes = action_routes + [
+    routes = action_routes + meta_routes + [
         Route("/favicon.ico", favicon_handler, methods=["GET"]),
         Route("/actions/openapi.json", openapi_handler, methods=["GET"]),
         Route(

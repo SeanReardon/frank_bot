@@ -130,3 +130,85 @@ Updated docker-compose.yml to mount ./data:/app/data volume for persisting scrip
 - README project structure should document the data/ directory for discoverability
 
 ---
+
+## 2026-01-29: frank_bot-00006 - Implement script executor with timeout and output capture
+
+### Summary
+Implemented the script executor in meta/executor.py that executes scripts' main() functions with FrankAPI injection, parameter passing, stdout/stderr capture, timeout handling (10 minutes default), and error capture. Supports both synchronous execution and async execution with job tracking.
+
+### Files Changed
+- meta/executor.py (fully implemented)
+- tests/test_executor.py (new - 20 tests)
+
+### Learnings
+- ThreadPoolExecutor with future.result(timeout=) provides clean timeout handling
+- StringIO captures stdout/stderr when sys.stdout/stderr are temporarily replaced
+- exec() with a global namespace allows defining main() and then calling it
+- Background execution with threading.Thread(daemon=True) allows non-blocking job execution
+- Scripts must accept **kwargs to handle arbitrary parameters passed from execute endpoint
+
+---
+
+## 2026-01-29: frank_bot-00008 - Add GET /frank/meta and GET /frank/scripts endpoints
+
+### Summary
+Implemented server routes for /frank/meta (returns Markdown API documentation), /frank/scripts (lists all saved scripts with metadata), and /frank/scripts/{id} (returns script source code). Routes follow existing patterns and are protected by API key auth.
+
+### Files Changed
+- server/meta_routes.py (new)
+- server/app.py (updated to include meta routes)
+- tests/test_meta_routes.py (new - 19 integration tests)
+
+### Learnings
+- Starlette's HTTPException doesn't automatically return JSON in all cases; returning JSONResponse directly is more reliable
+- Route patterns like {script_id:path} allow IDs containing slashes if needed
+- API key auth check returns response or None pattern avoids exception handling complexity
+
+---
+
+## 2026-01-29: frank_bot-00009 - Add POST /frank/execute endpoint
+
+### Summary
+Implemented POST /frank/execute endpoint that accepts either script_id (for existing scripts) or slug+code (for new scripts) with optional params. Creates a job record, starts background execution, and returns immediately with job_id and status='running'.
+
+### Files Changed
+- server/meta_routes.py (execute_handler added)
+- tests/test_meta_routes.py (TestExecute class - 4 tests)
+
+### Learnings
+- Request body parsing should return error response directly rather than raising exceptions
+- The execute endpoint serves two use cases: run existing scripts by ID, or save+run new scripts
+- Background thread execution allows immediate response while job runs
+
+---
+
+## 2026-01-29: frank_bot-00010 - Add GET /frank/jobs endpoints
+
+### Summary
+Implemented GET /frank/jobs (lists all jobs with optional status filter) and GET /frank/jobs/{id} (returns full job details including stdout, stderr, result, error). Endpoints follow existing patterns and support status filtering.
+
+### Files Changed
+- server/meta_routes.py (list_jobs_handler, get_job_handler added)
+- tests/test_meta_routes.py (TestListJobs, TestGetJob classes - 7 tests)
+
+### Learnings
+- Optional query parameters for filtering (status) provide flexibility without complicating required paths
+- Job summary vs details distinction keeps list responses lightweight while detail endpoint provides full data
+- Polling pattern: POST /execute returns job_id, then GET /jobs/{id} to check completion
+
+---
+
+## 2026-01-29: frank_bot-00011 - Update OpenAPI spec with new meta endpoints
+
+### Summary
+Updated openapi/spec.json with all new /frank/* endpoints including paths, parameters, request/response schemas. Added schemas for ScriptMetadata, ExecuteScriptRequest, ExecuteScriptResponse, JobSummary, JobDetails, etc.
+
+### Files Changed
+- openapi/spec.json (7 new paths, 9 new schemas)
+
+### Learnings
+- OpenAPI 3.1 supports text/markdown and text/x-python content types for non-JSON responses
+- "oneOf" could model the execute request (script_id OR slug+code) but plain description is clearer
+- Spec passes linting with existing warnings (no new issues introduced)
+
+---

@@ -98,7 +98,7 @@
         "Unit tests with mock scripts verifying output capture, timeout, and error handling"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00001, frank_bot-00002, frank_bot-00003 (needs working FrankAPI), frank_bot-00004, frank_bot-00005."
     },
     {
@@ -128,7 +128,7 @@
         "Integration tests for each endpoint"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00004, frank_bot-00007."
     },
     {
@@ -145,7 +145,7 @@
         "Integration tests for both new script and existing script execution"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00004, frank_bot-00005, frank_bot-00006."
     },
     {
@@ -160,7 +160,7 @@
         "Integration tests for job listing and retrieval"
       ],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00005, frank_bot-00009 (needs jobs to exist)."
     },
     {
@@ -175,7 +175,7 @@
         "Request/response schemas accurately reflect the API"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00008, frank_bot-00009, frank_bot-00010. Can be done in parallel with integration testing."
     },
     {
