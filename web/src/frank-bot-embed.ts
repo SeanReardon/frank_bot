@@ -41,11 +41,23 @@ export class FrankBotDashboard extends LitElement {
       gap: var(--spacing-lg);
     }
 
+    /* Kente-inspired decorative stripe at top of dashboard */
+    .dashboard::before {
+      content: '';
+      display: block;
+      height: 4px;
+      background: var(--kente-stripe);
+      border-radius: var(--border-radius-sm);
+      margin-bottom: var(--spacing-sm);
+    }
+
     .card {
       background: var(--color-surface);
       border: 1px solid var(--color-border);
       border-radius: var(--border-radius-md);
       padding: var(--spacing-lg);
+      /* Subtle gold left accent border */
+      border-left: 3px solid var(--kente-gold);
     }
 
     .card-header {
@@ -59,6 +71,7 @@ export class FrankBotDashboard extends LitElement {
       font-size: var(--font-size-lg);
       font-weight: 600;
       margin: 0;
+      color: var(--kente-gold-light);
     }
 
     .status-badge {
@@ -70,17 +83,17 @@ export class FrankBotDashboard extends LitElement {
     }
 
     .status-badge.success {
-      background: var(--color-success);
+      background: var(--kente-green);
       color: white;
     }
 
     .status-badge.warning {
-      background: var(--color-warning);
-      color: black;
+      background: var(--kente-orange);
+      color: white;
     }
 
     .status-badge.error {
-      background: var(--color-error);
+      background: var(--kente-red);
       color: white;
     }
 
@@ -100,17 +113,18 @@ export class FrankBotDashboard extends LitElement {
       border: none;
       cursor: pointer;
       font-size: var(--font-size-base);
-      font-weight: 500;
-      transition: background var(--transition-fast);
+      font-weight: 600;
+      transition: all var(--transition-fast);
     }
 
     .button-primary {
-      background: var(--color-primary);
-      color: white;
+      background: var(--kente-gold);
+      color: var(--kente-black);
     }
 
     .button-primary:hover {
-      background: color-mix(in srgb, var(--color-primary) 80%, white);
+      background: var(--kente-gold-light);
+      box-shadow: 0 2px 8px rgba(218, 165, 32, 0.3);
     }
 
     .button:disabled {
@@ -129,7 +143,7 @@ export class FrankBotDashboard extends LitElement {
       width: 16px;
       height: 16px;
       border: 2px solid var(--color-border);
-      border-top-color: var(--color-primary);
+      border-top-color: var(--kente-gold);
       border-radius: 50%;
       animation: spin 1s linear infinite;
     }

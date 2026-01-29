@@ -33,6 +33,8 @@ export class TelegramCard extends LitElement {
       border: 1px solid var(--color-border);
       border-radius: var(--border-radius-md);
       padding: var(--spacing-lg);
+      /* Kente gold left accent */
+      border-left: 3px solid var(--kente-gold);
     }
 
     .card-header {
@@ -46,6 +48,7 @@ export class TelegramCard extends LitElement {
       font-size: var(--font-size-lg);
       font-weight: 600;
       margin: 0;
+      color: var(--kente-gold-light);
     }
 
     .status-badge {
@@ -57,17 +60,17 @@ export class TelegramCard extends LitElement {
     }
 
     .status-badge.success {
-      background: var(--color-success);
+      background: var(--kente-green);
       color: white;
     }
 
     .status-badge.warning {
-      background: var(--color-warning);
-      color: black;
+      background: var(--kente-orange);
+      color: white;
     }
 
     .status-badge.error {
-      background: var(--color-error);
+      background: var(--kente-red);
       color: white;
     }
 
@@ -106,17 +109,18 @@ export class TelegramCard extends LitElement {
       border: none;
       cursor: pointer;
       font-size: var(--font-size-base);
-      font-weight: 500;
-      transition: background var(--transition-fast);
+      font-weight: 600;
+      transition: all var(--transition-fast);
     }
 
     .button-primary {
-      background: var(--color-primary);
-      color: white;
+      background: var(--kente-gold);
+      color: var(--kente-black);
     }
 
     .button-primary:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--color-primary) 80%, white);
+      background: var(--kente-gold-light);
+      box-shadow: 0 2px 8px rgba(218, 165, 32, 0.3);
     }
 
     .button-secondary {
@@ -126,7 +130,8 @@ export class TelegramCard extends LitElement {
     }
 
     .button-secondary:hover:not(:disabled) {
-      background: var(--color-border);
+      border-color: var(--kente-gold);
+      color: var(--kente-gold-light);
     }
 
     .button:disabled {
@@ -151,7 +156,7 @@ export class TelegramCard extends LitElement {
       width: 16px;
       height: 16px;
       border: 2px solid var(--color-border);
-      border-top-color: var(--color-primary);
+      border-top-color: var(--kente-gold);
       border-radius: 50%;
       animation: spin 1s linear infinite;
     }
@@ -167,18 +172,18 @@ export class TelegramCard extends LitElement {
     }
 
     .message.info {
-      background: color-mix(in srgb, var(--color-primary) 20%, transparent);
-      border: 1px solid var(--color-primary);
+      background: color-mix(in srgb, var(--kente-gold) 15%, transparent);
+      border: 1px solid var(--kente-gold-dark);
     }
 
     .message.error {
-      background: color-mix(in srgb, var(--color-error) 20%, transparent);
-      border: 1px solid var(--color-error);
+      background: color-mix(in srgb, var(--kente-red) 15%, transparent);
+      border: 1px solid var(--kente-red);
     }
 
     .message.success {
-      background: color-mix(in srgb, var(--color-success) 20%, transparent);
-      border: 1px solid var(--color-success);
+      background: color-mix(in srgb, var(--kente-green) 15%, transparent);
+      border: 1px solid var(--kente-green);
     }
 
     .test-result {
@@ -186,11 +191,13 @@ export class TelegramCard extends LitElement {
       padding: var(--spacing-md);
       background: var(--color-surface-hover);
       border-radius: var(--border-radius-sm);
+      border-left: 2px solid var(--kente-green);
     }
 
     .test-result h4 {
       margin: 0 0 var(--spacing-sm) 0;
       font-size: var(--font-size-base);
+      color: var(--kente-green);
     }
 
     .test-result ul {
@@ -216,6 +223,7 @@ export class TelegramCard extends LitElement {
 
     .wizard-step label {
       font-weight: 500;
+      color: var(--kente-gold-light);
     }
 
     .input {
@@ -230,7 +238,8 @@ export class TelegramCard extends LitElement {
 
     .input:focus {
       outline: none;
-      border-color: var(--color-primary);
+      border-color: var(--kente-gold);
+      box-shadow: 0 0 0 2px rgba(218, 165, 32, 0.2);
     }
 
     .input::placeholder {

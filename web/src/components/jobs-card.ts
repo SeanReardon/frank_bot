@@ -33,6 +33,8 @@ export class JobsCard extends LitElement {
       border: 1px solid var(--color-border);
       border-radius: var(--border-radius-md);
       padding: var(--spacing-lg);
+      /* Kente blue left accent - jobs represent activity/work */
+      border-left: 3px solid var(--kente-blue);
     }
 
     .card-header {
@@ -48,6 +50,7 @@ export class JobsCard extends LitElement {
       font-size: var(--font-size-lg);
       font-weight: 600;
       margin: 0;
+      color: var(--kente-gold-light);
     }
 
     .header-controls {
@@ -62,8 +65,8 @@ export class JobsCard extends LitElement {
       border: none;
       cursor: pointer;
       font-size: var(--font-size-base);
-      font-weight: 500;
-      transition: background var(--transition-fast);
+      font-weight: 600;
+      transition: all var(--transition-fast);
     }
 
     .button-secondary {
@@ -73,7 +76,8 @@ export class JobsCard extends LitElement {
     }
 
     .button-secondary:hover:not(:disabled) {
-      background: var(--color-border);
+      border-color: var(--kente-gold);
+      color: var(--kente-gold-light);
     }
 
     .button:disabled {
@@ -95,6 +99,11 @@ export class JobsCard extends LitElement {
       cursor: pointer;
     }
 
+    .filter-select:focus {
+      outline: none;
+      border-color: var(--kente-gold);
+    }
+
     .auto-refresh {
       display: flex;
       align-items: center;
@@ -105,6 +114,7 @@ export class JobsCard extends LitElement {
 
     .auto-refresh input {
       cursor: pointer;
+      accent-color: var(--kente-gold);
     }
 
     .loading {
@@ -118,7 +128,7 @@ export class JobsCard extends LitElement {
       width: 16px;
       height: 16px;
       border: 2px solid var(--color-border);
-      border-top-color: var(--color-primary);
+      border-top-color: var(--kente-gold);
       border-radius: 50%;
       animation: spin 1s linear infinite;
     }
@@ -134,8 +144,8 @@ export class JobsCard extends LitElement {
     }
 
     .message.error {
-      background: color-mix(in srgb, var(--color-error) 20%, transparent);
-      border: 1px solid var(--color-error);
+      background: color-mix(in srgb, var(--kente-red) 15%, transparent);
+      border: 1px solid var(--kente-red);
     }
 
     .empty-state {
@@ -154,6 +164,12 @@ export class JobsCard extends LitElement {
       background: var(--color-surface-hover);
       border-radius: var(--border-radius-sm);
       overflow: hidden;
+      border-left: 2px solid transparent;
+      transition: border-color var(--transition-fast);
+    }
+
+    .job-item:hover {
+      border-left-color: var(--kente-blue);
     }
 
     .job-header {
@@ -198,23 +214,23 @@ export class JobsCard extends LitElement {
     }
 
     .status-badge.running {
-      background: var(--color-primary);
+      background: var(--kente-blue);
       color: white;
     }
 
     .status-badge.completed {
-      background: var(--color-success);
+      background: var(--kente-green);
       color: white;
     }
 
     .status-badge.failed {
-      background: var(--color-error);
+      background: var(--kente-red);
       color: white;
     }
 
     .status-badge.timeout {
-      background: var(--color-warning);
-      color: black;
+      background: var(--kente-orange);
+      color: white;
     }
 
     .job-meta {
@@ -227,6 +243,7 @@ export class JobsCard extends LitElement {
 
     .expand-icon {
       transition: transform var(--transition-fast);
+      color: var(--kente-gold);
     }
 
     .expand-icon.expanded {
@@ -240,7 +257,7 @@ export class JobsCard extends LitElement {
 
     .job-details h4 {
       font-size: var(--font-size-sm);
-      color: var(--color-text-muted);
+      color: var(--kente-gold);
       margin: var(--spacing-md) 0 var(--spacing-sm);
       text-transform: uppercase;
       letter-spacing: 0.05em;
@@ -261,13 +278,13 @@ export class JobsCard extends LitElement {
     }
 
     .output-block.error {
-      border-color: var(--color-error);
-      color: var(--color-error);
+      border-color: var(--kente-red);
+      color: var(--kente-red);
     }
 
     .result-block {
       background: var(--color-bg);
-      border: 1px solid var(--color-success);
+      border: 1px solid var(--kente-green);
       border-radius: var(--border-radius-sm);
       padding: var(--spacing-md);
       overflow-x: auto;

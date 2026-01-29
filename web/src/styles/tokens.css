@@ -1,24 +1,56 @@
 /**
  * CSS custom property tokens for Frank Bot dashboard.
  *
+ * Kente-inspired color palette:
+ * - Gold (wealth, royalty, high status)
+ * - Green (growth, harvest, renewal)
+ * - Red (sacrifice, struggle, passion)
+ * - Black (maturity, spiritual energy)
+ *
  * These provide fallback values that work standalone in dev mode,
  * while inheriting from the parent app (contrived-site) when embedded.
  */
 
 :host {
-  /* Colors */
-  --color-bg: var(--theme-color-bg, #1a1a1a);
-  --color-text: var(--theme-color-text, #f0f0f0);
-  --color-text-muted: var(--theme-color-text-muted, #888);
-  --color-primary: var(--theme-color-primary, #4a9eff);
-  --color-border: var(--theme-color-border, #333);
-  --color-success: var(--theme-color-success, #4caf50);
-  --color-error: var(--theme-color-error, #f44336);
-  --color-warning: var(--theme-color-warning, #ff9800);
+  /* Kente-inspired colors */
+  --kente-gold: #DAA520;
+  --kente-gold-light: #F4C430;
+  --kente-gold-dark: #B8860B;
+  --kente-green: #2E7D32;
+  --kente-green-dark: #1B5E20;
+  --kente-red: #C62828;
+  --kente-red-dark: #8B0000;
+  --kente-black: #0d0d0d;
+  --kente-charcoal: #1a1a1a;
+  --kente-orange: #E65100;
+  --kente-blue: #1565C0;
+
+  /* Colors - Kente palette */
+  --color-bg: var(--theme-color-bg, var(--kente-charcoal));
+  --color-text: var(--theme-color-text, #f5f0e6);
+  --color-text-muted: var(--theme-color-text-muted, #a89f8c);
+  --color-primary: var(--theme-color-primary, var(--kente-gold));
+  --color-border: var(--theme-color-border, #3d3526);
+  --color-success: var(--theme-color-success, var(--kente-green));
+  --color-error: var(--theme-color-error, var(--kente-red));
+  --color-warning: var(--theme-color-warning, var(--kente-orange));
 
   /* Surface colors for cards */
-  --color-surface: var(--theme-color-surface, #242424);
-  --color-surface-hover: var(--theme-color-surface-hover, #2a2a2a);
+  --color-surface: var(--theme-color-surface, #1f1c16);
+  --color-surface-hover: var(--theme-color-surface-hover, #2a2620);
+
+  /* Kente accent stripe - for decorative borders */
+  --kente-stripe: linear-gradient(
+    90deg,
+    var(--kente-gold) 0%,
+    var(--kente-gold) 25%,
+    var(--kente-green) 25%,
+    var(--kente-green) 50%,
+    var(--kente-red) 50%,
+    var(--kente-red) 75%,
+    var(--kente-gold) 75%,
+    var(--kente-gold) 100%
+  );
 
   /* Typography */
   --font-family: var(--theme-font-family, system-ui, -apple-system, sans-serif);

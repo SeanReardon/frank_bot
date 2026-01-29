@@ -31,6 +31,8 @@ export class ScriptsCard extends LitElement {
       border: 1px solid var(--color-border);
       border-radius: var(--border-radius-md);
       padding: var(--spacing-lg);
+      /* Kente green left accent - scripts are "growth" */
+      border-left: 3px solid var(--kente-green);
     }
 
     .card-header {
@@ -44,6 +46,7 @@ export class ScriptsCard extends LitElement {
       font-size: var(--font-size-lg);
       font-weight: 600;
       margin: 0;
+      color: var(--kente-gold-light);
     }
 
     .button {
@@ -52,8 +55,8 @@ export class ScriptsCard extends LitElement {
       border: none;
       cursor: pointer;
       font-size: var(--font-size-base);
-      font-weight: 500;
-      transition: background var(--transition-fast);
+      font-weight: 600;
+      transition: all var(--transition-fast);
     }
 
     .button-secondary {
@@ -63,7 +66,8 @@ export class ScriptsCard extends LitElement {
     }
 
     .button-secondary:hover:not(:disabled) {
-      background: var(--color-border);
+      border-color: var(--kente-gold);
+      color: var(--kente-gold-light);
     }
 
     .button:disabled {
@@ -86,7 +90,7 @@ export class ScriptsCard extends LitElement {
       width: 16px;
       height: 16px;
       border: 2px solid var(--color-border);
-      border-top-color: var(--color-primary);
+      border-top-color: var(--kente-gold);
       border-radius: 50%;
       animation: spin 1s linear infinite;
     }
@@ -102,8 +106,8 @@ export class ScriptsCard extends LitElement {
     }
 
     .message.error {
-      background: color-mix(in srgb, var(--color-error) 20%, transparent);
-      border: 1px solid var(--color-error);
+      background: color-mix(in srgb, var(--kente-red) 15%, transparent);
+      border: 1px solid var(--kente-red);
     }
 
     .empty-state {
@@ -122,6 +126,12 @@ export class ScriptsCard extends LitElement {
       background: var(--color-surface-hover);
       border-radius: var(--border-radius-sm);
       overflow: hidden;
+      border-left: 2px solid transparent;
+      transition: border-color var(--transition-fast);
+    }
+
+    .script-item:hover {
+      border-left-color: var(--kente-green);
     }
 
     .script-header {
@@ -146,6 +156,7 @@ export class ScriptsCard extends LitElement {
       font-weight: 600;
       margin-bottom: var(--spacing-xs);
       word-break: break-word;
+      color: var(--kente-gold-light);
     }
 
     .script-description {
@@ -167,6 +178,7 @@ export class ScriptsCard extends LitElement {
 
     .expand-icon {
       transition: transform var(--transition-fast);
+      color: var(--kente-gold);
     }
 
     .expand-icon.expanded {
@@ -180,7 +192,7 @@ export class ScriptsCard extends LitElement {
 
     .script-details h4 {
       font-size: var(--font-size-sm);
-      color: var(--color-text-muted);
+      color: var(--kente-gold);
       margin: var(--spacing-md) 0 var(--spacing-sm);
       text-transform: uppercase;
       letter-spacing: 0.05em;
@@ -209,7 +221,7 @@ export class ScriptsCard extends LitElement {
     .param-name {
       font-family: monospace;
       font-weight: 600;
-      color: var(--color-primary);
+      color: var(--kente-gold);
     }
 
     .param-type {
