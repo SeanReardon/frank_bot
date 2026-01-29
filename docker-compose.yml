@@ -82,6 +82,26 @@ services:
     networks:
       - frank-bot
 
+  # ==========================================================================
+  # Web Dashboard
+  # ==========================================================================
+  frank-bot-web:
+    image: ghcr.io/seanreardon/frank_bot-web:latest
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: frank-bot-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:80"
+    volumes:
+      # Share data directory with API (for Telegram session, etc.)
+      - ./data:/app/data
+    networks:
+      - frank-bot
+    depends_on:
+      - frank-bot
+
 networks:
   frank-bot:
     driver: bridge
