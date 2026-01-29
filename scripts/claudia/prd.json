@@ -14,7 +14,7 @@
         "Namespace methods are synchronous wrappers that will call existing async actions"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Foundation task - all other meta module tasks depend on this. Focus on structure, not implementation."
     },
     {
