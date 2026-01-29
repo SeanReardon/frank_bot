@@ -449,3 +449,87 @@ Created web dashboard scaffold with Vite 5.x + TypeScript 5.x + Lit 3.x. Dual bu
 - Lit web components use Shadow DOM by default - styles are scoped
 
 ---
+
+## 2026-01-29: frank_bot-00031 - Create web/nginx.conf with API proxy and static file serving
+
+### Summary
+Created nginx.conf for the web container with API proxy to frank-bot backend, /health endpoint for container health checks, CORS headers for bundle.js embedding, gzip compression, and static asset caching.
+
+### Files Changed
+- web/nginx.conf (new)
+
+### Learnings
+- nginx proxy_pass with trailing slash strips the location prefix (/api/ -> /)
+- CORS headers (Access-Control-Allow-Origin *) needed for cross-origin embedding
+- Cache-Control "immutable" prevents conditional requests for versioned assets
+
+---
+
+## 2026-01-29: frank_bot-00030 - Create web/Dockerfile with multi-stage build
+
+### Summary
+Created multi-stage Dockerfile with node:20-alpine builder stage for npm ci and npm run build:lib, and nginx:alpine production stage serving the bundle.js and index.html. Includes health check using wget.
+
+### Files Changed
+- web/Dockerfile (new)
+
+### Learnings
+- Multi-stage builds keep production image small (nginx:alpine ~20MB vs node:20-alpine ~180MB)
+- wget is preferred over curl for health checks in alpine images
+- HEALTHCHECK directive provides container-level health monitoring
+
+---
+
+## 2026-01-29: frank_bot-00025 - Add POST /telegram/auth/start endpoint
+
+### Summary
+Added /telegram/auth/start endpoint to start the Telegram authentication flow by sending a verification code. Returns phoneCodeHash needed for the verify step. Endpoint protected by Stytch session middleware.
+
+### Files Changed
+- services/telegram_client.py (added TelegramAuthResult dataclass, send_code_request method)
+- actions/telegram.py (added start_telegram_auth action)
+- server/routes.py (added telegram_auth_start_handler and route)
+- tests/test_telegram_actions.py (added 4 tests)
+
+### Learnings
+- Telethon's send_code_request() returns SentCode object with phone_code_hash
+- FloodWaitError contains retry delay in seconds - useful for user feedback
+- Auth flow state (phone_code_hash) must be returned to client for next step
+
+---
+
+## 2026-01-29: frank_bot-00026 - Add POST /telegram/auth/verify endpoint
+
+### Summary
+Added /telegram/auth/verify endpoint to verify the Telegram verification code. Returns success, needs_2fa (if 2FA enabled), or invalid_code. Endpoint protected by Stytch session middleware.
+
+### Files Changed
+- services/telegram_client.py (added sign_in_with_code method, imported new Telethon errors)
+- actions/telegram.py (added verify_telegram_code action)
+- server/routes.py (added telegram_auth_verify_handler and route)
+- tests/test_telegram_actions.py (added 5 tests)
+
+### Learnings
+- SessionPasswordNeededError is raised when 2FA is required - handle gracefully
+- PhoneCodeInvalidError vs PhoneCodeExpiredError provide different user feedback
+- The verify endpoint needs both code and phone_code_hash from the start step
+
+---
+
+## 2026-01-29: frank_bot-00027 - Add POST /telegram/auth/2fa endpoint
+
+### Summary
+Added /telegram/auth/2fa endpoint to complete Telegram authentication with 2FA password. Returns success or invalid_password. Endpoint protected by Stytch session middleware. Completes the web-based Telegram auth flow.
+
+### Files Changed
+- services/telegram_client.py (added sign_in_with_2fa method, imported PasswordHashInvalidError)
+- actions/telegram.py (added verify_telegram_2fa action)
+- server/routes.py (added telegram_auth_2fa_handler and route)
+- tests/test_telegram_actions.py (added 4 tests)
+
+### Learnings
+- PasswordHashInvalidError is raised for incorrect 2FA password
+- The 2FA endpoint only needs password - session state is maintained in .session file
+- sign_in(password=) is a separate call from sign_in(phone=, code=, phone_code_hash=)
+
+---

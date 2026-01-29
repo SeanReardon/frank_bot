@@ -393,7 +393,7 @@
         "Integration test verifies code sending flow (mocked Telegram API)"
       ],
       "priority": 25,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00015, frank_bot-00024. First step in web-based Telegram auth flow."
     },
     {
@@ -410,7 +410,7 @@
         "Integration test verifies verification flow including 2FA detection"
       ],
       "priority": 26,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00025. Second step in web-based Telegram auth flow."
     },
     {
@@ -426,7 +426,7 @@
         "Integration test verifies 2FA completion flow"
       ],
       "priority": 27,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00026. Final step in web-based Telegram auth flow for 2FA accounts."
     },
     {
@@ -472,7 +472,7 @@
         "Container serves bundle.js at /bundle.js"
       ],
       "priority": 30,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00029. Required for containerized deployment."
     },
     {
@@ -488,7 +488,7 @@
         "Static assets (JS/CSS/images) served with long cache headers"
       ],
       "priority": 31,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00029. Required for frank_bot-00030 Dockerfile."
     },
     {

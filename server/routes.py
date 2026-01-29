@@ -32,8 +32,12 @@ from actions.telegram import (
     get_telegram_status,
     list_telegram_chats,
     send_telegram_message,
+    start_telegram_auth,
     test_telegram_connection,
+    verify_telegram_2fa,
+    verify_telegram_code,
 )
+from server.stytch_middleware import require_stytch_session
 from config import Settings
 from services.stats import stats
 
@@ -204,6 +208,28 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(create_event_action)
         return await responder(payload)
 
+    # Telegram auth endpoints (protected by Stytch session)
+    @require_stytch_session
+    async def telegram_auth_start_handler(request: Request):
+        stats.get_endpoint_stats("telegramAuthStart").record_call()
+        payload = await _read_body(request)
+        responder = _build_responder(start_telegram_auth)
+        return await responder(payload)
+
+    @require_stytch_session
+    async def telegram_auth_verify_handler(request: Request):
+        stats.get_endpoint_stats("telegramAuthVerify").record_call()
+        payload = await _read_body(request)
+        responder = _build_responder(verify_telegram_code)
+        return await responder(payload)
+
+    @require_stytch_session
+    async def telegram_auth_2fa_handler(request: Request):
+        stats.get_endpoint_stats("telegramAuth2FA").record_call()
+        payload = await _read_body(request)
+        responder = _build_responder(verify_telegram_2fa)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -252,6 +278,10 @@ def build_action_routes(settings: Settings) -> list[Route]:
         # Telegram dashboard endpoints (public - no API key required)
         Route("/telegram/status", telegram_status_handler, methods=["GET"]),
         Route("/telegram/test", telegram_test_handler, methods=["GET"]),
+        # Telegram auth endpoints (protected by Stytch session)
+        Route("/telegram/auth/start", telegram_auth_start_handler, methods=["POST"]),
+        Route("/telegram/auth/verify", telegram_auth_verify_handler, methods=["POST"]),
+        Route("/telegram/auth/2fa", telegram_auth_2fa_handler, methods=["POST"]),
     ]
 
     return routes

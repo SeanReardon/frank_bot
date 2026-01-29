@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from services.telegram_client import TelegramClientService
+from services.telegram_client import TelegramClientService, TelegramAuthResult
 
 logger = logging.getLogger(__name__)
 
@@ -241,10 +241,140 @@ async def test_telegram_connection(
         }
 
 
+async def start_telegram_auth(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Start the Telegram authentication flow by sending a verification code.
+
+    Args (in arguments dict):
+        phone: (optional) Phone number in E.164 format. Uses TELEGRAM_PHONE env var if not provided.
+
+    Returns:
+        Dict with status and phoneCodeHash for the next step.
+        - status: 'code_sent' | 'already_authorized' | 'error'
+        - phoneCodeHash: (only when code_sent) Hash needed for verification step
+        - error: (only when error) Error message
+    """
+    args = arguments or {}
+    phone = (args.get("phone") or "").strip() or None
+
+    service = TelegramClientService()
+
+    result = await service.send_code_request(phone)
+
+    if result.status == "code_sent":
+        return {
+            "status": "code_sent",
+            "phoneCodeHash": result.phone_code_hash,
+        }
+    elif result.status == "already_authorized":
+        return {"status": "already_authorized"}
+    else:
+        return {
+            "status": "error",
+            "error": result.error or "Unknown error",
+        }
+
+
+async def verify_telegram_code(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Verify the Telegram authentication code.
+
+    Args (in arguments dict):
+        code: The verification code sent to the phone.
+        phoneCodeHash: The hash from the start step.
+
+    Returns:
+        Dict with verification status.
+        - status: 'success' | 'invalid_code' | 'needs_2fa' | 'error'
+        - error: (only when error/invalid_code) Error message
+    """
+    args = arguments or {}
+    code = (args.get("code") or "").strip()
+    phone_code_hash = (args.get("phoneCodeHash") or "").strip()
+
+    if not code:
+        return {
+            "status": "error",
+            "error": "code is required.",
+        }
+    if not phone_code_hash:
+        return {
+            "status": "error",
+            "error": "phoneCodeHash is required.",
+        }
+
+    service = TelegramClientService()
+
+    result = await service.sign_in_with_code(code, phone_code_hash)
+
+    if result.status == "success":
+        return {"status": "success"}
+    elif result.status == "needs_2fa":
+        return {"status": "needs_2fa"}
+    elif result.status == "invalid_code":
+        return {
+            "status": "invalid_code",
+            "error": result.error or "Invalid verification code.",
+        }
+    else:
+        return {
+            "status": "error",
+            "error": result.error or "Unknown error",
+        }
+
+
+async def verify_telegram_2fa(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Complete Telegram authentication with 2FA password.
+
+    Args (in arguments dict):
+        password: The 2FA password for the account.
+
+    Returns:
+        Dict with verification status.
+        - status: 'success' | 'invalid_password' | 'error'
+        - error: (only when error/invalid_password) Error message
+    """
+    args = arguments or {}
+    password = args.get("password") or ""
+
+    if not password:
+        return {
+            "status": "error",
+            "error": "password is required.",
+        }
+
+    service = TelegramClientService()
+
+    result = await service.sign_in_with_2fa(password)
+
+    if result.status == "success":
+        return {"status": "success"}
+    elif result.status == "invalid_password":
+        return {
+            "status": "invalid_password",
+            "error": result.error or "Invalid password.",
+        }
+    else:
+        return {
+            "status": "error",
+            "error": result.error or "Unknown error",
+        }
+
+
 __all__ = [
     "send_telegram_message",
     "get_telegram_messages",
     "list_telegram_chats",
     "get_telegram_status",
     "test_telegram_connection",
+    "start_telegram_auth",
+    "verify_telegram_code",
+    "verify_telegram_2fa",
 ]

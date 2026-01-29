@@ -16,11 +16,15 @@ from actions.telegram import (
     list_telegram_chats,
     get_telegram_status,
     test_telegram_connection,
+    start_telegram_auth,
+    verify_telegram_code,
+    verify_telegram_2fa,
 )
 from services.telegram_client import (
     TelegramMessageResult,
     TelegramMessage,
     TelegramDialog,
+    TelegramAuthResult,
 )
 
 
@@ -425,3 +429,216 @@ class TestTestTelegramConnection:
 
             assert result["connected"] is False
             assert "Connection failed" in result["error"]
+
+
+class TestStartTelegramAuth:
+    """Tests for start_telegram_auth action."""
+
+    @pytest.mark.asyncio
+    async def test_auth_start_code_sent(self) -> None:
+        """Returns code_sent with phoneCodeHash when successful."""
+        mock_result = TelegramAuthResult(
+            status="code_sent",
+            phone_code_hash="abc123hash",
+        )
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.send_code_request = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_instance
+
+            result = await start_telegram_auth({"phone": "+15551234567"})
+
+            assert result["status"] == "code_sent"
+            assert result["phoneCodeHash"] == "abc123hash"
+            mock_instance.send_code_request.assert_called_once_with("+15551234567")
+
+    @pytest.mark.asyncio
+    async def test_auth_start_already_authorized(self) -> None:
+        """Returns already_authorized when already logged in."""
+        mock_result = TelegramAuthResult(status="already_authorized")
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.send_code_request = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_instance
+
+            result = await start_telegram_auth({})
+
+            assert result["status"] == "already_authorized"
+
+    @pytest.mark.asyncio
+    async def test_auth_start_uses_default_phone(self) -> None:
+        """Uses env var phone when not provided."""
+        mock_result = TelegramAuthResult(status="code_sent", phone_code_hash="hash123")
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.send_code_request = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_instance
+
+            await start_telegram_auth({})
+
+            # Called with None, which means use default
+            mock_instance.send_code_request.assert_called_once_with(None)
+
+    @pytest.mark.asyncio
+    async def test_auth_start_error(self) -> None:
+        """Returns error status on failure."""
+        mock_result = TelegramAuthResult(
+            status="error",
+            error="Rate limited. Please wait 300 seconds.",
+        )
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.send_code_request = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_instance
+
+            result = await start_telegram_auth({})
+
+            assert result["status"] == "error"
+            assert "Rate limited" in result["error"]
+
+
+class TestVerifyTelegramCode:
+    """Tests for verify_telegram_code action."""
+
+    @pytest.mark.asyncio
+    async def test_verify_success(self) -> None:
+        """Returns success when code is valid."""
+        mock_result = TelegramAuthResult(status="success")
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.sign_in_with_code = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_instance
+
+            result = await verify_telegram_code({
+                "code": "12345",
+                "phoneCodeHash": "abc123hash",
+            })
+
+            assert result["status"] == "success"
+            mock_instance.sign_in_with_code.assert_called_once_with("12345", "abc123hash")
+
+    @pytest.mark.asyncio
+    async def test_verify_needs_2fa(self) -> None:
+        """Returns needs_2fa when 2FA is required."""
+        mock_result = TelegramAuthResult(status="needs_2fa")
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.sign_in_with_code = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_instance
+
+            result = await verify_telegram_code({
+                "code": "12345",
+                "phoneCodeHash": "abc123hash",
+            })
+
+            assert result["status"] == "needs_2fa"
+
+    @pytest.mark.asyncio
+    async def test_verify_invalid_code(self) -> None:
+        """Returns invalid_code when code is wrong."""
+        mock_result = TelegramAuthResult(
+            status="invalid_code",
+            error="The verification code is invalid.",
+        )
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.sign_in_with_code = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_instance
+
+            result = await verify_telegram_code({
+                "code": "00000",
+                "phoneCodeHash": "abc123hash",
+            })
+
+            assert result["status"] == "invalid_code"
+            assert "invalid" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_verify_missing_code(self) -> None:
+        """Returns error when code is missing."""
+        result = await verify_telegram_code({
+            "phoneCodeHash": "abc123hash",
+        })
+
+        assert result["status"] == "error"
+        assert "code is required" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_verify_missing_hash(self) -> None:
+        """Returns error when phoneCodeHash is missing."""
+        result = await verify_telegram_code({
+            "code": "12345",
+        })
+
+        assert result["status"] == "error"
+        assert "phoneCodeHash is required" in result["error"]
+
+
+class TestVerifyTelegram2FA:
+    """Tests for verify_telegram_2fa action."""
+
+    @pytest.mark.asyncio
+    async def test_2fa_success(self) -> None:
+        """Returns success when password is correct."""
+        mock_result = TelegramAuthResult(status="success")
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.sign_in_with_2fa = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_instance
+
+            result = await verify_telegram_2fa({"password": "secretpassword"})
+
+            assert result["status"] == "success"
+            mock_instance.sign_in_with_2fa.assert_called_once_with("secretpassword")
+
+    @pytest.mark.asyncio
+    async def test_2fa_invalid_password(self) -> None:
+        """Returns invalid_password when password is wrong."""
+        mock_result = TelegramAuthResult(
+            status="invalid_password",
+            error="The password is incorrect.",
+        )
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.sign_in_with_2fa = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_instance
+
+            result = await verify_telegram_2fa({"password": "wrongpassword"})
+
+            assert result["status"] == "invalid_password"
+            assert "incorrect" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_2fa_missing_password(self) -> None:
+        """Returns error when password is missing."""
+        result = await verify_telegram_2fa({})
+
+        assert result["status"] == "error"
+        assert "password is required" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_2fa_error(self) -> None:
+        """Returns error status on failure."""
+        mock_result = TelegramAuthResult(
+            status="error",
+            error="Connection timeout",
+        )
+
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.sign_in_with_2fa = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_instance
+
+            result = await verify_telegram_2fa({"password": "test"})
+
+            assert result["status"] == "error"
+            assert "Connection timeout" in result["error"]

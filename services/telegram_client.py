@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from telethon import TelegramClient
 from telethon.errors import (
     FloodWaitError,
+    PhoneCodeExpiredError,
+    PhoneCodeInvalidError,
+    PasswordHashInvalidError,
+    SessionPasswordNeededError,
     UserNotMutualContactError,
 )
 from telethon.tl.types import Channel, Chat, User
@@ -56,6 +60,15 @@ class TelegramDialog:
     chat_type: str  # 'user', 'group', 'channel'
     unread_count: int
     last_message_date: str | None
+
+
+@dataclass
+class TelegramAuthResult:
+    """Result of a Telegram authentication operation."""
+
+    status: str  # 'code_sent', 'already_authorized', 'success', 'needs_2fa', 'invalid_code', 'invalid_password', 'error'
+    phone_code_hash: str | None = None
+    error: str | None = None
 
 
 def _get_session_path(session_name: str) -> str:
@@ -443,10 +456,216 @@ class TelegramClientService:
             logger.exception("Error marking messages as read in %s", chat_id)
             raise
 
+    async def send_code_request(
+        self,
+        phone: str | None = None,
+    ) -> TelegramAuthResult:
+        """
+        Start the authentication flow by sending a verification code.
+
+        Args:
+            phone: Phone number to authenticate. Uses env var if not provided.
+
+        Returns:
+            TelegramAuthResult with status and phone_code_hash.
+        """
+        phone = phone or self._phone
+
+        if not phone:
+            return TelegramAuthResult(
+                status="error",
+                error="Phone number is required. Provide it or set TELEGRAM_PHONE.",
+            )
+
+        if not self._api_id or not self._api_hash:
+            return TelegramAuthResult(
+                status="error",
+                error="Telegram API credentials not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH.",
+            )
+
+        # Create a new client for auth flow
+        client = TelegramClient(
+            self._session_path,
+            self._api_id,
+            self._api_hash,
+        )
+
+        try:
+            await client.connect()
+
+            # Check if already authorized
+            if await client.is_user_authorized():
+                return TelegramAuthResult(status="already_authorized")
+
+            # Send the code
+            result = await client.send_code_request(phone)
+            logger.info("Telegram verification code sent to %s", phone)
+
+            return TelegramAuthResult(
+                status="code_sent",
+                phone_code_hash=result.phone_code_hash,
+            )
+
+        except FloodWaitError as exc:
+            logger.warning("Telegram rate limit on send_code_request: %s", exc)
+            return TelegramAuthResult(
+                status="error",
+                error=f"Rate limited. Please wait {exc.seconds} seconds.",
+            )
+
+        except Exception as exc:
+            logger.exception("Error sending Telegram verification code")
+            return TelegramAuthResult(
+                status="error",
+                error=str(exc),
+            )
+
+        finally:
+            # Don't disconnect - keep session file for next step
+            pass
+
+    async def sign_in_with_code(
+        self,
+        code: str,
+        phone_code_hash: str,
+        phone: str | None = None,
+    ) -> TelegramAuthResult:
+        """
+        Complete authentication with the verification code.
+
+        Args:
+            code: The verification code sent to the phone.
+            phone_code_hash: The hash from send_code_request().
+            phone: Phone number. Uses env var if not provided.
+
+        Returns:
+            TelegramAuthResult with status ('success', 'needs_2fa', 'invalid_code', 'error').
+        """
+        phone = phone or self._phone
+
+        if not phone:
+            return TelegramAuthResult(
+                status="error",
+                error="Phone number is required.",
+            )
+
+        if not self._api_id or not self._api_hash:
+            return TelegramAuthResult(
+                status="error",
+                error="Telegram API credentials not configured.",
+            )
+
+        client = TelegramClient(
+            self._session_path,
+            self._api_id,
+            self._api_hash,
+        )
+
+        try:
+            await client.connect()
+
+            # Check if already authorized
+            if await client.is_user_authorized():
+                return TelegramAuthResult(status="success")
+
+            # Try to sign in with the code
+            await client.sign_in(
+                phone=phone,
+                code=code,
+                phone_code_hash=phone_code_hash,
+            )
+
+            logger.info("Telegram authentication successful for %s", phone)
+            return TelegramAuthResult(status="success")
+
+        except SessionPasswordNeededError:
+            logger.info("Telegram 2FA required for %s", phone)
+            return TelegramAuthResult(status="needs_2fa")
+
+        except PhoneCodeInvalidError:
+            logger.warning("Invalid Telegram verification code for %s", phone)
+            return TelegramAuthResult(
+                status="invalid_code",
+                error="The verification code is invalid.",
+            )
+
+        except PhoneCodeExpiredError:
+            logger.warning("Telegram verification code expired for %s", phone)
+            return TelegramAuthResult(
+                status="invalid_code",
+                error="The verification code has expired. Please request a new code.",
+            )
+
+        except Exception as exc:
+            logger.exception("Error during Telegram sign in")
+            return TelegramAuthResult(
+                status="error",
+                error=str(exc),
+            )
+
+        finally:
+            await client.disconnect()
+
+    async def sign_in_with_2fa(
+        self,
+        password: str,
+    ) -> TelegramAuthResult:
+        """
+        Complete 2FA authentication with the account password.
+
+        Args:
+            password: The 2FA password.
+
+        Returns:
+            TelegramAuthResult with status ('success', 'invalid_password', 'error').
+        """
+        if not self._api_id or not self._api_hash:
+            return TelegramAuthResult(
+                status="error",
+                error="Telegram API credentials not configured.",
+            )
+
+        client = TelegramClient(
+            self._session_path,
+            self._api_id,
+            self._api_hash,
+        )
+
+        try:
+            await client.connect()
+
+            # Check if already authorized
+            if await client.is_user_authorized():
+                return TelegramAuthResult(status="success")
+
+            # Sign in with 2FA password
+            await client.sign_in(password=password)
+
+            logger.info("Telegram 2FA authentication successful")
+            return TelegramAuthResult(status="success")
+
+        except PasswordHashInvalidError:
+            logger.warning("Invalid Telegram 2FA password")
+            return TelegramAuthResult(
+                status="invalid_password",
+                error="The password is incorrect.",
+            )
+
+        except Exception as exc:
+            logger.exception("Error during Telegram 2FA sign in")
+            return TelegramAuthResult(
+                status="error",
+                error=str(exc),
+            )
+
+        finally:
+            await client.disconnect()
+
 
 __all__ = [
     "TelegramClientService",
     "TelegramMessageResult",
     "TelegramMessage",
     "TelegramDialog",
+    "TelegramAuthResult",
 ]
