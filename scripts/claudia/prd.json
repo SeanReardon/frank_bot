@@ -205,6 +205,135 @@
       "priority": 13,
       "passes": true,
       "notes": "Infrastructure task. Can be done early but testing requires the endpoints to exist."
+    },
+    {
+      "id": "frank_bot-00014",
+      "title": "Add Telethon dependency and Telegram configuration settings",
+      "acceptanceCriteria": [
+        "telethon package added to pyproject.toml dependencies",
+        "poetry.lock updated with telethon and its dependencies",
+        "config.py updated with new settings: TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_PHONE, TELEGRAM_SESSION_NAME",
+        "TELEGRAM_SESSION_NAME defaults to 'frank_bot' if not set",
+        ".env.example updated with Telegram environment variable placeholders",
+        ".gitignore updated to ignore *.session files (Telethon session files)"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": "Foundation task for Telegram integration - all other Telegram tasks depend on this."
+    },
+    {
+      "id": "frank_bot-00015",
+      "title": "Create TelegramClientService with Telethon wrapper",
+      "acceptanceCriteria": [
+        "services/telegram_client.py file created following existing service patterns",
+        "TelegramClientService class initialized with API credentials from config",
+        "is_configured property returns True only when API_ID, API_HASH, and PHONE are set",
+        "Session file stored in configurable location (default: project root)",
+        "Async connect() method initializes and starts the Telethon client",
+        "Async disconnect() method cleanly shuts down the client",
+        "Service handles missing credentials gracefully with clear error messages"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": "Depends on frank_bot-00014. Core service wrapper - blocking for frank_bot-00016."
+    },
+    {
+      "id": "frank_bot-00016",
+      "title": "Implement TelegramClientService message sending and retrieval methods",
+      "acceptanceCriteria": [
+        "send_message(recipient, text) method sends message to user/bot by username or phone",
+        "get_messages(chat_id, limit) method retrieves recent messages from a chat",
+        "get_dialogs(limit) method lists recent conversations with metadata",
+        "mark_read(chat_id) method marks messages as read in a chat",
+        "All methods are async and properly await Telethon operations",
+        "Methods return structured result objects (dataclasses) similar to SMSResult pattern",
+        "Error handling for: recipient not found, rate limiting, session invalidation",
+        "Unit tests with mocked Telethon client verify method behavior"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": "Depends on frank_bot-00015. Implements the core Telegram functionality."
+    },
+    {
+      "id": "frank_bot-00017",
+      "title": "Create Telegram action handlers",
+      "acceptanceCriteria": [
+        "actions/telegram.py file created following existing action patterns",
+        "send_telegram_message(arguments) action sends message with recipient and text parameters",
+        "get_telegram_messages(arguments) action retrieves messages with chat and limit parameters",
+        "list_telegram_chats(arguments) action lists recent conversations with limit parameter",
+        "Actions follow signature: async def action_name(arguments: dict[str, Any] | None = None) -> dict[str, Any]",
+        "Actions return structured dicts with success status and relevant data",
+        "Actions raise ValueError with clear messages on validation failures",
+        "Unit tests verify action behavior with mocked TelegramClientService"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": "Depends on frank_bot-00016. Action layer between routes and service."
+    },
+    {
+      "id": "frank_bot-00018",
+      "title": "Add Telegram routes to server",
+      "acceptanceCriteria": [
+        "GET /telegram/send route added to server/routes.py",
+        "GET /telegram/messages route added to server/routes.py",
+        "GET /telegram/chats route added to server/routes.py",
+        "Routes use _build_responder wrapper pattern like existing routes",
+        "Routes accept query parameters matching action arguments",
+        "Routes protected by existing API key authentication",
+        "Integration tests verify routes call correct actions"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": "Depends on frank_bot-00017. Exposes Telegram functionality via HTTP."
+    },
+    {
+      "id": "frank_bot-00019",
+      "title": "Update OpenAPI spec with Telegram endpoints",
+      "acceptanceCriteria": [
+        "openapi/spec.json includes GET /telegram/send endpoint with query parameters and response schema",
+        "openapi/spec.json includes GET /telegram/messages endpoint with query parameters and response schema",
+        "openapi/spec.json includes GET /telegram/chats endpoint with query parameters and response schema",
+        "Schemas accurately describe request parameters and response structures",
+        "Spec passes linting with npx @redocly/cli lint openapi/spec.json",
+        "Endpoint descriptions explain the user account context (not a bot)"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": "Depends on frank_bot-00018. Documents API for ChatGPT/OpenAI integration."
+    },
+    {
+      "id": "frank_bot-00020",
+      "title": "Create Telegram session setup script",
+      "acceptanceCriteria": [
+        "scripts/setup_telegram_session.py created for interactive first-time auth",
+        "Script prompts for phone number if not in environment",
+        "Script handles Telegram verification code input (SMS or app)",
+        "Script creates .session file upon successful authentication",
+        "Script provides clear instructions and error messages",
+        "Script can be run standalone: poetry run python scripts/setup_telegram_session.py",
+        "README updated with Telegram setup instructions referencing this script"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": "Depends on frank_bot-00015. Required for first-time Telegram authentication in server/Docker context."
+    },
+    {
+      "id": "frank_bot-00021",
+      "title": "Add TelegramNamespace to FrankAPI for script execution",
+      "acceptanceCriteria": [
+        "TelegramNamespace class added to meta/api.py",
+        "TelegramNamespace.send(recipient, text) wraps send_telegram_message action",
+        "TelegramNamespace.messages(chat, limit) wraps get_telegram_messages action",
+        "TelegramNamespace.chats(limit) wraps list_telegram_chats action",
+        "FrankAPI.telegram property returns TelegramNamespace instance",
+        "Methods are synchronous wrappers using asyncio.run() pattern",
+        "Unit tests verify namespace methods work correctly",
+        "Introspection module updated to include TelegramNamespace in documentation"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": "Depends on frank_bot-00017. Enables Telegram access in meta script execution."
     }
   ]
 }
