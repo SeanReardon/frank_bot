@@ -865,7 +865,7 @@
         "Unit tests with mocked OpenAI client verify context building and response parsing"
       ],
       "priority": 53,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00051, frank_bot-00052. Core LLM integration. Read prompts/agent_system.md for expected format."
     },
     {
@@ -885,7 +885,7 @@
         "Unit tests verify message routing and action execution"
       ],
       "priority": 54,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00053, frank_bot-00042 (ContactLookup). Core message processing loop."
     },
     {
@@ -902,7 +902,7 @@
         "Unit tests verify kickoff flow with mock OpenAI"
       ],
       "priority": 55,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00054. Used when creating jorbs with start_immediately=True."
     },
     {
@@ -920,7 +920,7 @@
         "Unit tests verify action behavior"
       ],
       "priority": 56,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00051, frank_bot-00055. Action layer for jorb management."
     },
     {
@@ -1091,7 +1091,7 @@
         "Unit tests with mocked SMTP verify email formatting"
       ],
       "priority": 66,
-      "passes": false,
+      "passes": true,
       "notes": "No direct dependencies. Used for daily digest and notifications."
     },
     {

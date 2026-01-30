@@ -904,3 +904,93 @@ Created MessageBuffer service that collects messages from the same sender/channe
 - Timer tests use 1-second debounce for fast execution
 
 ---
+
+## 2026-01-30: frank_bot-00053 - Create agent_runner.py with OpenAI wrapper and context building
+
+### Summary
+Created AgentRunner service with OpenAI gpt-5.2 integration for jorb processing. Includes context building matching agent_system.md format, response parsing, and message storage helpers.
+
+### Files Changed
+- services/agent_runner.py (new - AgentRunner class)
+- tests/test_agent_runner.py (new - 45 tests)
+- pyproject.toml (added openai dependency)
+
+### Learnings
+- Model gpt-5.2 is hardcoded as specified in PRD
+- build_context() formats event and open jorbs for LLM consumption
+- parse_agent_response() extracts jorb_id, reasoning, action, task_update from JSON
+- AgentAction dataclass with type, channel, recipient, content, pause_reason, needs_approval_for
+- Tests skip OpenAI-dependent tests when package not installed
+
+---
+
+## 2026-01-30: frank_bot-00054 - Implement process_incoming_message in AgentRunner
+
+### Summary
+Added process_incoming_message method that handles incoming SMS/Telegram messages end-to-end. Enriches events with contact lookup, calls gpt-5.2, stores messages, and executes actions.
+
+### Files Changed
+- services/agent_runner.py (added process_incoming_message, _send_message, _enrich_event_with_contact)
+- tests/test_agent_runner.py (added TestProcessIncomingMessage, TestContactEnrichment, TestSendMessage)
+
+### Learnings
+- ProcessingResult dataclass tracks jorb_id, action_taken, success, message_sent
+- Contact enrichment only applies to SMS (phone numbers), not Telegram usernames
+- _send_message dispatches to TelnyxSMSService or TelegramClientService based on channel
+- Email channel returns False pending frank_bot-00066 implementation
+
+---
+
+## 2026-01-30: frank_bot-00055 - Implement jorb kickoff flow in AgentRunner
+
+### Summary
+Added kickoff_jorb method that sends the initial message for new jorbs. Builds context with jorb_created event type, calls gpt-5.2, executes the first action, and updates status to running.
+
+### Files Changed
+- services/agent_runner.py (added kickoff_jorb, updated build_context for kickoff)
+- tests/test_agent_runner.py (added TestKickoffJorb)
+
+### Learnings
+- KickoffResult dataclass tracks jorb_id, success, action_taken, message_sent
+- build_context extended with kickoff_jorb parameter for new jorb context
+- Agent may decide no initial action (passive monitoring tasks) or pause immediately
+- Jorb status transitions from planning to running after kickoff
+
+---
+
+## 2026-01-30: frank_bot-00056 - Create actions/jorbs.py with jorb CRUD actions
+
+### Summary
+Created jorb CRUD action handlers following the existing action pattern. Supports creating jorbs with contacts, listing with status filter, getting full details with messages, and message pagination.
+
+### Files Changed
+- actions/jorbs.py (new - create_jorb_action, list_jorbs_action, get_jorb_action, get_jorb_messages_action)
+- tests/test_jorbs_actions.py (new - 23 tests)
+
+### Learnings
+- Contacts can be passed as JSON string or list of dicts
+- start_immediately=True (default) triggers kickoff_jorb via AgentRunner
+- list_jorbs_action defaults to "open" status filter
+- get_jorb_action supports include_messages parameter for optional message history
+- get_jorb_messages_action supports limit and offset for pagination
+
+---
+
+## 2026-01-30: frank_bot-00066 - Create email_service.py for notifications and digest
+
+### Summary
+Created EmailService for sending notifications via SMTP. Supports HTML and plain text emails, with specific methods for jorb pause and completion notifications.
+
+### Files Changed
+- services/email_service.py (new - EmailService class)
+- tests/test_email_service.py (new - 17 tests)
+- pyproject.toml (added aiosmtplib dependency)
+
+### Learnings
+- Uses aiosmtplib for async SMTP with STARTTLS
+- notify_jorb_paused sends email when jorb needs approval
+- notify_jorb_complete sends completion notification
+- DIGEST_EMAIL_TO setting provides default recipient
+- Graceful failure handling - SMTP errors logged but don't crash
+
+---

@@ -1,0 +1,807 @@
+"""
+Agent Runner Service for LLM-powered jorb processing.
+
+Uses gpt-5.2 to process incoming events and decide actions for jorbs.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Literal
+
+from config import get_settings
+from services.jorb_storage import (
+    Channel,
+    Jorb,
+    JorbMessage,
+    JorbStorage,
+    JorbWithMessages,
+)
+
+logger = logging.getLogger(__name__)
+
+# The hardcoded model as specified in the PRD
+AGENT_MODEL = "gpt-5.2"
+
+
+@dataclass
+class IncomingEvent:
+    """An incoming message event from SMS/Telegram/email."""
+
+    channel: Channel
+    sender: str
+    sender_name: str | None
+    content: str
+    timestamp: str  # ISO 8601
+    message_count: int = 1
+
+
+@dataclass
+class AgentAction:
+    """An action decided by the agent."""
+
+    type: Literal["send_message", "pause", "complete", "update_status", "no_action"]
+    channel: Channel | None = None
+    recipient: str | None = None
+    content: str | None = None
+    pause_reason: str | None = None
+    needs_approval_for: str | None = None
+
+
+@dataclass
+class TaskUpdate:
+    """Update to a jorb's status/progress."""
+
+    progress_note: str | None = None
+    awaiting: str | None = None
+
+
+@dataclass
+class AgentResponse:
+    """Complete response from the agent."""
+
+    jorb_id: str | None
+    reasoning: str
+    action: AgentAction
+    task_update: TaskUpdate | None = None
+
+
+@dataclass
+class ProcessingResult:
+    """Result of processing an incoming message."""
+
+    jorb_id: str | None
+    action_taken: str
+    success: bool
+    error: str | None = None
+    message_sent: bool = False
+
+
+@dataclass
+class KickoffResult:
+    """Result of kicking off a new jorb."""
+
+    jorb_id: str
+    success: bool
+    action_taken: str
+    message_sent: bool = False
+    error: str | None = None
+
+
+class AgentRunnerError(Exception):
+    """Error from the AgentRunner service."""
+
+    pass
+
+
+def _load_system_prompt() -> str:
+    """Load the agent system prompt from file."""
+    prompt_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "prompts",
+        "agent_system.md",
+    )
+    try:
+        with open(prompt_path, "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.error("Agent system prompt not found at %s", prompt_path)
+        return ""
+
+
+def _format_messages_for_context(messages: list[JorbMessage], limit: int = 10) -> list[dict]:
+    """Format recent messages for the agent context."""
+    # Get most recent messages
+    recent = messages[-limit:] if len(messages) > limit else messages
+
+    return [
+        {
+            "timestamp": msg.timestamp,
+            "direction": msg.direction,
+            "channel": msg.channel,
+            "sender": msg.sender_name or msg.sender,
+            "content": msg.content,
+        }
+        for msg in recent
+    ]
+
+
+def _format_jorb_for_context(jorb: Jorb, messages: list[JorbMessage]) -> dict:
+    """Format a jorb for the agent context."""
+    return {
+        "task_id": jorb.id,
+        "name": jorb.name,
+        "plan": jorb.original_plan,
+        "progress": jorb.progress_summary or "",
+        "recent": _format_messages_for_context(messages),
+        "status": jorb.status,
+        "awaiting": jorb.awaiting,
+    }
+
+
+class AgentRunner:
+    """
+    Service for running the LLM agent to process jorb events.
+
+    Uses gpt-5.2 (hardcoded) to decide actions based on incoming events
+    and the current state of all active jorbs.
+    """
+
+    def __init__(
+        self,
+        storage: JorbStorage | None = None,
+        openai_api_key: str | None = None,
+    ):
+        """
+        Initialize the agent runner.
+
+        Args:
+            storage: JorbStorage instance. Creates one if not provided.
+            openai_api_key: OpenAI API key. Uses OPENAI_API_KEY env var if not provided.
+        """
+        self._storage = storage or JorbStorage()
+        settings = get_settings()
+        self._api_key = openai_api_key or settings.openai_api_key
+        self._spend_limit = settings.agent_spend_limit
+        self._system_prompt = _load_system_prompt()
+
+    @property
+    def is_configured(self) -> bool:
+        """Check if the agent runner has required configuration."""
+        return bool(self._api_key)
+
+    def build_context(
+        self,
+        event: IncomingEvent | None,
+        open_jorbs: list[JorbWithMessages],
+        event_type: str = "message_received",
+        kickoff_jorb: Jorb | None = None,
+    ) -> dict[str, Any]:
+        """
+        Build the context dict to send to the agent.
+
+        Args:
+            event: The incoming event (or None for kickoff)
+            open_jorbs: List of open jorbs with their messages
+            event_type: Type of event ("message_received" or "jorb_created")
+            kickoff_jorb: For kickoff, the new jorb to start
+
+        Returns:
+            Context dict matching agent_system.md format
+        """
+        context: dict[str, Any] = {}
+
+        # Event type
+        context["event_type"] = event_type
+
+        # Event section (if present)
+        if event:
+            context["event"] = {
+                "channel": event.channel,
+                "sender": event.sender,
+                "sender_name": event.sender_name,
+                "content": event.content,
+                "timestamp": event.timestamp,
+                "message_count": event.message_count,
+            }
+        elif kickoff_jorb:
+            # For kickoff, include the new jorb's info in the event
+            context["event"] = {
+                "type": "jorb_created",
+                "jorb_id": kickoff_jorb.id,
+                "jorb_name": kickoff_jorb.name,
+                "plan": kickoff_jorb.original_plan,
+                "contacts": [c.to_dict() for c in kickoff_jorb.contacts],
+            }
+        else:
+            context["event"] = None
+
+        # Active tasks section
+        context["active_tasks"] = [
+            _format_jorb_for_context(jwm.jorb, jwm.messages)
+            for jwm in open_jorbs
+        ]
+
+        # Policy section
+        context["policy"] = {
+            "max_spend_without_approval": self._spend_limit,
+            "require_approval_for": ["purchase", "commit", "cancel", "share_info"],
+        }
+
+        return context
+
+    async def call_agent(self, context: dict[str, Any]) -> dict[str, Any]:
+        """
+        Send context to the OpenAI API and get the agent's response.
+
+        Args:
+            context: The context dict built by build_context()
+
+        Returns:
+            Raw JSON response from the agent
+
+        Raises:
+            AgentRunnerError: If API call fails or response is invalid
+        """
+        if not self._api_key:
+            raise AgentRunnerError(
+                "OpenAI API key not configured. Set OPENAI_API_KEY environment variable."
+            )
+
+        # Import openai here to allow the module to load even if openai isn't installed
+        try:
+            import openai
+        except ImportError:
+            raise AgentRunnerError(
+                "openai package not installed. Run: poetry add openai"
+            )
+
+        client = openai.OpenAI(api_key=self._api_key)
+
+        messages = [
+            {"role": "system", "content": self._system_prompt},
+            {"role": "user", "content": json.dumps(context, indent=2)},
+        ]
+
+        try:
+            logger.info("Calling %s agent with context for %d active tasks",
+                       AGENT_MODEL, len(context.get("active_tasks", [])))
+
+            response = client.chat.completions.create(
+                model=AGENT_MODEL,
+                messages=messages,
+                response_format={"type": "json_object"},
+                temperature=0.7,
+            )
+
+            content = response.choices[0].message.content
+            if not content:
+                raise AgentRunnerError("Empty response from agent")
+
+            return json.loads(content)
+
+        except openai.APIError as e:
+            logger.error("OpenAI API error: %s", e)
+            raise AgentRunnerError(f"OpenAI API error: {e}")
+        except json.JSONDecodeError as e:
+            logger.error("Failed to parse agent response as JSON: %s", e)
+            raise AgentRunnerError(f"Invalid JSON response from agent: {e}")
+
+    def parse_agent_response(self, response: dict[str, Any]) -> AgentResponse:
+        """
+        Parse the raw agent response into structured AgentResponse.
+
+        Args:
+            response: Raw JSON response from call_agent()
+
+        Returns:
+            Parsed AgentResponse
+
+        Raises:
+            AgentRunnerError: If response is missing required fields
+        """
+        try:
+            # Extract action
+            action_data = response.get("action", {})
+            action_type = action_data.get("type", "no_action")
+
+            # Validate action type
+            valid_types = {"send_message", "pause", "complete", "update_status", "no_action"}
+            if action_type not in valid_types:
+                logger.warning("Unknown action type: %s, defaulting to no_action", action_type)
+                action_type = "no_action"
+
+            action = AgentAction(
+                type=action_type,
+                channel=action_data.get("channel"),
+                recipient=action_data.get("recipient"),
+                content=action_data.get("content"),
+                pause_reason=action_data.get("pause_reason"),
+                needs_approval_for=action_data.get("needs_approval_for"),
+            )
+
+            # Extract task update
+            task_update = None
+            task_update_data = response.get("task_update")
+            if task_update_data:
+                task_update = TaskUpdate(
+                    progress_note=task_update_data.get("progress_note"),
+                    awaiting=task_update_data.get("awaiting"),
+                )
+
+            return AgentResponse(
+                jorb_id=response.get("task_id"),
+                reasoning=response.get("reasoning", ""),
+                action=action,
+                task_update=task_update,
+            )
+
+        except Exception as e:
+            logger.error("Error parsing agent response: %s", e)
+            raise AgentRunnerError(f"Failed to parse agent response: {e}")
+
+    async def get_open_jorbs(self) -> list[JorbWithMessages]:
+        """Get all open jorbs with their messages."""
+        return await self._storage.get_open_jorbs_with_messages()
+
+    async def store_inbound_message(
+        self,
+        jorb_id: str,
+        event: IncomingEvent,
+    ) -> str:
+        """
+        Store an inbound message in a jorb's history.
+
+        Args:
+            jorb_id: The jorb ID
+            event: The incoming event
+
+        Returns:
+            The message ID
+        """
+        message = JorbMessage(
+            id="",  # Will be generated
+            jorb_id=jorb_id,
+            timestamp=event.timestamp,
+            direction="inbound",
+            channel=event.channel,
+            sender=event.sender,
+            sender_name=event.sender_name,
+            content=event.content,
+        )
+        return await self._storage.add_message(jorb_id, message)
+
+    async def store_outbound_message(
+        self,
+        jorb_id: str,
+        channel: Channel,
+        recipient: str,
+        content: str,
+        reasoning: str | None = None,
+    ) -> str:
+        """
+        Store an outbound message in a jorb's history.
+
+        Args:
+            jorb_id: The jorb ID
+            channel: Message channel
+            recipient: Message recipient
+            content: Message content
+            reasoning: Agent's reasoning for the message
+
+        Returns:
+            The message ID
+        """
+        message = JorbMessage(
+            id="",  # Will be generated
+            jorb_id=jorb_id,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            direction="outbound",
+            channel=channel,
+            recipient=recipient,
+            content=content,
+            agent_reasoning=reasoning,
+        )
+        return await self._storage.add_message(jorb_id, message)
+
+    async def update_jorb_status(
+        self,
+        jorb_id: str,
+        status: str | None = None,
+        progress_summary: str | None = None,
+        paused_reason: str | None = None,
+        needs_approval_for: str | None = None,
+        awaiting: str | None = None,
+    ) -> Jorb | None:
+        """
+        Update a jorb's status and related fields.
+
+        Args:
+            jorb_id: The jorb ID
+            status: New status (planning, running, paused, complete, failed, cancelled)
+            progress_summary: Updated progress summary
+            paused_reason: Reason for pausing (if pausing)
+            needs_approval_for: What approval is needed (if pausing)
+            awaiting: What the jorb is waiting for
+
+        Returns:
+            Updated Jorb or None if not found
+        """
+        updates: dict[str, Any] = {}
+        if status is not None:
+            updates["status"] = status
+        if progress_summary is not None:
+            updates["progress_summary"] = progress_summary
+        if paused_reason is not None:
+            updates["paused_reason"] = paused_reason
+        if needs_approval_for is not None:
+            updates["needs_approval_for"] = needs_approval_for
+        if awaiting is not None:
+            updates["awaiting"] = awaiting
+
+        if updates:
+            return await self._storage.update_jorb(jorb_id, **updates)
+        return await self._storage.get_jorb(jorb_id)
+
+    async def _send_message(
+        self,
+        channel: Channel,
+        recipient: str,
+        content: str,
+    ) -> bool:
+        """
+        Send a message via the appropriate service.
+
+        Args:
+            channel: Channel to send on (sms, telegram, email)
+            recipient: Recipient identifier
+            content: Message content
+
+        Returns:
+            True if message was sent successfully
+        """
+        try:
+            if channel == "sms":
+                from services.telnyx_sms import TelnyxSMSService
+                sms_service = TelnyxSMSService()
+                result = sms_service.send_sms(recipient, content)
+                return result.success
+
+            elif channel == "telegram":
+                from services.telegram_client import TelegramClientService
+                telegram_service = TelegramClientService()
+                result = await telegram_service.send_message(recipient, content)
+                return result.success
+
+            elif channel == "email":
+                # Email sending will be implemented in frank_bot-00066
+                logger.warning("Email sending not yet implemented")
+                return False
+
+            else:
+                logger.error("Unknown channel: %s", channel)
+                return False
+
+        except Exception as e:
+            logger.error("Error sending %s message to %s: %s", channel, recipient, e)
+            return False
+
+    async def _enrich_event_with_contact(self, event: IncomingEvent) -> IncomingEvent:
+        """
+        Enrich an incoming event with contact lookup information.
+
+        Tries to look up the sender's name from Google Contacts if not already provided.
+
+        Args:
+            event: The incoming event
+
+        Returns:
+            The event with sender_name populated if found
+        """
+        # If we already have a sender name, no need to look up
+        if event.sender_name:
+            return event
+
+        # Only try contact lookup for SMS (phone numbers)
+        # Telegram usernames can't be looked up in Google Contacts
+        if event.channel != "sms":
+            return event
+
+        try:
+            from services.contact_lookup import ContactLookup
+            contact_lookup = ContactLookup()
+            contact = contact_lookup.lookup(event.sender)
+
+            if contact:
+                # Create a new event with the enriched name
+                return IncomingEvent(
+                    channel=event.channel,
+                    sender=event.sender,
+                    sender_name=contact.name,
+                    content=event.content,
+                    timestamp=event.timestamp,
+                    message_count=event.message_count,
+                )
+        except Exception as e:
+            logger.warning("Contact lookup failed for %s: %s", event.sender, e)
+
+        return event
+
+    async def process_incoming_message(
+        self,
+        event: IncomingEvent,
+    ) -> ProcessingResult:
+        """
+        Process an incoming message event.
+
+        This is the main entry point for handling incoming SMS/Telegram messages.
+        It:
+        1. Enriches the event with contact information
+        2. Fetches all open jorbs with their messages
+        3. Calls the LLM to decide what to do
+        4. Stores the inbound message in the matched jorb
+        5. Executes the decided action (send_message, pause, complete, etc.)
+        6. Stores any outbound messages with reasoning
+
+        Args:
+            event: The incoming message event
+
+        Returns:
+            ProcessingResult with jorb_id, action_taken, and success status
+        """
+        try:
+            # Step 1: Enrich event with contact info
+            enriched_event = await self._enrich_event_with_contact(event)
+            logger.info(
+                "Processing incoming %s message from %s (%s)",
+                enriched_event.channel,
+                enriched_event.sender,
+                enriched_event.sender_name or "unknown",
+            )
+
+            # Step 2: Fetch open jorbs
+            open_jorbs = await self.get_open_jorbs()
+            logger.debug("Found %d open jorbs", len(open_jorbs))
+
+            # Step 3: Call the LLM for decision
+            context = self.build_context(enriched_event, open_jorbs)
+            raw_response = await self.call_agent(context)
+            agent_response = self.parse_agent_response(raw_response)
+
+            logger.info(
+                "Agent decided: jorb=%s, action=%s, reasoning=%s",
+                agent_response.jorb_id,
+                agent_response.action.type,
+                agent_response.reasoning[:100] if agent_response.reasoning else "",
+            )
+
+            # Step 4: Store the inbound message (if matched to a jorb)
+            if agent_response.jorb_id:
+                await self.store_inbound_message(agent_response.jorb_id, enriched_event)
+
+            # Step 5: Execute the action
+            message_sent = False
+            action = agent_response.action
+
+            if action.type == "send_message":
+                if action.channel and action.recipient and action.content:
+                    # Send the message
+                    send_success = await self._send_message(
+                        action.channel,
+                        action.recipient,
+                        action.content,
+                    )
+
+                    if send_success and agent_response.jorb_id:
+                        # Store outbound message
+                        await self.store_outbound_message(
+                            jorb_id=agent_response.jorb_id,
+                            channel=action.channel,
+                            recipient=action.recipient,
+                            content=action.content,
+                            reasoning=agent_response.reasoning,
+                        )
+                        message_sent = True
+                    elif not send_success:
+                        logger.error("Failed to send message to %s via %s",
+                                   action.recipient, action.channel)
+                else:
+                    logger.warning("send_message action missing required fields")
+
+            elif action.type == "pause":
+                if agent_response.jorb_id:
+                    await self.update_jorb_status(
+                        jorb_id=agent_response.jorb_id,
+                        status="paused",
+                        paused_reason=action.pause_reason,
+                        needs_approval_for=action.needs_approval_for,
+                    )
+
+            elif action.type == "complete":
+                if agent_response.jorb_id:
+                    await self.update_jorb_status(
+                        jorb_id=agent_response.jorb_id,
+                        status="complete",
+                    )
+
+            # Step 6: Update jorb with task_update if provided
+            if agent_response.jorb_id and agent_response.task_update:
+                update = agent_response.task_update
+                await self.update_jorb_status(
+                    jorb_id=agent_response.jorb_id,
+                    progress_summary=update.progress_note,
+                    awaiting=update.awaiting,
+                )
+
+            return ProcessingResult(
+                jorb_id=agent_response.jorb_id,
+                action_taken=action.type,
+                success=True,
+                message_sent=message_sent,
+            )
+
+        except AgentRunnerError as e:
+            logger.error("Agent runner error: %s", e)
+            return ProcessingResult(
+                jorb_id=None,
+                action_taken="error",
+                success=False,
+                error=str(e),
+            )
+        except Exception as e:
+            logger.exception("Unexpected error processing message")
+            return ProcessingResult(
+                jorb_id=None,
+                action_taken="error",
+                success=False,
+                error=str(e),
+            )
+
+    async def kickoff_jorb(self, jorb: Jorb) -> KickoffResult:
+        """
+        Kick off a new jorb by sending its initial message.
+
+        This is called when a jorb is created with start_immediately=True.
+        It:
+        1. Builds context with the jorb_created event type
+        2. Calls gpt-5.2 to determine the first action
+        3. Executes any send_message action returned
+        4. Stores the outbound message in the jorb's history
+        5. Updates the jorb status from planning to running
+
+        Args:
+            jorb: The Jorb to kick off
+
+        Returns:
+            KickoffResult with success status and details
+        """
+        try:
+            logger.info("Kicking off jorb %s: %s", jorb.id, jorb.name)
+
+            # Build context for kickoff (no event, just the new jorb)
+            # Include the jorb being kicked off as a JorbWithMessages with empty messages
+            kickoff_jorb_with_messages = JorbWithMessages(jorb=jorb, messages=[])
+
+            # Also get any other open jorbs for context
+            other_open_jorbs = await self.get_open_jorbs()
+            # Filter out the jorb being kicked off if it's already there
+            other_open_jorbs = [j for j in other_open_jorbs if j.jorb.id != jorb.id]
+
+            # Add the kickoff jorb to the list
+            all_jorbs = [kickoff_jorb_with_messages] + other_open_jorbs
+
+            context = self.build_context(
+                event=None,
+                open_jorbs=all_jorbs,
+                event_type="jorb_created",
+                kickoff_jorb=jorb,
+            )
+
+            # Call the LLM
+            raw_response = await self.call_agent(context)
+            agent_response = self.parse_agent_response(raw_response)
+
+            logger.info(
+                "Kickoff agent decided: action=%s, reasoning=%s",
+                agent_response.action.type,
+                agent_response.reasoning[:100] if agent_response.reasoning else "",
+            )
+
+            # Execute the action
+            message_sent = False
+            action = agent_response.action
+
+            if action.type == "send_message":
+                if action.channel and action.recipient and action.content:
+                    # Send the message
+                    send_success = await self._send_message(
+                        action.channel,
+                        action.recipient,
+                        action.content,
+                    )
+
+                    if send_success:
+                        # Store outbound message
+                        await self.store_outbound_message(
+                            jorb_id=jorb.id,
+                            channel=action.channel,
+                            recipient=action.recipient,
+                            content=action.content,
+                            reasoning=agent_response.reasoning,
+                        )
+                        message_sent = True
+                        logger.info("Kickoff message sent for jorb %s", jorb.id)
+                    else:
+                        logger.error("Failed to send kickoff message for jorb %s", jorb.id)
+                else:
+                    logger.warning("send_message action missing required fields for kickoff")
+
+            elif action.type == "no_action":
+                # Agent decided no initial action is needed
+                logger.info("Agent decided no initial action for jorb %s", jorb.id)
+
+            elif action.type == "pause":
+                # Agent decided to pause immediately (unusual but valid)
+                await self.update_jorb_status(
+                    jorb_id=jorb.id,
+                    status="paused",
+                    paused_reason=action.pause_reason,
+                    needs_approval_for=action.needs_approval_for,
+                )
+                return KickoffResult(
+                    jorb_id=jorb.id,
+                    success=True,
+                    action_taken="pause",
+                    message_sent=False,
+                )
+
+            # Update jorb status to running (unless paused above)
+            update_fields: dict[str, Any] = {"status": "running"}
+            if agent_response.task_update:
+                if agent_response.task_update.progress_note:
+                    update_fields["progress_summary"] = agent_response.task_update.progress_note
+                if agent_response.task_update.awaiting:
+                    update_fields["awaiting"] = agent_response.task_update.awaiting
+
+            await self._storage.update_jorb(jorb.id, **update_fields)
+
+            return KickoffResult(
+                jorb_id=jorb.id,
+                success=True,
+                action_taken=action.type,
+                message_sent=message_sent,
+            )
+
+        except AgentRunnerError as e:
+            logger.error("Agent runner error during kickoff: %s", e)
+            return KickoffResult(
+                jorb_id=jorb.id,
+                success=False,
+                action_taken="error",
+                error=str(e),
+            )
+        except Exception as e:
+            logger.exception("Unexpected error during jorb kickoff")
+            return KickoffResult(
+                jorb_id=jorb.id,
+                success=False,
+                action_taken="error",
+                error=str(e),
+            )
+
+
+__all__ = [
+    "AgentRunner",
+    "AgentAction",
+    "AgentResponse",
+    "AgentRunnerError",
+    "IncomingEvent",
+    "KickoffResult",
+    "ProcessingResult",
+    "TaskUpdate",
+    "AGENT_MODEL",
+]
