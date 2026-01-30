@@ -9,8 +9,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import datetime, timezone, timedelta
 from typing import Any, Literal
 
 from config import get_settings
@@ -26,6 +26,51 @@ logger = logging.getLogger(__name__)
 
 # The hardcoded model as specified in the PRD
 AGENT_MODEL = "gpt-5.2"
+
+
+@dataclass
+class JorbPolicy:
+    """Policy settings for jorb operation guardrails."""
+
+    max_spend_without_approval: float = 100.0
+    max_messages_per_hour: int = 20
+    require_approval_for: list[str] = field(default_factory=lambda: ["purchase", "commit", "cancel", "share_info"])
+    stale_jorb_hours: int = 72
+    max_jorb_duration_days: int = 30
+
+    @classmethod
+    def from_settings(cls) -> JorbPolicy:
+        """Load policy from environment/settings."""
+        settings = get_settings()
+        return cls(
+            max_spend_without_approval=settings.agent_spend_limit,
+            max_messages_per_hour=int(os.getenv("AGENT_MAX_MESSAGES_PER_HOUR", "20")),
+            require_approval_for=os.getenv(
+                "AGENT_REQUIRE_APPROVAL_FOR",
+                "purchase,commit,cancel,share_info"
+            ).split(","),
+            stale_jorb_hours=int(os.getenv("AGENT_STALE_JORB_HOURS", "72")),
+            max_jorb_duration_days=int(os.getenv("AGENT_MAX_JORB_DURATION_DAYS", "30")),
+        )
+
+    def to_context_dict(self) -> dict[str, Any]:
+        """Convert policy to dict for agent context."""
+        return {
+            "max_spend_without_approval": self.max_spend_without_approval,
+            "max_messages_per_hour": self.max_messages_per_hour,
+            "require_approval_for": self.require_approval_for,
+        }
+
+
+@dataclass
+class PolicyViolation:
+    """A policy violation for reporting."""
+
+    jorb_id: str
+    jorb_name: str
+    violation_type: str
+    message: str
+    timestamp: str
 
 
 @dataclass
@@ -155,6 +200,7 @@ class AgentRunner:
         self,
         storage: JorbStorage | None = None,
         openai_api_key: str | None = None,
+        policy: JorbPolicy | None = None,
     ):
         """
         Initialize the agent runner.
@@ -162,12 +208,32 @@ class AgentRunner:
         Args:
             storage: JorbStorage instance. Creates one if not provided.
             openai_api_key: OpenAI API key. Uses OPENAI_API_KEY env var if not provided.
+            policy: JorbPolicy for guardrails. Loads from settings if not provided.
         """
         self._storage = storage or JorbStorage()
         settings = get_settings()
         self._api_key = openai_api_key or settings.openai_api_key
-        self._spend_limit = settings.agent_spend_limit
+        self._policy = policy or JorbPolicy.from_settings()
+        self._spend_limit = self._policy.max_spend_without_approval
         self._system_prompt = _load_system_prompt()
+        # Track messages per hour per jorb for rate limiting
+        self._message_counts: dict[str, list[str]] = {}  # jorb_id -> list of timestamps
+        # Track policy violations for briefing
+        self._policy_violations: list[PolicyViolation] = []
+
+    @property
+    def policy(self) -> JorbPolicy:
+        """Return the current policy."""
+        return self._policy
+
+    @property
+    def policy_violations(self) -> list[PolicyViolation]:
+        """Return recorded policy violations."""
+        return self._policy_violations.copy()
+
+    def clear_policy_violations(self) -> None:
+        """Clear the policy violations list."""
+        self._policy_violations.clear()
 
     @property
     def is_configured(self) -> bool:
@@ -226,11 +292,8 @@ class AgentRunner:
             for jwm in open_jorbs
         ]
 
-        # Policy section
-        context["policy"] = {
-            "max_spend_without_approval": self._spend_limit,
-            "require_approval_for": ["purchase", "commit", "cancel", "share_info"],
-        }
+        # Policy section - include full policy context
+        context["policy"] = self._policy.to_context_dict()
 
         return context
 
@@ -447,6 +510,160 @@ class AgentRunner:
             return await self._storage.update_jorb(jorb_id, **updates)
         return await self._storage.get_jorb(jorb_id)
 
+    def _check_rate_limit(self, jorb_id: str) -> bool:
+        """
+        Check if a jorb has exceeded the message rate limit.
+
+        Args:
+            jorb_id: The jorb ID
+
+        Returns:
+            True if rate limit is exceeded
+        """
+        now = datetime.now(timezone.utc)
+        one_hour_ago = (now - timedelta(hours=1)).isoformat()
+
+        # Get timestamps for this jorb
+        timestamps = self._message_counts.get(jorb_id, [])
+
+        # Filter to only messages in the last hour
+        recent = [ts for ts in timestamps if ts > one_hour_ago]
+        self._message_counts[jorb_id] = recent
+
+        return len(recent) >= self._policy.max_messages_per_hour
+
+    def _record_message_sent(self, jorb_id: str) -> None:
+        """Record that a message was sent for rate limiting."""
+        now = datetime.now(timezone.utc).isoformat()
+        if jorb_id not in self._message_counts:
+            self._message_counts[jorb_id] = []
+        self._message_counts[jorb_id].append(now)
+
+    def _record_policy_violation(
+        self,
+        jorb_id: str,
+        jorb_name: str,
+        violation_type: str,
+        message: str,
+    ) -> None:
+        """Record a policy violation for briefing."""
+        violation = PolicyViolation(
+            jorb_id=jorb_id,
+            jorb_name=jorb_name,
+            violation_type=violation_type,
+            message=message,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        self._policy_violations.append(violation)
+        logger.warning(
+            "Policy violation for jorb %s (%s): %s - %s",
+            jorb_id, jorb_name, violation_type, message
+        )
+
+    async def check_stale_jorbs(self) -> list[str]:
+        """
+        Check for and auto-pause stale jorbs (no activity in stale_jorb_hours).
+
+        Returns:
+            List of jorb IDs that were paused
+        """
+        stale_threshold = datetime.now(timezone.utc) - timedelta(
+            hours=self._policy.stale_jorb_hours
+        )
+        stale_threshold_iso = stale_threshold.isoformat()
+
+        jorbs = await self._storage.list_jorbs(status_filter="open")
+        paused_ids = []
+
+        for jorb in jorbs:
+            if jorb.status != "running":
+                continue
+
+            # Check if jorb is stale (updated_at older than threshold)
+            if jorb.updated_at < stale_threshold_iso:
+                logger.info(
+                    "Auto-pausing stale jorb %s (last updated: %s)",
+                    jorb.id, jorb.updated_at
+                )
+
+                await self._storage.update_jorb(
+                    jorb.id,
+                    status="paused",
+                    paused_reason=f"Auto-paused: no activity in {self._policy.stale_jorb_hours} hours",
+                    needs_approval_for="resume",
+                )
+
+                self._record_policy_violation(
+                    jorb.id,
+                    jorb.name,
+                    "stale_jorb",
+                    f"No activity in {self._policy.stale_jorb_hours} hours",
+                )
+
+                paused_ids.append(jorb.id)
+
+        return paused_ids
+
+    async def check_expired_jorbs(self) -> list[str]:
+        """
+        Check for and auto-fail jorbs exceeding max duration.
+
+        Returns:
+            List of jorb IDs that were failed
+        """
+        max_duration = timedelta(days=self._policy.max_jorb_duration_days)
+        expiry_threshold = datetime.now(timezone.utc) - max_duration
+        expiry_threshold_iso = expiry_threshold.isoformat()
+
+        jorbs = await self._storage.list_jorbs(status_filter="open")
+        failed_ids = []
+
+        for jorb in jorbs:
+            if jorb.status in ("complete", "failed", "cancelled"):
+                continue
+
+            # Check if jorb has exceeded max duration
+            if jorb.created_at < expiry_threshold_iso:
+                logger.info(
+                    "Auto-failing expired jorb %s (created: %s)",
+                    jorb.id, jorb.created_at
+                )
+
+                previous_summary = jorb.progress_summary or ""
+                new_summary = f"{previous_summary}\nAuto-failed: exceeded {self._policy.max_jorb_duration_days} day limit".strip()
+
+                await self._storage.update_jorb(
+                    jorb.id,
+                    status="failed",
+                    progress_summary=new_summary,
+                )
+
+                self._record_policy_violation(
+                    jorb.id,
+                    jorb.name,
+                    "expired_jorb",
+                    f"Exceeded {self._policy.max_jorb_duration_days} day duration limit",
+                )
+
+                failed_ids.append(jorb.id)
+
+        return failed_ids
+
+    async def enforce_policies(self) -> dict[str, list[str]]:
+        """
+        Run all policy enforcement checks.
+
+        Returns:
+            Dict with lists of affected jorb IDs per policy type
+        """
+        stale = await self.check_stale_jorbs()
+        expired = await self.check_expired_jorbs()
+
+        return {
+            "paused_stale": stale,
+            "failed_expired": expired,
+        }
+
     async def _send_message(
         self,
         channel: Channel,
@@ -589,26 +806,49 @@ class AgentRunner:
 
             if action.type == "send_message":
                 if action.channel and action.recipient and action.content:
-                    # Send the message
-                    send_success = await self._send_message(
-                        action.channel,
-                        action.recipient,
-                        action.content,
-                    )
-
-                    if send_success and agent_response.jorb_id:
-                        # Store outbound message
-                        await self.store_outbound_message(
-                            jorb_id=agent_response.jorb_id,
-                            channel=action.channel,
-                            recipient=action.recipient,
-                            content=action.content,
-                            reasoning=agent_response.reasoning,
+                    # Check rate limit before sending
+                    if agent_response.jorb_id and self._check_rate_limit(agent_response.jorb_id):
+                        # Rate limited - pause the jorb
+                        jorb = await self._storage.get_jorb(agent_response.jorb_id)
+                        logger.warning(
+                            "Rate limit exceeded for jorb %s (%d messages/hour)",
+                            agent_response.jorb_id,
+                            self._policy.max_messages_per_hour,
                         )
-                        message_sent = True
-                    elif not send_success:
-                        logger.error("Failed to send message to %s via %s",
-                                   action.recipient, action.channel)
+                        self._record_policy_violation(
+                            agent_response.jorb_id,
+                            jorb.name if jorb else "unknown",
+                            "rate_limit",
+                            f"Exceeded {self._policy.max_messages_per_hour} messages per hour",
+                        )
+                        await self.update_jorb_status(
+                            jorb_id=agent_response.jorb_id,
+                            status="paused",
+                            paused_reason=f"Rate limit exceeded ({self._policy.max_messages_per_hour}/hour)",
+                            needs_approval_for="resume",
+                        )
+                    else:
+                        # Send the message
+                        send_success = await self._send_message(
+                            action.channel,
+                            action.recipient,
+                            action.content,
+                        )
+
+                        if send_success and agent_response.jorb_id:
+                            # Store outbound message and record for rate limiting
+                            await self.store_outbound_message(
+                                jorb_id=agent_response.jorb_id,
+                                channel=action.channel,
+                                recipient=action.recipient,
+                                content=action.content,
+                                reasoning=agent_response.reasoning,
+                            )
+                            self._record_message_sent(agent_response.jorb_id)
+                            message_sent = True
+                        elif not send_success:
+                            logger.error("Failed to send message to %s via %s",
+                                       action.recipient, action.channel)
                 else:
                     logger.warning("send_message action missing required fields")
 
@@ -717,7 +957,7 @@ class AgentRunner:
 
             if action.type == "send_message":
                 if action.channel and action.recipient and action.content:
-                    # Send the message
+                    # Send the message (no rate limit check for initial kickoff)
                     send_success = await self._send_message(
                         action.channel,
                         action.recipient,
@@ -725,7 +965,7 @@ class AgentRunner:
                     )
 
                     if send_success:
-                        # Store outbound message
+                        # Store outbound message and record for rate limiting
                         await self.store_outbound_message(
                             jorb_id=jorb.id,
                             channel=action.channel,
@@ -733,6 +973,7 @@ class AgentRunner:
                             content=action.content,
                             reasoning=agent_response.reasoning,
                         )
+                        self._record_message_sent(jorb.id)
                         message_sent = True
                         logger.info("Kickoff message sent for jorb %s", jorb.id)
                     else:
@@ -800,7 +1041,9 @@ __all__ = [
     "AgentResponse",
     "AgentRunnerError",
     "IncomingEvent",
+    "JorbPolicy",
     "KickoffResult",
+    "PolicyViolation",
     "ProcessingResult",
     "TaskUpdate",
     "AGENT_MODEL",

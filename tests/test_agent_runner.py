@@ -25,7 +25,9 @@ from services.agent_runner import (
     AgentRunner,
     AgentRunnerError,
     IncomingEvent,
+    JorbPolicy,
     KickoffResult,
+    PolicyViolation,
     ProcessingResult,
     TaskUpdate,
 )
@@ -977,3 +979,199 @@ class TestKickoffJorb:
 
         assert result.message_sent is False
         assert result.error is None
+
+
+class TestJorbPolicy:
+    """Tests for JorbPolicy dataclass."""
+
+    def test_default_values(self):
+        """Test policy default values."""
+        policy = JorbPolicy()
+
+        assert policy.max_spend_without_approval == 100.0
+        assert policy.max_messages_per_hour == 20
+        assert "purchase" in policy.require_approval_for
+        assert policy.stale_jorb_hours == 72
+        assert policy.max_jorb_duration_days == 30
+
+    def test_to_context_dict(self):
+        """Test converting policy to context dict."""
+        policy = JorbPolicy(
+            max_spend_without_approval=50.0,
+            max_messages_per_hour=10,
+            require_approval_for=["purchase"],
+        )
+
+        context = policy.to_context_dict()
+
+        assert context["max_spend_without_approval"] == 50.0
+        assert context["max_messages_per_hour"] == 10
+        assert context["require_approval_for"] == ["purchase"]
+
+    def test_from_settings(self):
+        """Test loading policy from settings."""
+        with patch.dict(os.environ, {
+            "AGENT_SPEND_LIMIT": "200.0",
+            "AGENT_MAX_MESSAGES_PER_HOUR": "30",
+            "AGENT_STALE_JORB_HOURS": "48",
+            "AGENT_MAX_JORB_DURATION_DAYS": "14",
+        }):
+            # Clear cached settings
+            from config import get_settings
+            get_settings.cache_clear()
+
+            policy = JorbPolicy.from_settings()
+
+            assert policy.max_spend_without_approval == 200.0
+            assert policy.max_messages_per_hour == 30
+            assert policy.stale_jorb_hours == 48
+            assert policy.max_jorb_duration_days == 14
+
+            # Restore settings
+            get_settings.cache_clear()
+
+
+class TestPolicyEnforcement:
+    """Tests for policy enforcement in AgentRunner."""
+
+    @pytest.fixture
+    def policy(self):
+        """Create a test policy with short timeframes."""
+        return JorbPolicy(
+            max_spend_without_approval=100.0,
+            max_messages_per_hour=3,  # Low limit for testing
+            require_approval_for=["purchase"],
+            stale_jorb_hours=1,  # 1 hour for quick testing
+            max_jorb_duration_days=1,  # 1 day for quick testing
+        )
+
+    @pytest.fixture
+    def runner_with_policy(self, storage, policy):
+        """Create an AgentRunner with test policy."""
+        return AgentRunner(
+            storage=storage,
+            openai_api_key="test-api-key",
+            policy=policy,
+        )
+
+    def test_rate_limit_check_under_limit(self, runner_with_policy):
+        """Test rate limit check when under limit."""
+        assert not runner_with_policy._check_rate_limit("jorb_123")
+
+    def test_rate_limit_check_at_limit(self, runner_with_policy):
+        """Test rate limit check when at limit."""
+        # Record some messages
+        for _ in range(3):
+            runner_with_policy._record_message_sent("jorb_123")
+
+        # Should now be at limit
+        assert runner_with_policy._check_rate_limit("jorb_123")
+
+    def test_rate_limit_different_jorbs(self, runner_with_policy):
+        """Test rate limits are tracked per jorb."""
+        # Fill up one jorb's limit
+        for _ in range(3):
+            runner_with_policy._record_message_sent("jorb_1")
+
+        # Other jorb should not be limited
+        assert not runner_with_policy._check_rate_limit("jorb_2")
+
+    def test_policy_violations_tracking(self, runner_with_policy):
+        """Test policy violations are recorded."""
+        assert len(runner_with_policy.policy_violations) == 0
+
+        runner_with_policy._record_policy_violation(
+            "jorb_123",
+            "Test Task",
+            "rate_limit",
+            "Exceeded rate limit",
+        )
+
+        violations = runner_with_policy.policy_violations
+        assert len(violations) == 1
+        assert violations[0].jorb_id == "jorb_123"
+        assert violations[0].violation_type == "rate_limit"
+
+    def test_clear_policy_violations(self, runner_with_policy):
+        """Test clearing policy violations."""
+        runner_with_policy._record_policy_violation(
+            "jorb_123", "Test", "rate_limit", "Test"
+        )
+        assert len(runner_with_policy.policy_violations) == 1
+
+        runner_with_policy.clear_policy_violations()
+        assert len(runner_with_policy.policy_violations) == 0
+
+    async def test_check_stale_jorbs(self, runner_with_policy, storage):
+        """Test auto-pausing stale jorbs."""
+        # Create a running jorb with old updated_at
+        jorb = await storage.create_jorb(name="Stale Task", plan="Plan")
+        await storage.update_jorb(jorb.id, status="running")
+
+        # Manually set updated_at to 2 hours ago (older than 1 hour limit)
+        from datetime import timedelta
+        old_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        await storage.update_jorb(jorb.id, progress_summary="old")  # Triggers update
+        # Hack: directly update the timestamp in DB
+        import aiosqlite
+        async with aiosqlite.connect(storage._db_path) as conn:
+            await conn.execute(
+                "UPDATE jorbs SET updated_at = ? WHERE id = ?",
+                (old_time, jorb.id),
+            )
+            await conn.commit()
+
+        # Check for stale jorbs
+        paused_ids = await runner_with_policy.check_stale_jorbs()
+
+        assert jorb.id in paused_ids
+        updated = await storage.get_jorb(jorb.id)
+        assert updated.status == "paused"
+        assert "no activity" in updated.paused_reason.lower()
+
+    async def test_check_expired_jorbs(self, runner_with_policy, storage):
+        """Test auto-failing expired jorbs."""
+        # Create a running jorb with old created_at
+        jorb = await storage.create_jorb(name="Old Task", plan="Plan")
+        await storage.update_jorb(jorb.id, status="running")
+
+        # Hack: set created_at to 2 days ago (older than 1 day limit)
+        from datetime import timedelta
+        old_time = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        import aiosqlite
+        async with aiosqlite.connect(storage._db_path) as conn:
+            await conn.execute(
+                "UPDATE jorbs SET created_at = ? WHERE id = ?",
+                (old_time, jorb.id),
+            )
+            await conn.commit()
+
+        # Check for expired jorbs
+        failed_ids = await runner_with_policy.check_expired_jorbs()
+
+        assert jorb.id in failed_ids
+        updated = await storage.get_jorb(jorb.id)
+        assert updated.status == "failed"
+        assert "exceeded" in updated.progress_summary.lower()
+
+    async def test_enforce_policies(self, runner_with_policy, storage):
+        """Test running all policy enforcement checks."""
+        result = await runner_with_policy.enforce_policies()
+
+        assert "paused_stale" in result
+        assert "failed_expired" in result
+        assert isinstance(result["paused_stale"], list)
+        assert isinstance(result["failed_expired"], list)
+
+    def test_policy_accessible(self, runner_with_policy, policy):
+        """Test policy is accessible via property."""
+        assert runner_with_policy.policy == policy
+
+    def test_build_context_includes_policy(self, runner_with_policy, sample_event):
+        """Test that build_context includes policy settings."""
+        context = runner_with_policy.build_context(sample_event, [])
+
+        assert "policy" in context
+        assert "max_spend_without_approval" in context["policy"]
+        assert "max_messages_per_hour" in context["policy"]
+        assert "require_approval_for" in context["policy"]

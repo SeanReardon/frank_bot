@@ -994,3 +994,86 @@ Created EmailService for sending notifications via SMTP. Supports HTML and plain
 - Graceful failure handling - SMTP errors logged but don't crash
 
 ---
+
+## 2026-01-30: frank_bot-00057 - Add approve and cancel actions for jorbs
+
+### Summary
+Added approve_jorb_action and cancel_jorb_action to complete jorb lifecycle management. Approve transitions paused jorbs to running and triggers agent kickoff. Cancel prevents further processing of active jorbs.
+
+### Files Changed
+- actions/jorbs.py (added approve_jorb_action, cancel_jorb_action)
+- tests/test_jorbs_actions.py (added TestApproveJorbAction, TestCancelJorbAction - 13 tests)
+
+### Learnings
+- Approval records decision in progress_summary and triggers agent kickoff
+- Cancel validates jorb isn't already complete/cancelled
+- Both actions clear paused_reason and needs_approval_for fields
+- Agent kickoff after approval allows immediate action on new decision
+
+---
+
+## 2026-01-30: frank_bot-00058 - Implement brief_me action for jorb status briefing
+
+### Summary
+Added brief_me_action for ChatGPT to quickly catch up on jorb status. Returns needs_attention count, activity per jorb, highlights, and pending decisions. Tracks last briefing timestamp in persistent state file.
+
+### Files Changed
+- actions/jorbs.py (added brief_me_action, _get_last_briefing_timestamp, _save_last_briefing_timestamp, _format_jorb_activity)
+- tests/test_jorbs_actions.py (added TestBriefMeAction - 8 tests)
+
+### Learnings
+- Briefing state stored in data/briefing_state.json
+- hours parameter filters activity window (default 24 hours)
+- update_timestamp parameter controls whether to advance briefing time
+- Long messages truncated to 100 chars in activity summary
+
+---
+
+## 2026-01-30: frank_bot-00059 - Add jorb routes to server
+
+### Summary
+Added all jorb HTTP routes to server/routes.py following existing patterns. All routes protected by API key and use GET method for ChatGPT compatibility.
+
+### Files Changed
+- server/routes.py (added jorbs imports and 7 route handlers)
+- tests/test_jorb_routes.py (new - 11 integration tests)
+
+### Learnings
+- Path parameters extracted via request.path_params["id"]
+- Route order matters: /jorbs/brief must come before /jorbs/{id}
+- All routes use _build_responder wrapper for consistent error handling
+
+---
+
+## 2026-01-30: frank_bot-00060 - Update OpenAPI spec with jorb endpoints
+
+### Summary
+Added all jorb endpoints and schemas to openapi/spec.json. Includes full documentation for ChatGPT integration with jorb lifecycle.
+
+### Files Changed
+- openapi/spec.json (added 8 jorb paths, 12 jorb schemas)
+
+### Learnings
+- JorbContact, JorbMessage, JorbSummary as reusable schema components
+- BriefMeResponse includes nested JorbActivitySummary and PendingDecision schemas
+- Spec passes linting (only pre-existing warnings about 4xx responses)
+
+---
+
+## 2026-01-30: frank_bot-00064 - Implement JorbPolicy enforcement in AgentRunner
+
+### Summary
+Added JorbPolicy dataclass and enforcement to AgentRunner. Rate limiting tracks messages per hour per jorb, auto-pauses stale jorbs, auto-fails expired jorbs, and records policy violations for briefing.
+
+### Files Changed
+- services/agent_runner.py (added JorbPolicy, PolicyViolation, rate limit methods, stale/expired checks)
+- tests/test_agent_runner.py (added TestJorbPolicy, TestPolicyEnforcement - 13 tests)
+
+### Learnings
+- Rate limit uses in-memory dict with timestamp list per jorb
+- Stale check compares updated_at against stale_jorb_hours
+- Expired check compares created_at against max_jorb_duration_days
+- Policy violations stored for inclusion in brief_me output
+- Environment variables: AGENT_MAX_MESSAGES_PER_HOUR, AGENT_STALE_JORB_HOURS, AGENT_MAX_JORB_DURATION_DAYS
+
+---

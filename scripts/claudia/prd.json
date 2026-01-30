@@ -938,7 +938,7 @@
         "Unit tests verify approval and cancellation flows"
       ],
       "priority": 57,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00056. Completes jorb lifecycle management."
     },
     {
@@ -955,7 +955,7 @@
         "Unit tests verify briefing content generation"
       ],
       "priority": 58,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00056. Designed for ChatGPT to quickly catch up on jorb status."
     },
     {
@@ -974,7 +974,7 @@
         "Integration tests verify routes call correct actions"
       ],
       "priority": 59,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00056, frank_bot-00057, frank_bot-00058. Exposes jorb functionality via HTTP."
     },
     {
@@ -989,7 +989,7 @@
         "Spec passes linting with npx @redocly/cli lint openapi/spec.json"
       ],
       "priority": 60,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00059. Documents API for ChatGPT integration."
     },
     {
@@ -1055,7 +1055,7 @@
         "Unit tests verify policy enforcement scenarios"
       ],
       "priority": 64,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00054. Adds guardrails to autonomous operation."
     },
     {

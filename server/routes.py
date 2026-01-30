@@ -27,6 +27,15 @@ from actions import (
     search_contacts_action,
     send_sms_action,
 )
+from actions.jorbs import (
+    approve_jorb_action,
+    brief_me_action,
+    cancel_jorb_action,
+    create_jorb_action,
+    get_jorb_action,
+    get_jorb_messages_action,
+    list_jorbs_action,
+)
 from actions.sms import get_sms_messages_action
 from actions.telegram import (
     get_telegram_messages,
@@ -262,6 +271,64 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(get_sms_messages_action)
         return await responder(payload)
 
+    # Jorb endpoints (protected by API key)
+    async def jorbs_list_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("jorbsList").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(list_jorbs_action)
+        return await responder(payload)
+
+    async def jorbs_create_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("jorbsCreate").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(create_jorb_action)
+        return await responder(payload)
+
+    async def jorbs_get_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("jorbsGet").record_call()
+        jorb_id = request.path_params.get("id", "")
+        payload = dict(request.query_params)
+        payload["jorb_id"] = jorb_id
+        responder = _build_responder(get_jorb_action)
+        return await responder(payload)
+
+    async def jorbs_messages_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("jorbsMessages").record_call()
+        jorb_id = request.path_params.get("id", "")
+        payload = dict(request.query_params)
+        payload["jorb_id"] = jorb_id
+        responder = _build_responder(get_jorb_messages_action)
+        return await responder(payload)
+
+    async def jorbs_approve_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("jorbsApprove").record_call()
+        jorb_id = request.path_params.get("id", "")
+        payload = dict(request.query_params)
+        payload["jorb_id"] = jorb_id
+        responder = _build_responder(approve_jorb_action)
+        return await responder(payload)
+
+    async def jorbs_cancel_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("jorbsCancel").record_call()
+        jorb_id = request.path_params.get("id", "")
+        payload = dict(request.query_params)
+        payload["jorb_id"] = jorb_id
+        responder = _build_responder(cancel_jorb_action)
+        return await responder(payload)
+
+    async def jorbs_brief_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("jorbsBrief").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(brief_me_action)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -326,6 +393,14 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/telegram-bot/test", telegram_bot_test_handler, methods=["POST"]),
         # SMS messages endpoint for web dashboard (no API key required)
         Route("/sms/messages", sms_messages_web_handler, methods=["GET"]),
+        # Jorb endpoints
+        Route("/jorbs", jorbs_list_handler, methods=["GET"]),
+        Route("/jorbs/create", jorbs_create_handler, methods=["GET"]),
+        Route("/jorbs/brief", jorbs_brief_handler, methods=["GET"]),
+        Route("/jorbs/{id}", jorbs_get_handler, methods=["GET"]),
+        Route("/jorbs/{id}/messages", jorbs_messages_handler, methods=["GET"]),
+        Route("/jorbs/{id}/approve", jorbs_approve_handler, methods=["GET"]),
+        Route("/jorbs/{id}/cancel", jorbs_cancel_handler, methods=["GET"]),
     ]
 
     return routes

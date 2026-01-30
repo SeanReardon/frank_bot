@@ -819,6 +819,305 @@
         },
         "security": [{"ActionsApiKey": []}]
       }
+    },
+    "/jorbs": {
+      "get": {
+        "operationId": "listJorbs",
+        "summary": "List jorbs (long-lived autonomous tasks)",
+        "description": "List all jorbs with optional status filter. Jorbs are autonomous tasks that can interact with contacts via SMS, Telegram, or email.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {"type": "string", "enum": ["open", "closed", "all"], "default": "open"},
+            "required": false,
+            "description": "Filter by status category: 'open' (planning, running, paused), 'closed' (complete, failed, cancelled), or 'all'."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of jorbs.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ListJorbsResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/jorbs/create": {
+      "get": {
+        "operationId": "createJorb",
+        "summary": "Create a new jorb (autonomous task)",
+        "description": "Create a new long-lived autonomous task. The jorb will manage interactions with specified contacts according to the plan.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "Human-readable name for the task."
+          },
+          {
+            "in": "query",
+            "name": "plan",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "Full plan text describing what the jorb should accomplish."
+          },
+          {
+            "in": "query",
+            "name": "contacts",
+            "schema": {"type": "string"},
+            "required": false,
+            "description": "JSON array of contacts: [{identifier, channel, name?}]. Channel must be 'sms', 'telegram', or 'email'."
+          },
+          {
+            "in": "query",
+            "name": "start_immediately",
+            "schema": {"type": "boolean", "default": true},
+            "required": false,
+            "description": "Whether to start the jorb immediately (default true)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jorb created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/CreateJorbResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/jorbs/brief": {
+      "get": {
+        "operationId": "briefMe",
+        "summary": "Get jorb activity briefing",
+        "description": "Get a summary of jorb activity since the last briefing. Includes pending decisions, highlights, and activity per jorb.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hours",
+            "schema": {"type": "integer", "default": 24, "minimum": 1, "maximum": 168},
+            "required": false,
+            "description": "Only show activity from last N hours (default 24)."
+          },
+          {
+            "in": "query",
+            "name": "update_timestamp",
+            "schema": {"type": "boolean", "default": true},
+            "required": false,
+            "description": "Update last briefing timestamp (default true)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Briefing summary.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/BriefMeResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/jorbs/{id}": {
+      "get": {
+        "operationId": "getJorb",
+        "summary": "Get jorb details",
+        "description": "Get full details for a specific jorb including plan, contacts, progress, and optionally message history.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "The jorb ID."
+          },
+          {
+            "in": "query",
+            "name": "include_messages",
+            "schema": {"type": "boolean", "default": false},
+            "required": false,
+            "description": "Include message history in response."
+          },
+          {
+            "in": "query",
+            "name": "message_limit",
+            "schema": {"type": "integer", "default": 50, "minimum": 1, "maximum": 1000},
+            "required": false,
+            "description": "Maximum messages to include (default 50)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jorb details.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/GetJorbResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Jorb not found.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/jorbs/{id}/messages": {
+      "get": {
+        "operationId": "getJorbMessages",
+        "summary": "Get jorb message history",
+        "description": "Get the full conversation history for a jorb with pagination support.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "The jorb ID."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {"type": "integer", "default": 50, "minimum": 1, "maximum": 1000},
+            "required": false,
+            "description": "Maximum messages to return (default 50)."
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {"type": "integer", "default": 0, "minimum": 0},
+            "required": false,
+            "description": "Skip first N messages (for pagination)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message history.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/GetJorbMessagesResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Jorb not found.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/jorbs/{id}/approve": {
+      "get": {
+        "operationId": "approveJorb",
+        "summary": "Approve a paused jorb",
+        "description": "Approve a jorb that is paused awaiting approval. Updates status to running and triggers the agent to process the approval.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "The jorb ID."
+          },
+          {
+            "in": "query",
+            "name": "decision",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "The approval decision or instructions for the agent."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jorb approved and resumed.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ApproveJorbResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Jorb not found or not paused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/jorbs/{id}/cancel": {
+      "get": {
+        "operationId": "cancelJorb",
+        "summary": "Cancel a jorb",
+        "description": "Cancel an active jorb. Cannot cancel already complete or cancelled jorbs.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "The jorb ID."
+          },
+          {
+            "in": "query",
+            "name": "reason",
+            "schema": {"type": "string"},
+            "required": false,
+            "description": "Optional reason for cancellation."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jorb cancelled.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/CancelJorbResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Jorb not found or cannot be cancelled.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
     }
   },
   "components": {
@@ -1299,6 +1598,226 @@
           }
         },
         "required": ["success", "count", "chats"]
+      },
+      "JorbContact": {
+        "type": "object",
+        "description": "A contact associated with a jorb.",
+        "properties": {
+          "identifier": {"type": "string", "description": "Phone number, username, or email address."},
+          "channel": {"type": "string", "enum": ["sms", "telegram", "email"], "description": "Communication channel."},
+          "name": {"type": "string", "description": "Optional display name."}
+        },
+        "required": ["identifier", "channel"]
+      },
+      "JorbMessage": {
+        "type": "object",
+        "description": "A message in a jorb's conversation history.",
+        "properties": {
+          "id": {"type": "string", "description": "Message ID."},
+          "timestamp": {"type": "string", "format": "date-time", "description": "ISO 8601 timestamp."},
+          "direction": {"type": "string", "enum": ["inbound", "outbound"], "description": "Message direction."},
+          "channel": {"type": "string", "enum": ["sms", "telegram", "email"], "description": "Communication channel."},
+          "sender": {"type": "string", "description": "Sender identifier."},
+          "sender_name": {"type": "string", "description": "Sender display name."},
+          "recipient": {"type": "string", "description": "Recipient identifier."},
+          "content": {"type": "string", "description": "Message content."},
+          "agent_reasoning": {"type": "string", "description": "Agent's reasoning for outbound messages."}
+        },
+        "required": ["id", "timestamp", "direction", "channel", "content"]
+      },
+      "JorbSummary": {
+        "type": "object",
+        "description": "Summary of a jorb for list view.",
+        "properties": {
+          "jorb_id": {"type": "string", "description": "Unique jorb identifier."},
+          "name": {"type": "string", "description": "Human-readable name."},
+          "status": {"type": "string", "enum": ["planning", "running", "paused", "complete", "failed", "cancelled"], "description": "Current status."},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "progress": {"type": "string", "description": "Progress summary."},
+          "awaiting": {"type": "string", "description": "What the jorb is waiting for."},
+          "paused_reason": {"type": "string", "description": "Why the jorb is paused."}
+        },
+        "required": ["jorb_id", "name", "status", "created_at", "updated_at"]
+      },
+      "ListJorbsResponse": {
+        "type": "object",
+        "properties": {
+          "count": {"type": "integer", "description": "Number of jorbs returned."},
+          "status_filter": {"type": "string", "description": "The status filter that was applied."},
+          "jorbs": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/JorbSummary"}
+          }
+        },
+        "required": ["count", "status_filter", "jorbs"]
+      },
+      "CreateJorbResponse": {
+        "type": "object",
+        "properties": {
+          "jorb_id": {"type": "string", "description": "Created jorb ID."},
+          "name": {"type": "string"},
+          "status": {"type": "string", "enum": ["planning", "running", "paused"]},
+          "plan": {"type": "string"},
+          "contacts": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/JorbContact"}
+          },
+          "created_at": {"type": "string", "format": "date-time"},
+          "kickoff": {
+            "type": "object",
+            "description": "Result of kickoff attempt if start_immediately was true.",
+            "properties": {
+              "success": {"type": "boolean"},
+              "action_taken": {"type": "string"},
+              "message_sent": {"type": "boolean"},
+              "error": {"type": "string"}
+            }
+          }
+        },
+        "required": ["jorb_id", "name", "status", "plan", "contacts", "created_at"]
+      },
+      "GetJorbResponse": {
+        "type": "object",
+        "properties": {
+          "jorb_id": {"type": "string"},
+          "name": {"type": "string"},
+          "status": {"type": "string", "enum": ["planning", "running", "paused", "complete", "failed", "cancelled"]},
+          "plan": {"type": "string"},
+          "progress_summary": {"type": "string"},
+          "contacts": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/JorbContact"}
+          },
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "paused_reason": {"type": "string"},
+          "needs_approval_for": {"type": "string"},
+          "awaiting": {"type": "string"},
+          "messages": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/JorbMessage"},
+            "description": "Message history (if include_messages=true)."
+          },
+          "message_count": {"type": "integer", "description": "Number of messages included."}
+        },
+        "required": ["jorb_id", "name", "status", "plan", "contacts", "created_at", "updated_at"]
+      },
+      "GetJorbMessagesResponse": {
+        "type": "object",
+        "properties": {
+          "jorb_id": {"type": "string"},
+          "jorb_name": {"type": "string"},
+          "count": {"type": "integer"},
+          "offset": {"type": "integer"},
+          "limit": {"type": "integer"},
+          "messages": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/JorbMessage"}
+          }
+        },
+        "required": ["jorb_id", "jorb_name", "count", "offset", "limit", "messages"]
+      },
+      "ApproveJorbResponse": {
+        "type": "object",
+        "properties": {
+          "jorb_id": {"type": "string"},
+          "name": {"type": "string"},
+          "status": {"type": "string"},
+          "progress_summary": {"type": "string"},
+          "decision": {"type": "string", "description": "The approval decision provided."},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "agent_result": {
+            "type": "object",
+            "description": "Result of agent processing the approval.",
+            "properties": {
+              "success": {"type": "boolean"},
+              "action_taken": {"type": "string"},
+              "message_sent": {"type": "boolean"},
+              "error": {"type": "string"}
+            }
+          }
+        },
+        "required": ["jorb_id", "name", "status", "decision", "updated_at"]
+      },
+      "CancelJorbResponse": {
+        "type": "object",
+        "properties": {
+          "jorb_id": {"type": "string"},
+          "name": {"type": "string"},
+          "status": {"type": "string"},
+          "progress_summary": {"type": "string"},
+          "reason": {"type": "string", "description": "Cancellation reason if provided."},
+          "updated_at": {"type": "string", "format": "date-time"}
+        },
+        "required": ["jorb_id", "name", "status", "updated_at"]
+      },
+      "JorbActivitySummary": {
+        "type": "object",
+        "description": "Activity summary for a single jorb.",
+        "properties": {
+          "jorb_id": {"type": "string"},
+          "name": {"type": "string"},
+          "status": {"type": "string"},
+          "message_count": {"type": "integer", "description": "Messages since last briefing."},
+          "recent_messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "timestamp": {"type": "string"},
+                "direction": {"type": "string"},
+                "content": {"type": "string", "description": "Truncated message content."}
+              }
+            }
+          },
+          "awaiting": {"type": "string"}
+        },
+        "required": ["jorb_id", "name", "status", "message_count"]
+      },
+      "PendingDecision": {
+        "type": "object",
+        "description": "A jorb awaiting approval.",
+        "properties": {
+          "jorb_id": {"type": "string"},
+          "name": {"type": "string"},
+          "paused_reason": {"type": "string"},
+          "needs_approval_for": {"type": "string"},
+          "options": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Available actions (approve, cancel)."
+          }
+        },
+        "required": ["jorb_id", "name", "options"]
+      },
+      "BriefMeResponse": {
+        "type": "object",
+        "description": "Jorb activity briefing summary.",
+        "properties": {
+          "briefing_time": {"type": "string", "format": "date-time", "description": "Current briefing timestamp."},
+          "since": {"type": "string", "format": "date-time", "description": "Activity measured from this time."},
+          "last_briefing": {"type": "string", "format": "date-time", "description": "Previous briefing timestamp."},
+          "needs_attention": {"type": "integer", "description": "Count of paused jorbs requiring approval."},
+          "activity_summary": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/JorbActivitySummary"},
+            "description": "Activity per jorb."
+          },
+          "highlights": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Notable events (completions, message counts, etc.)."
+          },
+          "pending_decisions": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/PendingDecision"},
+            "description": "Jorbs awaiting approval."
+          },
+          "total_open_jorbs": {"type": "integer", "description": "Total active/paused jorbs."},
+          "recently_completed": {"type": "integer", "description": "Jorbs completed since last briefing."}
+        },
+        "required": ["briefing_time", "needs_attention", "activity_summary", "highlights", "pending_decisions", "total_open_jorbs", "recently_completed"]
       }
     },
     "securitySchemes": {
