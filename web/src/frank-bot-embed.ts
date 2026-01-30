@@ -31,12 +31,11 @@ export class FrankBotDashboard extends LitElement {
     ${unsafeCSS(tokensCSS)}
 
     :host {
-      display: block;
+      display: flex;
+      flex-direction: column;
       width: 100%;
-      /* Use min-height with fallback to viewport height for scrolling */
+      /* Use 100% height from parent, not viewport - parent handles scroll area */
       height: 100%;
-      min-height: 100vh;
-      max-height: 100vh;
       font-family: var(--font-family);
       color: var(--color-text);
       background: var(--color-background);
@@ -44,8 +43,6 @@ export class FrankBotDashboard extends LitElement {
       overflow-x: hidden;
       /* Ensure scrolling works with keyboard navigation */
       scroll-behavior: smooth;
-      /* Prevent any parent overflow:hidden from blocking scrolling */
-      position: relative;
       /* Support for keyboard scrolling */
       outline: none;
       -webkit-overflow-scrolling: touch;
@@ -61,6 +58,45 @@ export class FrankBotDashboard extends LitElement {
       padding: var(--spacing-lg);
       max-width: 1200px;
       margin: 0 auto;
+      flex: 1;
+    }
+
+    .version-footer {
+      padding: var(--spacing-md) var(--spacing-lg);
+      border-top: 1px solid var(--color-border);
+      background: var(--color-surface);
+      font-size: var(--font-size-sm);
+      color: var(--color-text-muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--spacing-md);
+      justify-content: center;
+    }
+
+    .version-item {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+    }
+
+    .version-label {
+      font-weight: 500;
+    }
+
+    .version-link {
+      color: var(--kente-gold);
+      text-decoration: none;
+      font-family: monospace;
+    }
+
+    .version-link:hover {
+      color: var(--kente-gold-light);
+      text-decoration: underline;
+    }
+
+    .version-text {
+      font-family: monospace;
+      color: var(--color-text-muted);
     }
 
     /* Kente-inspired decorative stripe at top of dashboard */
@@ -182,13 +218,26 @@ export class FrankBotDashboard extends LitElement {
   sessionToken = '';
 
   @state() private _initialized = false;
+  @state() private _apiCommit: string | null = null;
+  @state() private _webCommit: string = api.getWebCommit();
 
   connectedCallback() {
     super.connectedCallback();
     this._initialize();
+    this._fetchVersion();
     // Make element focusable and add keyboard handler
     this.setAttribute('tabindex', '0');
     this.addEventListener('keydown', this._handleKeydown);
+  }
+
+  private async _fetchVersion() {
+    try {
+      const version = await api.getVersion();
+      this._apiCommit = version.api.commit;
+    } catch (err) {
+      console.warn('Failed to fetch API version:', err);
+      this._apiCommit = null;
+    }
   }
 
   disconnectedCallback() {
@@ -269,6 +318,27 @@ export class FrankBotDashboard extends LitElement {
     return undefined;
   }
 
+  private _renderVersionItem(label: string, commit: string | null, repo: string) {
+    if (!commit || commit === 'dev' || commit === 'unknown') {
+      return html`
+        <div class="version-item">
+          <span class="version-label">${label}:</span>
+          <span class="version-text">dev</span>
+        </div>
+      `;
+    }
+    
+    const shortCommit = commit.substring(0, 7);
+    const commitUrl = `https://github.com/SeanReardon/${repo}/commit/${commit}`;
+    
+    return html`
+      <div class="version-item">
+        <span class="version-label">${label}:</span>
+        <a href="${commitUrl}" target="_blank" rel="noopener noreferrer" class="version-link">${shortCommit}</a>
+      </div>
+    `;
+  }
+
   render() {
     if (!this._initialized) {
       return html`
@@ -286,6 +356,11 @@ export class FrankBotDashboard extends LitElement {
         <scripts-card></scripts-card>
 
         <jobs-card></jobs-card>
+      </div>
+      
+      <div class="version-footer">
+        ${this._renderVersionItem('frank_bot-web', this._webCommit, 'frank_bot')}
+        ${this._renderVersionItem('frank_bot', this._apiCommit, 'frank_bot')}
       </div>
     `;
   }

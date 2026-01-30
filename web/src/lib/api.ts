@@ -248,3 +248,26 @@ export async function getJobs(status?: string): Promise<JobsResponse> {
 export async function getJob(jobId: string): Promise<Job> {
   return request<Job>(`/frank/jobs/${encodeURIComponent(jobId)}`);
 }
+
+// Version types and functions
+
+export interface VersionInfo {
+  api: {
+    commit: string;
+    commit_url: string | null;
+  };
+}
+
+/**
+ * Get API version info.
+ */
+export async function getVersion(): Promise<VersionInfo> {
+  return request<VersionInfo>('/version');
+}
+
+/**
+ * Get the web build commit from Vite env.
+ */
+export function getWebCommit(): string {
+  return (import.meta as any).env?.VITE_GIT_COMMIT || 'dev';
+}

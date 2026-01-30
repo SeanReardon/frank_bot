@@ -1,6 +1,9 @@
 # Stage 1: Build the library bundle
 FROM node:20-alpine AS builder
 
+# Git commit hash baked in at build time
+ARG GIT_COMMIT=unknown
+
 WORKDIR /app
 
 # Copy package files
@@ -11,6 +14,9 @@ RUN npm ci
 
 # Copy source files
 COPY . .
+
+# Set version for Vite build
+ENV VITE_GIT_COMMIT=$GIT_COMMIT
 
 # Build the library bundle (IIFE format for embedding)
 RUN npm run build:lib

@@ -5,6 +5,7 @@ Factory helpers for the Starlette HTTP application (Actions transport only).
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -14,6 +15,9 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from config import get_settings
+
+# Git commit injected at build time
+GIT_COMMIT = os.environ.get("GIT_COMMIT", "dev")
 from server.manifests import (
     build_actions_manifest,
     build_ai_plugin_manifest,
@@ -39,7 +43,19 @@ def create_starlette_app() -> Starlette:
     actions_manifest = build_actions_manifest(settings)
 
     async def health_check(_request):
-        return JSONResponse({"status": "healthy", "server": "frank-bot"})
+        return JSONResponse({
+            "status": "healthy",
+            "server": "frank-bot",
+            "version": GIT_COMMIT,
+        })
+
+    async def version_endpoint(_request):
+        return JSONResponse({
+            "api": {
+                "commit": GIT_COMMIT,
+                "commit_url": f"https://github.com/SeanReardon/frank_bot/commit/{GIT_COMMIT}" if GIT_COMMIT != "dev" else None,
+            },
+        })
 
     async def root_endpoint(_request):
         return JSONResponse(
@@ -84,6 +100,7 @@ def create_starlette_app() -> Starlette:
             methods=["GET"],
         ),
         Route("/health", health_check, methods=["GET"]),
+        Route("/version", version_endpoint, methods=["GET"]),
         Route("/", root_endpoint, methods=["GET"]),
     ]
 
