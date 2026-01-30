@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frank-bot.contrived.com/schemas/personality.schema.json",
+  "title": "Frank Bot Personality",
+  "description": "Defines the personality traits and behavioral parameters for a jorb's LLM session",
+  "type": "object",
+  "required": ["id", "name", "traits"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the personality (e.g., 'concierge', 'researcher')",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name for the personality",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief description of what this personality is optimized for"
+    },
+    "traits": {
+      "type": "object",
+      "description": "Core personality traits that shape behavior",
+      "required": ["communicationStyle", "decisionMaking"],
+      "properties": {
+        "communicationStyle": {
+          "type": "object",
+          "description": "How the agent communicates",
+          "properties": {
+            "tone": {
+              "type": "string",
+              "enum": ["formal", "professional", "friendly", "casual", "warm", "direct"],
+              "description": "Overall tone of voice"
+            },
+            "verbosity": {
+              "type": "string",
+              "enum": ["terse", "concise", "balanced", "detailed", "thorough"],
+              "description": "How much detail to include in messages"
+            },
+            "formality": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "0 = very casual, 1 = very formal"
+            },
+            "emotiveness": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "0 = purely factual, 1 = emotionally expressive"
+            },
+            "emoji_usage": {
+              "type": "string",
+              "enum": ["never", "rare", "occasional", "frequent"],
+              "description": "How often to use emojis"
+            }
+          }
+        },
+        "decisionMaking": {
+          "type": "object",
+          "description": "How the agent makes decisions",
+          "properties": {
+            "riskTolerance": {
+              "type": "string",
+              "enum": ["very_cautious", "cautious", "balanced", "assertive", "aggressive"],
+              "description": "How much risk to accept before escalating"
+            },
+            "autonomy": {
+              "type": "string",
+              "enum": ["highly_supervised", "supervised", "balanced", "autonomous", "highly_autonomous"],
+              "description": "How independently the agent operates"
+            },
+            "patienceLevel": {
+              "type": "string",
+              "enum": ["impatient", "responsive", "patient", "very_patient"],
+              "description": "How long to wait before following up"
+            },
+            "negotiationStyle": {
+              "type": "string",
+              "enum": ["accepting", "collaborative", "firm", "assertive", "aggressive"],
+              "description": "Approach to negotiations and pushback"
+            }
+          }
+        },
+        "expertise": {
+          "type": "object",
+          "description": "Domain expertise and knowledge focus",
+          "properties": {
+            "domains": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Areas of specialized knowledge (e.g., 'hospitality', 'pricing', 'tech')"
+            },
+            "persona": {
+              "type": "string",
+              "description": "Role to embody (e.g., 'personal assistant', 'concierge', 'researcher')"
+            },
+            "background": {
+              "type": "string",
+              "description": "Backstory or context to inform responses"
+            }
+          }
+        }
+      }
+    },
+    "systemPromptAdditions": {
+      "type": "object",
+      "description": "Additional text to inject into the system prompt",
+      "properties": {
+        "preamble": {
+          "type": "string",
+          "description": "Text to add at the beginning of the system prompt"
+        },
+        "guidelines": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Additional behavioral guidelines as bullet points"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "situation": {"type": "string"},
+              "response": {"type": "string"}
+            }
+          },
+          "description": "Example scenarios demonstrating this personality"
+        },
+        "postscript": {
+          "type": "string",
+          "description": "Text to add at the end of the system prompt"
+        }
+      }
+    },
+    "policyOverrides": {
+      "type": "object",
+      "description": "Default policy settings for jorbs using this personality",
+      "properties": {
+        "maxSpendWithoutApproval": {
+          "type": "number",
+          "description": "Spending limit in USD before requiring approval"
+        },
+        "maxMessagesPerHour": {
+          "type": "integer",
+          "description": "Rate limit for outbound messages"
+        },
+        "requireApprovalFor": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["purchase", "commit", "cancel", "share_info", "negotiate"]
+          },
+          "description": "Actions that require human approval"
+        },
+        "followUpHours": {
+          "type": "number",
+          "description": "Hours to wait before following up on unanswered messages"
+        }
+      }
+    },
+    "modelPreferences": {
+      "type": "object",
+      "description": "LLM configuration for this personality",
+      "properties": {
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "description": "LLM temperature setting (0 = deterministic, higher = more creative)"
+        },
+        "preferredModel": {
+          "type": "string",
+          "description": "Preferred model for this personality (e.g., 'gpt-5.2', 'gpt-4o')"
+        }
+      }
+    }
+  }
+}

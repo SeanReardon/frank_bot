@@ -4,8 +4,19 @@ Pytest configuration and fixtures.
 
 from __future__ import annotations
 
+import os
 import sys
 from unittest.mock import MagicMock
+
+import pytest
+
+
+# Disable switchboard mode by default for tests that expect legacy behavior
+# Individual tests can re-enable it if needed
+@pytest.fixture(autouse=True)
+def disable_switchboard_mode(monkeypatch):
+    """Disable switchboard mode for tests to use legacy single-stage behavior."""
+    monkeypatch.setenv("USE_SWITCHBOARD_MODE", "false")
 
 
 # Mock telethon if not installed to allow tests to run

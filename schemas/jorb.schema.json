@@ -26,6 +26,11 @@
       "type": "string",
       "description": "The full plan text designed by Sean + LLM"
     },
+    "personality": {
+      "type": "string",
+      "description": "Personality ID to use for this jorb's LLM sessions (e.g., 'concierge', 'researcher'). Defaults to 'default'.",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
     "progressSummary": {
       "type": "string",
       "description": "Current summary of progress (updated on context resets and completions)"

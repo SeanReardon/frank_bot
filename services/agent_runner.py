@@ -1,7 +1,12 @@
 """
 Agent Runner Service for LLM-powered jorb processing.
 
-Uses gpt-5.2 to process incoming events and decide actions for jorbs.
+Uses a two-stage switchboard pattern:
+1. Switchboard → Routes messages to the correct jorb (lightweight, fast)
+2. Jorb Session → Handles conversation with personality (full context)
+
+The switchboard only identifies which jorb a message relates to.
+Each jorb has its own dedicated LLM session with personality and full history.
 """
 
 from __future__ import annotations
@@ -22,6 +27,16 @@ from services.jorb_storage import (
     JorbWithMessages,
 )
 
+# Import new switchboard and session components
+from services.switchboard import Switchboard, RoutingDecision, get_switchboard
+from services.jorb_session import (
+    JorbSession,
+    JorbSessionResponse,
+    JorbAction,
+    create_jorb_session,
+)
+from services.progress_log import get_progress_log
+
 # Import openai at module level (may be None if not installed)
 # This allows tests to patch it
 try:
@@ -31,13 +46,23 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# The hardcoded model as specified in the PRD
+# The hardcoded model as specified in the PRD (for legacy single-stage mode)
 AGENT_MODEL = "gpt-5.2"
 
 # Token pricing (USD per 1K tokens) - approximations for gpt-5.2
 # These should be updated based on actual OpenAI pricing
 TOKEN_PRICE_INPUT = 0.01  # $0.01 per 1K input tokens
 TOKEN_PRICE_OUTPUT = 0.03  # $0.03 per 1K output tokens
+
+# Feature flag for switchboard mode (can be disabled for backwards compatibility)
+# Checked at runtime to allow test fixtures to override
+def _use_switchboard_mode() -> bool:
+    """Check if switchboard mode is enabled."""
+    return os.getenv("USE_SWITCHBOARD_MODE", "true").lower() == "true"
+
+
+# For backwards compatibility export
+USE_SWITCHBOARD_MODE = _use_switchboard_mode()
 
 
 def _calculate_token_cost(input_tokens: int, output_tokens: int) -> float:
@@ -808,19 +833,278 @@ class AgentRunner:
         Process an incoming message event.
 
         This is the main entry point for handling incoming SMS/Telegram messages.
-        It:
+
+        With switchboard mode (default):
         1. Enriches the event with contact information
-        2. Fetches all open jorbs with their messages
-        3. Calls the LLM to decide what to do
-        4. Stores the inbound message in the matched jorb
-        5. Executes the decided action (send_message, pause, complete, etc.)
-        6. Stores any outbound messages with reasoning
+        2. Uses switchboard to route message to correct jorb
+        3. Creates jorb session with personality for matched jorb
+        4. Jorb session decides on action
+        5. Executes the action and stores messages
+
+        With legacy mode (USE_SWITCHBOARD_MODE=false):
+        - Uses single LLM call for both routing and action decision
 
         Args:
             event: The incoming message event
 
         Returns:
             ProcessingResult with jorb_id, action_taken, and success status
+        """
+        # Use switchboard mode if enabled
+        if _use_switchboard_mode():
+            return await self._process_with_switchboard(event)
+
+        # Legacy single-stage mode
+        return await self._process_legacy(event)
+
+    async def _process_with_switchboard(
+        self,
+        event: IncomingEvent,
+    ) -> ProcessingResult:
+        """
+        Process message using two-stage switchboard pattern.
+
+        Stage 1: Switchboard routes to jorb
+        Stage 2: Jorb session handles conversation
+        """
+        try:
+            # Step 1: Enrich event with contact info
+            enriched_event = await self._enrich_event_with_contact(event)
+            logger.info(
+                "Processing incoming %s message from %s (%s) [switchboard mode]",
+                enriched_event.channel,
+                enriched_event.sender,
+                enriched_event.sender_name or "unknown",
+            )
+
+            # Step 2: Fetch open jorbs
+            open_jorbs = await self.get_open_jorbs()
+            logger.debug("Found %d open jorbs", len(open_jorbs))
+
+            # Step 3: Route with switchboard
+            switchboard = get_switchboard()
+            routing = await switchboard.route(
+                channel=enriched_event.channel,
+                sender=enriched_event.sender,
+                sender_name=enriched_event.sender_name,
+                content=enriched_event.content,
+                timestamp=enriched_event.timestamp,
+                open_jorbs=open_jorbs,
+            )
+
+            logger.info(
+                "Switchboard routed to %s (%s): %s",
+                routing.jorb_id,
+                routing.confidence,
+                routing.reasoning[:50],
+            )
+
+            # Track switchboard tokens
+            total_tokens = routing.tokens_used
+            total_cost = 0.0
+
+            # Step 4: Handle based on routing result
+            if not routing.jorb_id:
+                # No matching jorb
+                if routing.is_spam:
+                    logger.info("Message identified as spam, ignoring")
+                    return ProcessingResult(
+                        jorb_id=None,
+                        action_taken="spam_filtered",
+                        success=True,
+                    )
+
+                if routing.might_be_new_jorb:
+                    logger.info("Message might warrant new jorb, flagging for review")
+                    # Could trigger notification to user here
+
+                return ProcessingResult(
+                    jorb_id=None,
+                    action_taken="no_match",
+                    success=True,
+                )
+
+            # Step 5: Find the matched jorb
+            matched_jorb = None
+            for jwm in open_jorbs:
+                if jwm.jorb.id == routing.jorb_id:
+                    matched_jorb = jwm
+                    break
+
+            if not matched_jorb:
+                logger.warning("Routed to jorb %s but not found in open jorbs", routing.jorb_id)
+                return ProcessingResult(
+                    jorb_id=routing.jorb_id,
+                    action_taken="jorb_not_found",
+                    success=False,
+                    error="Routed jorb not found",
+                )
+
+            # Step 6: Store the inbound message
+            await self.store_inbound_message(routing.jorb_id, enriched_event)
+
+            # Step 7: Create jorb session with personality
+            jorb_session = create_jorb_session(
+                matched_jorb,
+                policy=self._policy.to_context_dict(),
+            )
+
+            # Step 8: Process with jorb session
+            session_response = await jorb_session.process_message(
+                channel=enriched_event.channel,
+                sender=enriched_event.sender,
+                sender_name=enriched_event.sender_name,
+                content=enriched_event.content,
+                timestamp=enriched_event.timestamp,
+                message_count=enriched_event.message_count,
+            )
+
+            # Track session tokens
+            total_tokens += session_response.tokens_used
+            total_cost = session_response.estimated_cost
+
+            logger.info(
+                "Jorb session decided: action=%s, reasoning=%s",
+                session_response.action.type,
+                session_response.reasoning[:100] if session_response.reasoning else "",
+            )
+
+            # Update token metrics for this jorb
+            if total_tokens > 0:
+                await self._storage.increment_metrics(
+                    routing.jorb_id,
+                    tokens_used=total_tokens,
+                    estimated_cost=total_cost,
+                )
+
+            # Step 9: Execute the action
+            message_sent = False
+            action = session_response.action
+
+            if action.type == "send_message":
+                message_sent = await self._execute_send_message(
+                    jorb_id=routing.jorb_id,
+                    jorb_name=matched_jorb.jorb.name,
+                    action=action,
+                    reasoning=session_response.reasoning,
+                )
+
+            elif action.type == "pause":
+                await self.update_jorb_status(
+                    jorb_id=routing.jorb_id,
+                    status="paused",
+                    paused_reason=action.pause_reason,
+                    needs_approval_for=action.needs_approval_for,
+                )
+
+            elif action.type == "complete":
+                await self.update_jorb_status(
+                    jorb_id=routing.jorb_id,
+                    status="complete",
+                )
+
+            # Step 10: Update progress if provided
+            if session_response.progress:
+                progress = session_response.progress
+                await self.update_jorb_status(
+                    jorb_id=routing.jorb_id,
+                    progress_summary=progress.note,
+                    awaiting=progress.awaiting,
+                )
+
+                # Record progress in log
+                if progress.note:
+                    progress_log = get_progress_log()
+                    progress_log.add_entry(
+                        entry_type="task_progress",
+                        summary=progress.note,
+                        jorb_id=routing.jorb_id,
+                        jorb_name=matched_jorb.jorb.name,
+                    )
+
+            return ProcessingResult(
+                jorb_id=routing.jorb_id,
+                action_taken=action.type,
+                success=True,
+                message_sent=message_sent,
+            )
+
+        except Exception as e:
+            logger.exception("Error in switchboard processing")
+            return ProcessingResult(
+                jorb_id=None,
+                action_taken="error",
+                success=False,
+                error=str(e),
+            )
+
+    async def _execute_send_message(
+        self,
+        jorb_id: str,
+        jorb_name: str,
+        action: JorbAction,
+        reasoning: str,
+    ) -> bool:
+        """Execute a send_message action with rate limiting."""
+        if not action.channel or not action.recipient or not action.content:
+            logger.warning("send_message action missing required fields")
+            return False
+
+        # Check rate limit before sending
+        if self._check_rate_limit(jorb_id):
+            logger.warning(
+                "Rate limit exceeded for jorb %s (%d messages/hour)",
+                jorb_id,
+                self._policy.max_messages_per_hour,
+            )
+            self._record_policy_violation(
+                jorb_id,
+                jorb_name,
+                "rate_limit",
+                f"Exceeded {self._policy.max_messages_per_hour} messages per hour",
+            )
+            await self.update_jorb_status(
+                jorb_id=jorb_id,
+                status="paused",
+                paused_reason=f"Rate limit exceeded ({self._policy.max_messages_per_hour}/hour)",
+                needs_approval_for="resume",
+            )
+            return False
+
+        # Send the message
+        send_success = await self._send_message(
+            action.channel,
+            action.recipient,
+            action.content,
+        )
+
+        if send_success:
+            # Store outbound message and record for rate limiting
+            await self.store_outbound_message(
+                jorb_id=jorb_id,
+                channel=action.channel,
+                recipient=action.recipient,
+                content=action.content,
+                reasoning=reasoning,
+            )
+            self._record_message_sent(jorb_id)
+            return True
+        else:
+            logger.error(
+                "Failed to send message to %s via %s",
+                action.recipient,
+                action.channel,
+            )
+            return False
+
+    async def _process_legacy(
+        self,
+        event: IncomingEvent,
+    ) -> ProcessingResult:
+        """
+        Legacy single-stage processing (pre-switchboard).
+
+        Kept for backwards compatibility when USE_SWITCHBOARD_MODE=false.
         """
         try:
             # Step 1: Enrich event with contact info
@@ -966,12 +1250,15 @@ class AgentRunner:
         Kick off a new jorb by sending its initial message.
 
         This is called when a jorb is created with start_immediately=True.
-        It:
-        1. Builds context with the jorb_created event type
-        2. Calls gpt-5.2 to determine the first action
-        3. Executes any send_message action returned
-        4. Stores the outbound message in the jorb's history
-        5. Updates the jorb status from planning to running
+
+        With switchboard mode:
+        1. Creates jorb session with personality
+        2. Jorb session generates first action
+        3. Executes send_message if returned
+        4. Updates status to running
+
+        With legacy mode:
+        - Uses single LLM call with jorb_created event type
 
         Args:
             jorb: The Jorb to kick off
@@ -979,6 +1266,122 @@ class AgentRunner:
         Returns:
             KickoffResult with success status and details
         """
+        # Use switchboard mode if enabled
+        if _use_switchboard_mode():
+            return await self._kickoff_with_session(jorb)
+
+        # Legacy mode
+        return await self._kickoff_legacy(jorb)
+
+    async def _kickoff_with_session(self, jorb: Jorb) -> KickoffResult:
+        """Kick off a jorb using personality-aware jorb session."""
+        try:
+            logger.info("Kicking off jorb %s: %s (personality: %s)", jorb.id, jorb.name, jorb.personality)
+
+            # Create jorb session with personality (empty messages for new jorb)
+            jorb_with_messages = JorbWithMessages(jorb=jorb, messages=[])
+            jorb_session = create_jorb_session(
+                jorb_with_messages,
+                policy=self._policy.to_context_dict(),
+            )
+
+            # Get kickoff action from session
+            session_response = await jorb_session.kickoff()
+
+            logger.info(
+                "Jorb session kickoff decided: action=%s, reasoning=%s",
+                session_response.action.type,
+                session_response.reasoning[:100] if session_response.reasoning else "",
+            )
+
+            # Update token metrics
+            if session_response.tokens_used > 0:
+                await self._storage.increment_metrics(
+                    jorb.id,
+                    tokens_used=session_response.tokens_used,
+                    estimated_cost=session_response.estimated_cost,
+                )
+
+            # Execute the action
+            message_sent = False
+            action = session_response.action
+
+            if action.type == "send_message":
+                if action.channel and action.recipient and action.content:
+                    send_success = await self._send_message(
+                        action.channel,
+                        action.recipient,
+                        action.content,
+                    )
+
+                    if send_success:
+                        await self.store_outbound_message(
+                            jorb_id=jorb.id,
+                            channel=action.channel,
+                            recipient=action.recipient,
+                            content=action.content,
+                            reasoning=session_response.reasoning,
+                        )
+                        self._record_message_sent(jorb.id)
+                        message_sent = True
+                        logger.info("Kickoff message sent for jorb %s", jorb.id)
+                    else:
+                        logger.error("Failed to send kickoff message for jorb %s", jorb.id)
+                else:
+                    logger.warning("send_message action missing required fields for kickoff")
+
+            elif action.type == "pause":
+                await self.update_jorb_status(
+                    jorb_id=jorb.id,
+                    status="paused",
+                    paused_reason=action.pause_reason,
+                    needs_approval_for=action.needs_approval_for,
+                )
+                return KickoffResult(
+                    jorb_id=jorb.id,
+                    success=True,
+                    action_taken="pause",
+                    message_sent=False,
+                )
+
+            # Update jorb status to running
+            update_fields: dict[str, Any] = {"status": "running"}
+            if session_response.progress:
+                if session_response.progress.note:
+                    update_fields["progress_summary"] = session_response.progress.note
+                if session_response.progress.awaiting:
+                    update_fields["awaiting"] = session_response.progress.awaiting
+
+            await self._storage.update_jorb(jorb.id, **update_fields)
+
+            # Record progress
+            if session_response.progress and session_response.progress.note:
+                progress_log = get_progress_log()
+                progress_log.add_entry(
+                    entry_type="task_progress",
+                    summary=f"Kickoff: {session_response.progress.note}",
+                    jorb_id=jorb.id,
+                    jorb_name=jorb.name,
+                )
+
+            return KickoffResult(
+                jorb_id=jorb.id,
+                success=True,
+                action_taken=action.type,
+                message_sent=message_sent,
+            )
+
+        except Exception as e:
+            logger.exception("Error during jorb kickoff with session")
+            return KickoffResult(
+                jorb_id=jorb.id,
+                success=False,
+                action_taken="error",
+                error=str(e),
+            )
+
+    async def _kickoff_legacy(self, jorb: Jorb) -> KickoffResult:
+        """Legacy kickoff using single LLM call."""
         try:
             logger.info("Kicking off jorb %s: %s", jorb.id, jorb.name)
 
@@ -1115,4 +1518,5 @@ __all__ = [
     "ProcessingResult",
     "TaskUpdate",
     "AGENT_MODEL",
+    "USE_SWITCHBOARD_MODE",
 ]

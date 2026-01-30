@@ -69,6 +69,7 @@ class Jorb:
     status: JorbStatus
     original_plan: str
     contacts_json: str = "[]"  # JSON array of JorbContact dicts
+    personality: str = "default"  # Personality ID for LLM sessions
     progress_summary: str | None = None
     created_at: str = ""  # ISO 8601 timestamp
     updated_at: str = ""  # ISO 8601 timestamp
@@ -200,6 +201,7 @@ CREATE TABLE IF NOT EXISTS jorbs (
     ),
     original_plan TEXT NOT NULL,
     contacts_json TEXT DEFAULT '[]',
+    personality TEXT DEFAULT 'default',
     progress_summary TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -272,6 +274,7 @@ def _row_to_jorb(row: aiosqlite.Row) -> Jorb:
         status=row["status"],
         original_plan=row["original_plan"],
         contacts_json=row["contacts_json"],
+        personality=row["personality"] or "default",
         progress_summary=row["progress_summary"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -351,6 +354,7 @@ class JorbStorage:
         columns = {row[1] for row in await cursor.fetchall()}
 
         # Migration v2: Add metrics and outcome columns
+        # Migration v3: Add personality column
         new_columns = [
             ("messages_in", "INTEGER DEFAULT 0"),
             ("messages_out", "INTEGER DEFAULT 0"),
@@ -360,6 +364,7 @@ class JorbStorage:
             ("outcome_result", "TEXT"),
             ("outcome_completed_at", "TEXT"),
             ("outcome_failure_reason", "TEXT"),
+            ("personality", "TEXT DEFAULT 'default'"),
         ]
 
         for col_name, col_type in new_columns:
@@ -378,6 +383,7 @@ class JorbStorage:
         name: str,
         plan: str,
         contacts: list[JorbContact] | None = None,
+        personality: str = "default",
     ) -> Jorb:
         """
         Create a new jorb.
@@ -386,6 +392,7 @@ class JorbStorage:
             name: Human-readable name for the jorb
             plan: The full plan text
             contacts: List of contacts involved in the jorb
+            personality: Personality ID for this jorb's LLM sessions (default: "default")
 
         Returns:
             The created Jorb with generated ID
@@ -405,6 +412,7 @@ class JorbStorage:
             status="planning",
             original_plan=plan,
             contacts_json=contacts_json,
+            personality=personality,
             created_at=now,
             updated_at=now,
         )
@@ -413,12 +421,12 @@ class JorbStorage:
             await conn.execute(
                 """
                 INSERT INTO jorbs (
-                    id, name, status, original_plan, contacts_json,
+                    id, name, status, original_plan, contacts_json, personality,
                     progress_summary, created_at, updated_at,
                     paused_reason, needs_approval_for, awaiting,
                     messages_in, messages_out, tokens_used, estimated_cost, context_resets,
                     outcome_result, outcome_completed_at, outcome_failure_reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     jorb.id,
@@ -426,6 +434,7 @@ class JorbStorage:
                     jorb.status,
                     jorb.original_plan,
                     jorb.contacts_json,
+                    jorb.personality,
                     jorb.progress_summary,
                     jorb.created_at,
                     jorb.updated_at,
@@ -444,7 +453,7 @@ class JorbStorage:
             )
             await conn.commit()
 
-        logger.info("Created jorb %s: %s", jorb.id, jorb.name)
+        logger.info("Created jorb %s: %s (personality: %s)", jorb.id, jorb.name, jorb.personality)
         return jorb
 
     async def get_jorb(self, jorb_id: str) -> Jorb | None:
@@ -536,6 +545,7 @@ class JorbStorage:
             "status",
             "original_plan",
             "contacts_json",
+            "personality",
             "progress_summary",
             "paused_reason",
             "needs_approval_for",

@@ -79,6 +79,8 @@ async def create_jorb_action(
             - plan: str (required) - Full plan text describing what to do
             - contacts: JSON array (optional) - Contacts involved in the task
                 Each contact: {identifier, channel, name?}
+            - personality: str (optional, default "default") - Personality ID for LLM sessions
+                Available: "default", "concierge", "researcher", "negotiator", "expeditor"
             - start_immediately: bool (optional, default True) - Whether to kick off immediately
 
     Returns:
@@ -88,6 +90,7 @@ async def create_jorb_action(
     name = (args.get("name") or "").strip()
     plan = (args.get("plan") or "").strip()
     contacts_arg = args.get("contacts")
+    personality = (args.get("personality") or "default").strip().lower()
     start_immediately = args.get("start_immediately", True)
 
     # Handle string "false" / "true" values
@@ -99,6 +102,17 @@ async def create_jorb_action(
     if not plan:
         raise ValueError("plan is required")
 
+    # Validate personality exists
+    from services.personality_loader import get_personality_loader
+    loader = get_personality_loader()
+    available_personalities = loader.list_ids()
+    if personality not in available_personalities and personality != "default":
+        logger.warning(
+            "Personality '%s' not found, available: %s. Using 'default'.",
+            personality, available_personalities
+        )
+        personality = "default"
+
     # Parse contacts
     contacts = _parse_contacts(contacts_arg)
 
@@ -108,6 +122,7 @@ async def create_jorb_action(
         name=name,
         plan=plan,
         contacts=contacts,
+        personality=personality,
     )
 
     logger.info("Created jorb %s: %s", jorb.id, jorb.name)
@@ -139,6 +154,7 @@ async def create_jorb_action(
         "name": jorb.name,
         "status": jorb.status,
         "plan": jorb.original_plan,
+        "personality": jorb.personality,
         "contacts": [c.to_dict() for c in jorb.contacts],
         "created_at": jorb.created_at,
     }
@@ -177,6 +193,7 @@ async def list_jorbs_action(
             "jorb_id": jorb.id,
             "name": jorb.name,
             "status": jorb.status,
+            "personality": jorb.personality,
             "created_at": jorb.created_at,
             "updated_at": jorb.updated_at,
             "metrics": jorb.metrics,
@@ -249,6 +266,7 @@ async def get_jorb_action(
         "name": jorb.name,
         "status": jorb.status,
         "plan": jorb.original_plan,
+        "personality": jorb.personality,
         "progress_summary": jorb.progress_summary,
         "contacts": [c.to_dict() for c in jorb.contacts],
         "created_at": jorb.created_at,
