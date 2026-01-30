@@ -313,7 +313,7 @@ export async function getSmsMessages(options: GetSmsMessagesOptions = {}): Promi
   if (options.direction) params.set('direction', options.direction);
 
   const queryString = params.toString();
-  const path = `/actions/sms/messages${queryString ? `?${queryString}` : ''}`;
+  const path = `/sms/messages${queryString ? `?${queryString}` : ''}`;
   return request<SmsMessagesResponse>(path);
 }
 

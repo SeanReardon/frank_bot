@@ -131,7 +131,7 @@ def _load_secrets() -> dict[str, str | None]:
         # Telegram Bot credentials
         telegram_bot_creds = get_telegram_bot_credentials()
         if telegram_bot_creds:
-            secrets["telegram_bot_token"] = telegram_bot_creds.get("bot_token")
+            secrets["telegram_bot_token"] = telegram_bot_creds.get("token")
             secrets["telegram_bot_chat_id"] = telegram_bot_creds.get("chat_id")
 
         # Telnyx credentials

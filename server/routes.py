@@ -255,6 +255,13 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(test_telegram_bot)
         return await responder(payload)
 
+    # SMS messages endpoint for web dashboard (public - no API key required)
+    async def sms_messages_web_handler(request: Request):
+        stats.get_endpoint_stats("smsMessagesWeb").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_sms_messages_action)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -317,6 +324,8 @@ def build_action_routes(settings: Settings) -> list[Route]:
         # Telegram Bot status and test endpoints
         Route("/telegram-bot/status", telegram_bot_status_handler, methods=["GET"]),
         Route("/telegram-bot/test", telegram_bot_test_handler, methods=["POST"]),
+        # SMS messages endpoint for web dashboard (no API key required)
+        Route("/sms/messages", sms_messages_web_handler, methods=["GET"]),
     ]
 
     return routes
