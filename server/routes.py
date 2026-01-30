@@ -34,6 +34,7 @@ from actions.jorbs import (
     create_jorb_action,
     get_jorb_action,
     get_jorb_messages_action,
+    get_jorbs_stats_action,
     list_jorbs_action,
 )
 from actions.sms import get_sms_messages_action
@@ -329,6 +330,13 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(brief_me_action)
         return await responder(payload)
 
+    async def jorbs_stats_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("jorbsStats").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_jorbs_stats_action)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -397,6 +405,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/jorbs", jorbs_list_handler, methods=["GET"]),
         Route("/jorbs/create", jorbs_create_handler, methods=["GET"]),
         Route("/jorbs/brief", jorbs_brief_handler, methods=["GET"]),
+        Route("/jorbs/stats", jorbs_stats_handler, methods=["GET"]),
         Route("/jorbs/{id}", jorbs_get_handler, methods=["GET"]),
         Route("/jorbs/{id}/messages", jorbs_messages_handler, methods=["GET"]),
         Route("/jorbs/{id}/approve", jorbs_approve_handler, methods=["GET"]),

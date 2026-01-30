@@ -351,6 +351,27 @@ export interface JorbContact {
   name?: string;
 }
 
+export interface JorbMetrics {
+  messages_in: number;
+  messages_out: number;
+  tokens_used: number;
+  estimated_cost: number;
+  context_resets: number;
+}
+
+export interface JorbOutcome {
+  result: string | null;
+  completed_at: string | null;
+  failure_reason: string | null;
+}
+
+export interface JorbCheckpoint {
+  id: string;
+  timestamp: string;
+  summary: string;
+  token_count: number | null;
+}
+
 export interface Jorb {
   id: string;
   name: string;
@@ -363,6 +384,8 @@ export interface Jorb {
   paused_reason: string | null;
   needs_approval_for: string | null;
   awaiting: string | null;
+  metrics: JorbMetrics;
+  outcome?: JorbOutcome;
 }
 
 export interface JorbMessage {
@@ -378,13 +401,35 @@ export interface JorbMessage {
   agent_reasoning: string | null;
 }
 
+export interface JorbStatusCounts {
+  planning: number;
+  running: number;
+  paused: number;
+  complete: number;
+  failed: number;
+  cancelled: number;
+}
+
+export interface JorbAggregateMetrics {
+  total_jorbs: number;
+  total_messages_in: number;
+  total_messages_out: number;
+  total_messages: number;
+  total_tokens: number;
+  total_cost: number;
+  total_context_resets: number;
+  by_status: JorbStatusCounts;
+}
+
 export interface JorbsResponse {
   count: number;
   jorbs: Jorb[];
+  aggregate_metrics: JorbAggregateMetrics;
 }
 
 export interface JorbDetailResponse extends Jorb {
   messages?: JorbMessage[];
+  checkpoints?: JorbCheckpoint[];
 }
 
 export interface JorbMessagesResponse {
@@ -473,4 +518,94 @@ export async function cancelJorb(jorbId: string, reason?: string): Promise<Cance
   const queryString = params.toString();
   const path = `/jorbs/${encodeURIComponent(jorbId)}/cancel${queryString ? `?${queryString}` : ''}`;
   return request<CancelJorbResponse>(path);
+}
+
+// Jorb Stats types and functions
+
+export interface JorbsStatsResponse {
+  status_filter: string;
+  total_jorbs: number;
+  by_status: JorbStatusCounts;
+  metrics: {
+    total_messages: number;
+    total_messages_in: number;
+    total_messages_out: number;
+    total_tokens: number;
+    total_cost: number;
+    total_context_resets: number;
+  };
+  success_rate: number;
+}
+
+/**
+ * Get aggregate jorbs statistics.
+ */
+export async function getJorbsStats(status?: 'open' | 'closed' | 'all'): Promise<JorbsStatsResponse> {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+
+  const queryString = params.toString();
+  const path = `/jorbs/stats${queryString ? `?${queryString}` : ''}`;
+  return request<JorbsStatsResponse>(path);
+}
+
+// Jorb Brief types and functions
+
+export interface JorbActivityMessage {
+  timestamp: string;
+  direction: 'inbound' | 'outbound';
+  content: string;
+}
+
+export interface JorbActivitySummary {
+  jorb_id: string;
+  name: string;
+  status: JorbStatus;
+  message_count: number;
+  recent_messages: JorbActivityMessage[];
+  awaiting: string | null;
+}
+
+export interface PendingDecision {
+  jorb_id: string;
+  name: string;
+  paused_reason: string | null;
+  needs_approval_for: string | null;
+  options: string[];
+}
+
+export interface JorbBriefResponse {
+  briefing_time: string;
+  since: string;
+  last_briefing: string | null;
+  needs_attention: number;
+  activity_summary: JorbActivitySummary[];
+  highlights: string[];
+  pending_decisions: PendingDecision[];
+  total_open_jorbs: number;
+  recently_completed: number;
+  aggregate_metrics: {
+    total_jorbs: number;
+    total_messages: number;
+    total_cost: number;
+    by_status: JorbStatusCounts;
+  };
+}
+
+export interface GetJorbsBriefOptions {
+  hours?: number;
+  update_timestamp?: boolean;
+}
+
+/**
+ * Get jorbs activity briefing.
+ */
+export async function getJorbsBrief(options: GetJorbsBriefOptions = {}): Promise<JorbBriefResponse> {
+  const params = new URLSearchParams();
+  if (options.hours !== undefined) params.set('hours', String(options.hours));
+  if (options.update_timestamp !== undefined) params.set('update_timestamp', String(options.update_timestamp));
+
+  const queryString = params.toString();
+  const path = `/jorbs/brief${queryString ? `?${queryString}` : ''}`;
+  return request<JorbBriefResponse>(path);
 }

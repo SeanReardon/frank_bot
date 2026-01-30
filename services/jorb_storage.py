@@ -75,6 +75,16 @@ class Jorb:
     paused_reason: str | None = None
     needs_approval_for: str | None = None
     awaiting: str | None = None
+    # Metrics fields
+    messages_in: int = 0
+    messages_out: int = 0
+    tokens_used: int = 0
+    estimated_cost: float = 0.0
+    context_resets: int = 0
+    # Outcome fields (populated when complete/failed)
+    outcome_result: str | None = None
+    outcome_completed_at: str | None = None
+    outcome_failure_reason: str | None = None
 
     def __post_init__(self) -> None:
         """Set default timestamps if not provided."""
@@ -97,6 +107,28 @@ class Jorb:
     def contacts(self, value: list[JorbContact]) -> None:
         """Serialize contacts to JSON."""
         self.contacts_json = json.dumps([c.to_dict() for c in value])
+
+    @property
+    def metrics(self) -> dict[str, Any]:
+        """Return metrics as a dictionary."""
+        return {
+            "messages_in": self.messages_in,
+            "messages_out": self.messages_out,
+            "tokens_used": self.tokens_used,
+            "estimated_cost": self.estimated_cost,
+            "context_resets": self.context_resets,
+        }
+
+    @property
+    def outcome(self) -> dict[str, Any] | None:
+        """Return outcome as a dictionary if present."""
+        if self.status not in ("complete", "failed"):
+            return None
+        return {
+            "result": self.outcome_result,
+            "completed_at": self.outcome_completed_at,
+            "failure_reason": self.outcome_failure_reason,
+        }
 
 
 @dataclass
@@ -173,7 +205,17 @@ CREATE TABLE IF NOT EXISTS jorbs (
     updated_at TEXT NOT NULL,
     paused_reason TEXT,
     needs_approval_for TEXT,
-    awaiting TEXT
+    awaiting TEXT,
+    -- Metrics columns (added in v2)
+    messages_in INTEGER DEFAULT 0,
+    messages_out INTEGER DEFAULT 0,
+    tokens_used INTEGER DEFAULT 0,
+    estimated_cost REAL DEFAULT 0.0,
+    context_resets INTEGER DEFAULT 0,
+    -- Outcome columns (added in v2)
+    outcome_result TEXT,
+    outcome_completed_at TEXT,
+    outcome_failure_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jorb_messages (
@@ -207,6 +249,20 @@ CREATE INDEX IF NOT EXISTS idx_jorb_checkpoints_jorb_id
     ON jorb_checkpoints(jorb_id);
 """
 
+# Migration SQL to add metrics and outcome columns to existing databases
+_MIGRATION_V2_SQL = """
+-- Add metrics columns if they don't exist
+ALTER TABLE jorbs ADD COLUMN messages_in INTEGER DEFAULT 0;
+ALTER TABLE jorbs ADD COLUMN messages_out INTEGER DEFAULT 0;
+ALTER TABLE jorbs ADD COLUMN tokens_used INTEGER DEFAULT 0;
+ALTER TABLE jorbs ADD COLUMN estimated_cost REAL DEFAULT 0.0;
+ALTER TABLE jorbs ADD COLUMN context_resets INTEGER DEFAULT 0;
+-- Add outcome columns if they don't exist
+ALTER TABLE jorbs ADD COLUMN outcome_result TEXT;
+ALTER TABLE jorbs ADD COLUMN outcome_completed_at TEXT;
+ALTER TABLE jorbs ADD COLUMN outcome_failure_reason TEXT;
+"""
+
 
 def _row_to_jorb(row: aiosqlite.Row) -> Jorb:
     """Convert a database row to a Jorb object."""
@@ -222,6 +278,16 @@ def _row_to_jorb(row: aiosqlite.Row) -> Jorb:
         paused_reason=row["paused_reason"],
         needs_approval_for=row["needs_approval_for"],
         awaiting=row["awaiting"],
+        # Metrics fields (may be None in older databases before migration)
+        messages_in=row["messages_in"] or 0,
+        messages_out=row["messages_out"] or 0,
+        tokens_used=row["tokens_used"] or 0,
+        estimated_cost=row["estimated_cost"] or 0.0,
+        context_resets=row["context_resets"] or 0,
+        # Outcome fields
+        outcome_result=row["outcome_result"],
+        outcome_completed_at=row["outcome_completed_at"],
+        outcome_failure_reason=row["outcome_failure_reason"],
     )
 
 
@@ -272,8 +338,40 @@ class JorbStorage:
             await conn.executescript(_SCHEMA_SQL)
             await conn.commit()
 
+            # Run migration for existing databases (adds new columns if missing)
+            await self._run_migrations(conn)
+
         self._initialized = True
         logger.info("Initialized jorb storage schema at %s", self._db_path)
+
+    async def _run_migrations(self, conn: aiosqlite.Connection) -> None:
+        """Run database migrations for schema updates."""
+        # Check if metrics columns exist
+        cursor = await conn.execute("PRAGMA table_info(jorbs)")
+        columns = {row[1] for row in await cursor.fetchall()}
+
+        # Migration v2: Add metrics and outcome columns
+        new_columns = [
+            ("messages_in", "INTEGER DEFAULT 0"),
+            ("messages_out", "INTEGER DEFAULT 0"),
+            ("tokens_used", "INTEGER DEFAULT 0"),
+            ("estimated_cost", "REAL DEFAULT 0.0"),
+            ("context_resets", "INTEGER DEFAULT 0"),
+            ("outcome_result", "TEXT"),
+            ("outcome_completed_at", "TEXT"),
+            ("outcome_failure_reason", "TEXT"),
+        ]
+
+        for col_name, col_type in new_columns:
+            if col_name not in columns:
+                try:
+                    await conn.execute(f"ALTER TABLE jorbs ADD COLUMN {col_name} {col_type}")
+                    logger.info("Added column %s to jorbs table", col_name)
+                except Exception as e:
+                    # Column might already exist from previous partial migration
+                    logger.debug("Column %s migration skipped: %s", col_name, e)
+
+        await conn.commit()
 
     async def create_jorb(
         self,
@@ -317,8 +415,10 @@ class JorbStorage:
                 INSERT INTO jorbs (
                     id, name, status, original_plan, contacts_json,
                     progress_summary, created_at, updated_at,
-                    paused_reason, needs_approval_for, awaiting
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    paused_reason, needs_approval_for, awaiting,
+                    messages_in, messages_out, tokens_used, estimated_cost, context_resets,
+                    outcome_result, outcome_completed_at, outcome_failure_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     jorb.id,
@@ -332,6 +432,14 @@ class JorbStorage:
                     jorb.paused_reason,
                     jorb.needs_approval_for,
                     jorb.awaiting,
+                    jorb.messages_in,
+                    jorb.messages_out,
+                    jorb.tokens_used,
+                    jorb.estimated_cost,
+                    jorb.context_resets,
+                    jorb.outcome_result,
+                    jorb.outcome_completed_at,
+                    jorb.outcome_failure_reason,
                 ),
             )
             await conn.commit()
@@ -432,6 +540,16 @@ class JorbStorage:
             "paused_reason",
             "needs_approval_for",
             "awaiting",
+            # Metrics fields
+            "messages_in",
+            "messages_out",
+            "tokens_used",
+            "estimated_cost",
+            "context_resets",
+            # Outcome fields
+            "outcome_result",
+            "outcome_completed_at",
+            "outcome_failure_reason",
         }
         invalid_fields = set(updates.keys()) - valid_fields
         if invalid_fields:
@@ -590,6 +708,9 @@ class JorbStorage:
             )
             await conn.commit()
 
+        # Increment context_resets counter
+        await self.increment_metrics(jorb_id, context_resets=1)
+
         logger.info("Added checkpoint %s for jorb %s", checkpoint_id, jorb_id)
         return checkpoint_id
 
@@ -627,6 +748,162 @@ class JorbStorage:
                 )
                 for row in rows
             ]
+
+    # Metrics helper methods
+
+    async def increment_metrics(
+        self,
+        jorb_id: str,
+        messages_in: int = 0,
+        messages_out: int = 0,
+        tokens_used: int = 0,
+        estimated_cost: float = 0.0,
+        context_resets: int = 0,
+    ) -> None:
+        """
+        Atomically increment metrics counters for a jorb.
+
+        Args:
+            jorb_id: The jorb ID
+            messages_in: Inbound messages to add
+            messages_out: Outbound messages to add
+            tokens_used: Tokens to add
+            estimated_cost: Cost to add (in USD)
+            context_resets: Context resets to add
+        """
+        await self._ensure_initialized()
+
+        async with aiosqlite.connect(self._db_path) as conn:
+            await conn.execute(
+                """
+                UPDATE jorbs SET
+                    messages_in = messages_in + ?,
+                    messages_out = messages_out + ?,
+                    tokens_used = tokens_used + ?,
+                    estimated_cost = estimated_cost + ?,
+                    context_resets = context_resets + ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    messages_in,
+                    messages_out,
+                    tokens_used,
+                    estimated_cost,
+                    context_resets,
+                    datetime.now(timezone.utc).isoformat(),
+                    jorb_id,
+                ),
+            )
+            await conn.commit()
+
+    async def set_outcome(
+        self,
+        jorb_id: str,
+        result: str | None = None,
+        failure_reason: str | None = None,
+    ) -> None:
+        """
+        Set the outcome fields for a completed or failed jorb.
+
+        Args:
+            jorb_id: The jorb ID
+            result: Summary of what was achieved
+            failure_reason: Why the jorb failed (if applicable)
+        """
+        await self._ensure_initialized()
+
+        async with aiosqlite.connect(self._db_path) as conn:
+            await conn.execute(
+                """
+                UPDATE jorbs SET
+                    outcome_result = ?,
+                    outcome_completed_at = ?,
+                    outcome_failure_reason = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    result,
+                    datetime.now(timezone.utc).isoformat(),
+                    failure_reason,
+                    datetime.now(timezone.utc).isoformat(),
+                    jorb_id,
+                ),
+            )
+            await conn.commit()
+
+    async def get_aggregate_metrics(
+        self,
+        status_filter: Literal["open", "closed", "all"] = "all",
+    ) -> dict[str, Any]:
+        """
+        Get aggregate metrics across all jorbs.
+
+        Args:
+            status_filter: Filter by status category
+
+        Returns:
+            Dict with totals for messages, tokens, cost, and counts by status
+        """
+        await self._ensure_initialized()
+
+        async with aiosqlite.connect(self._db_path) as conn:
+            conn.row_factory = aiosqlite.Row
+
+            # Build WHERE clause based on filter
+            if status_filter == "open":
+                where_clause = "WHERE status IN ('planning', 'running', 'paused')"
+            elif status_filter == "closed":
+                where_clause = "WHERE status IN ('complete', 'failed', 'cancelled')"
+            else:
+                where_clause = ""
+
+            # Get aggregate metrics
+            cursor = await conn.execute(
+                f"""
+                SELECT
+                    COUNT(*) as total_jorbs,
+                    SUM(messages_in) as total_messages_in,
+                    SUM(messages_out) as total_messages_out,
+                    SUM(tokens_used) as total_tokens,
+                    SUM(estimated_cost) as total_cost,
+                    SUM(context_resets) as total_context_resets
+                FROM jorbs
+                {where_clause}
+                """
+            )
+            row = await cursor.fetchone()
+
+            # Get counts by status
+            cursor = await conn.execute(
+                f"""
+                SELECT status, COUNT(*) as count
+                FROM jorbs
+                {where_clause}
+                GROUP BY status
+                """
+            )
+            status_rows = await cursor.fetchall()
+            status_counts = {r["status"]: r["count"] for r in status_rows}
+
+            return {
+                "total_jorbs": row["total_jorbs"] or 0,
+                "total_messages_in": row["total_messages_in"] or 0,
+                "total_messages_out": row["total_messages_out"] or 0,
+                "total_messages": (row["total_messages_in"] or 0) + (row["total_messages_out"] or 0),
+                "total_tokens": row["total_tokens"] or 0,
+                "total_cost": row["total_cost"] or 0.0,
+                "total_context_resets": row["total_context_resets"] or 0,
+                "by_status": {
+                    "planning": status_counts.get("planning", 0),
+                    "running": status_counts.get("running", 0),
+                    "paused": status_counts.get("paused", 0),
+                    "complete": status_counts.get("complete", 0),
+                    "failed": status_counts.get("failed", 0),
+                    "cancelled": status_counts.get("cancelled", 0),
+                },
+            }
 
 
 __all__ = [

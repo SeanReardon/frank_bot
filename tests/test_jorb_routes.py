@@ -229,7 +229,7 @@ class TestJorbRoutes:
             assert data["decision"] == "Go ahead"
 
     def test_approve_jorb_not_paused(self, client, temp_db_path):
-        """Test approving a non-paused jorb fails."""
+        """Test approving a non-paused/non-planning jorb fails."""
         with patch("actions.jorbs.JorbStorage") as mock_class:
             storage = JorbStorage(db_path=temp_db_path)
             mock_class.return_value = storage
@@ -245,7 +245,8 @@ class TestJorbRoutes:
             )
 
             assert response.status_code == 400
-            assert "not paused" in response.text.lower()
+            # Jorb must be paused or planning to approve
+            assert "paused or planning" in response.text.lower()
 
     def test_cancel_jorb(self, client, temp_db_path):
         """Test cancelling a jorb."""

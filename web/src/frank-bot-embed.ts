@@ -17,6 +17,11 @@ import './components/scripts-card.js';
 import './components/jobs-card.js';
 import './components/jorbs-card.js';
 import './components/jorb-thread-view.js';
+import './components/jorbs-stats-card.js';
+import './components/jorbs-brief-view.js';
+
+// Jorbs view state type
+type JorbsViewState = 'list' | 'thread' | 'brief';
 
 // Import styles
 import tokensCSS from './styles/tokens.css?inline';
@@ -227,6 +232,7 @@ export class FrankBotDashboard extends LitElement {
   @state() private _apiCommit: string | null = null;
   @state() private _webCommit: string = api.getWebCommit();
   @state() private _selectedJorbId: string | null = null;
+  @state() private _jorbsViewState: JorbsViewState = 'list';
 
   connectedCallback() {
     super.connectedCallback();
@@ -235,8 +241,9 @@ export class FrankBotDashboard extends LitElement {
     // Make element focusable and add keyboard handler
     this.setAttribute('tabindex', '0');
     this.addEventListener('keydown', this._handleKeydown);
-    // Listen for jorb selection events
+    // Listen for jorb events
     this.addEventListener('jorb-select', this._handleJorbSelect as EventListener);
+    this.addEventListener('brief-me', this._handleBriefMe as EventListener);
   }
 
   private async _fetchVersion() {
@@ -253,14 +260,25 @@ export class FrankBotDashboard extends LitElement {
     super.disconnectedCallback();
     this.removeEventListener('keydown', this._handleKeydown);
     this.removeEventListener('jorb-select', this._handleJorbSelect as EventListener);
+    this.removeEventListener('brief-me', this._handleBriefMe as EventListener);
   }
 
   private _handleJorbSelect = (e: CustomEvent<{ jorbId: string }>) => {
     this._selectedJorbId = e.detail.jorbId;
+    this._jorbsViewState = 'thread';
   };
 
   private _handleJorbThreadClose = () => {
     this._selectedJorbId = null;
+    this._jorbsViewState = 'list';
+  };
+
+  private _handleBriefMe = () => {
+    this._jorbsViewState = 'brief';
+  };
+
+  private _handleBriefClose = () => {
+    this._jorbsViewState = 'list';
   };
 
   private _handleKeydown = (e: KeyboardEvent) => {
@@ -375,11 +393,18 @@ export class FrankBotDashboard extends LitElement {
 
         <sms-card></sms-card>
 
-        ${this._selectedJorbId ? html`
+        <jorbs-stats-card></jorbs-stats-card>
+
+        ${this._jorbsViewState === 'thread' && this._selectedJorbId ? html`
           <jorb-thread-view
             jorb-id=${this._selectedJorbId}
             @close=${this._handleJorbThreadClose}
           ></jorb-thread-view>
+        ` : this._jorbsViewState === 'brief' ? html`
+          <jorbs-brief-view
+            @close=${this._handleBriefClose}
+            @jorb-select=${this._handleJorbSelect}
+          ></jorbs-brief-view>
         ` : html`
           <jorbs-card></jorbs-card>
         `}

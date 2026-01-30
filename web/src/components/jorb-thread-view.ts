@@ -282,8 +282,62 @@ export class JorbThreadView extends LitElement {
       border-top: 1px solid var(--color-border);
       background: var(--color-surface-hover);
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
+      gap: var(--spacing-md);
+      font-size: var(--font-size-sm);
+      color: var(--color-text-muted);
+    }
+
+    .footer-left {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--spacing-md);
+    }
+
+    .footer-metrics {
+      display: flex;
+      gap: var(--spacing-md);
+      padding-left: var(--spacing-md);
+      border-left: 1px solid var(--color-border);
+    }
+
+    .metric-item {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+    }
+
+    .metric-value {
+      font-weight: 600;
+      color: var(--color-text);
+    }
+
+    .outcome-banner {
+      padding: var(--spacing-sm) var(--spacing-md);
+      border-radius: var(--border-radius-sm);
+      margin-bottom: var(--spacing-md);
+    }
+
+    .outcome-banner.complete {
+      background: color-mix(in srgb, var(--kente-green) 20%, transparent);
+      border: 1px solid var(--kente-green);
+      color: var(--kente-green);
+    }
+
+    .outcome-banner.failed {
+      background: color-mix(in srgb, var(--kente-red) 20%, transparent);
+      border: 1px solid var(--kente-red);
+      color: var(--kente-red);
+    }
+
+    .outcome-banner-header {
+      font-weight: 600;
+      margin-bottom: var(--spacing-xs);
+    }
+
+    .outcome-banner-content {
       font-size: var(--font-size-sm);
       color: var(--color-text-muted);
     }
@@ -481,6 +535,18 @@ export class JorbThreadView extends LitElement {
     }
   }
 
+  private _formatTokens(tokens: number): string {
+    if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
+    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
+    return tokens.toString();
+  }
+
+  private _formatCost(cost: number): string {
+    if (cost === 0) return '$0.00';
+    if (cost < 0.01) return '<$0.01';
+    return `$${cost.toFixed(2)}`;
+  }
+
   private _groupMessagesByDate(messages: JorbMessage[]): Map<string, JorbMessage[]> {
     const groups = new Map<string, JorbMessage[]>();
 
@@ -634,11 +700,37 @@ export class JorbThreadView extends LitElement {
         </div>
 
         <div class="messages-container">
+          ${jorb?.outcome ? html`
+            <div class="outcome-banner ${jorb.status}">
+              <div class="outcome-banner-header">
+                ${jorb.status === 'complete' ? '✓ Task Completed' : '✗ Task Failed'}
+              </div>
+              ${jorb.outcome.result || jorb.outcome.failure_reason ? html`
+                <div class="outcome-banner-content">
+                  ${jorb.outcome.result || jorb.outcome.failure_reason}
+                </div>
+              ` : nothing}
+            </div>
+          ` : nothing}
           ${this._renderMessages()}
         </div>
 
         <div class="thread-footer">
-          <span>${this._messages.length} message${this._messages.length !== 1 ? 's' : ''}</span>
+          <div class="footer-left">
+            <span>${this._messages.length} message${this._messages.length !== 1 ? 's' : ''}</span>
+            ${jorb?.metrics ? html`
+              <div class="footer-metrics">
+                <div class="metric-item">
+                  <span class="metric-value">${this._formatTokens(jorb.metrics.tokens_used)}</span>
+                  <span>tokens</span>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-value">${this._formatCost(jorb.metrics.estimated_cost)}</span>
+                  <span>cost</span>
+                </div>
+              </div>
+            ` : nothing}
+          </div>
           <span>Jorb ID: ${this.jorbId}</span>
         </div>
       </div>

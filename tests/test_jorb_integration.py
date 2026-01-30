@@ -17,6 +17,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Check if openai is available for tests
+try:
+    import openai
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
+
 from services.agent_runner import (
     AgentRunner,
     AgentRunnerError,
@@ -79,6 +86,8 @@ def create_mock_agent_response(task_id: str | None, action_type: str, **kwargs):
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
     mock_response.choices[0].message.content = json.dumps(response_data)
+    # Add usage mock for token tracking
+    mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
     return mock_response
 
 
@@ -110,6 +119,7 @@ class TestCreateAndProcessJorb:
         with patch("services.agent_runner.openai") as mock_openai:
             mock_client = MagicMock()
             mock_openai.OpenAI.return_value = mock_client
+            mock_openai.APIError = openai.APIError  # Use real exception class
             mock_client.chat.completions.create.return_value = kickoff_response
 
             with patch("services.telegram_client.TelegramClientService") as mock_tg:
@@ -477,11 +487,13 @@ class TestMockedServices:
         with patch("services.agent_runner.openai") as mock_openai:
             mock_client = MagicMock()
             mock_openai.OpenAI.return_value = mock_client
+            mock_openai.APIError = openai.APIError  # Use real exception class
             mock_client.chat.completions.create.return_value = mock_response
 
-            result = await runner.call_agent({"event": None, "active_tasks": []})
+            result, tokens_used, estimated_cost = await runner.call_agent({"event": None, "active_tasks": []})
 
             assert result["action"]["type"] == "no_action"
+            assert tokens_used == 150  # 100 + 50 from mock
             mock_client.chat.completions.create.assert_called_once()
 
 

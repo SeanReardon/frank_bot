@@ -348,13 +348,17 @@ class TestCallAgent:
             "reasoning": "No active tasks",
             "action": {"type": "no_action"},
         })
+        # Mock usage for token tracking
+        mock_response.usage = MagicMock()
+        mock_response.usage.prompt_tokens = 100
+        mock_response.usage.completion_tokens = 50
 
         with patch("services.agent_runner.openai") as mock_openai_module:
             mock_client = MagicMock()
             mock_openai_module.OpenAI.return_value = mock_client
             mock_client.chat.completions.create.return_value = mock_response
 
-            result = await runner.call_agent({"event": None, "active_tasks": []})
+            result, tokens_used, estimated_cost = await runner.call_agent({"event": None, "active_tasks": []})
 
             # Verify the call was made
             mock_client.chat.completions.create.assert_called_once()
@@ -366,6 +370,10 @@ class TestCallAgent:
 
             # Verify response parsing
             assert result["action"]["type"] == "no_action"
+
+            # Verify token tracking
+            assert tokens_used == 150  # 100 + 50
+            assert estimated_cost > 0
 
     @pytest.mark.skipif(not HAS_OPENAI, reason="openai package not installed")
     async def test_call_agent_api_error(self, runner):
@@ -389,10 +397,12 @@ class TestCallAgent:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "not valid json"
+        mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
         with patch("services.agent_runner.openai") as mock_openai_module:
             mock_client = MagicMock()
             mock_openai_module.OpenAI.return_value = mock_client
+            mock_openai_module.APIError = openai.APIError  # Use real exception class
             mock_client.chat.completions.create.return_value = mock_response
 
             with pytest.raises(AgentRunnerError, match="Invalid JSON"):
@@ -568,6 +578,7 @@ class TestProcessIncomingMessage:
             "action": {"type": "no_action"},
             "task_update": None,
         })
+        mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
         with patch("services.agent_runner.openai") as mock_openai_module:
             mock_client = MagicMock()
@@ -604,6 +615,7 @@ class TestProcessIncomingMessage:
                 "awaiting": "Confirmation",
             },
         })
+        mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
         with patch("services.agent_runner.openai") as mock_openai_module:
             mock_client = MagicMock()
@@ -652,6 +664,7 @@ class TestProcessIncomingMessage:
                 "progress_note": "Ready to book, awaiting approval",
             },
         })
+        mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
         with patch("services.agent_runner.openai") as mock_openai_module:
             mock_client = MagicMock()
@@ -686,6 +699,7 @@ class TestProcessIncomingMessage:
                 "progress_note": "Hotel booked successfully!",
             },
         })
+        mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
         with patch("services.agent_runner.openai") as mock_openai_module:
             mock_client = MagicMock()
@@ -855,6 +869,7 @@ class TestKickoffJorb:
                 "awaiting": "Response from Magic",
             },
         })
+        mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
         with patch("services.agent_runner.openai") as mock_openai_module:
             mock_client = MagicMock()
@@ -906,6 +921,7 @@ class TestKickoffJorb:
                 "progress_note": "Task created, waiting for incoming messages",
             },
         })
+        mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
         with patch("services.agent_runner.openai") as mock_openai_module:
             mock_client = MagicMock()
@@ -941,6 +957,7 @@ class TestKickoffJorb:
                 "needs_approval_for": "commit",
             },
         })
+        mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
         with patch("services.agent_runner.openai") as mock_openai_module:
             mock_client = MagicMock()

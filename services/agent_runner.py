@@ -22,10 +22,29 @@ from services.jorb_storage import (
     JorbWithMessages,
 )
 
+# Import openai at module level (may be None if not installed)
+# This allows tests to patch it
+try:
+    import openai
+except ImportError:
+    openai = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 # The hardcoded model as specified in the PRD
 AGENT_MODEL = "gpt-5.2"
+
+# Token pricing (USD per 1K tokens) - approximations for gpt-5.2
+# These should be updated based on actual OpenAI pricing
+TOKEN_PRICE_INPUT = 0.01  # $0.01 per 1K input tokens
+TOKEN_PRICE_OUTPUT = 0.03  # $0.03 per 1K output tokens
+
+
+def _calculate_token_cost(input_tokens: int, output_tokens: int) -> float:
+    """Calculate estimated cost in USD from token counts."""
+    input_cost = (input_tokens / 1000) * TOKEN_PRICE_INPUT
+    output_cost = (output_tokens / 1000) * TOKEN_PRICE_OUTPUT
+    return round(input_cost + output_cost, 6)
 
 
 @dataclass
@@ -113,6 +132,9 @@ class AgentResponse:
     reasoning: str
     action: AgentAction
     task_update: TaskUpdate | None = None
+    # Token usage from the LLM call
+    tokens_used: int = 0
+    estimated_cost: float = 0.0
 
 
 @dataclass
@@ -297,7 +319,7 @@ class AgentRunner:
 
         return context
 
-    async def call_agent(self, context: dict[str, Any]) -> dict[str, Any]:
+    async def call_agent(self, context: dict[str, Any]) -> tuple[dict[str, Any], int, float]:
         """
         Send context to the OpenAI API and get the agent's response.
 
@@ -305,7 +327,7 @@ class AgentRunner:
             context: The context dict built by build_context()
 
         Returns:
-            Raw JSON response from the agent
+            Tuple of (raw JSON response, tokens_used, estimated_cost)
 
         Raises:
             AgentRunnerError: If API call fails or response is invalid
@@ -315,10 +337,8 @@ class AgentRunner:
                 "OpenAI API key not configured. Set OPENAI_API_KEY environment variable."
             )
 
-        # Import openai here to allow the module to load even if openai isn't installed
-        try:
-            import openai
-        except ImportError:
+        # Check if openai is available
+        if openai is None:
             raise AgentRunnerError(
                 "openai package not installed. Run: poetry add openai"
             )
@@ -345,7 +365,20 @@ class AgentRunner:
             if not content:
                 raise AgentRunnerError("Empty response from agent")
 
-            return json.loads(content)
+            # Extract token usage from response
+            tokens_used = 0
+            estimated_cost = 0.0
+            if response.usage:
+                input_tokens = response.usage.prompt_tokens or 0
+                output_tokens = response.usage.completion_tokens or 0
+                tokens_used = input_tokens + output_tokens
+                estimated_cost = _calculate_token_cost(input_tokens, output_tokens)
+                logger.debug(
+                    "Token usage: %d input, %d output, $%.4f cost",
+                    input_tokens, output_tokens, estimated_cost
+                )
+
+            return json.loads(content), tokens_used, estimated_cost
 
         except openai.APIError as e:
             logger.error("OpenAI API error: %s", e)
@@ -354,12 +387,19 @@ class AgentRunner:
             logger.error("Failed to parse agent response as JSON: %s", e)
             raise AgentRunnerError(f"Invalid JSON response from agent: {e}")
 
-    def parse_agent_response(self, response: dict[str, Any]) -> AgentResponse:
+    def parse_agent_response(
+        self,
+        response: dict[str, Any],
+        tokens_used: int = 0,
+        estimated_cost: float = 0.0,
+    ) -> AgentResponse:
         """
         Parse the raw agent response into structured AgentResponse.
 
         Args:
             response: Raw JSON response from call_agent()
+            tokens_used: Total tokens used in the LLM call
+            estimated_cost: Estimated cost of the LLM call
 
         Returns:
             Parsed AgentResponse
@@ -401,6 +441,8 @@ class AgentRunner:
                 reasoning=response.get("reasoning", ""),
                 action=action,
                 task_update=task_update,
+                tokens_used=tokens_used,
+                estimated_cost=estimated_cost,
             )
 
         except Exception as e:
@@ -436,7 +478,12 @@ class AgentRunner:
             sender_name=event.sender_name,
             content=event.content,
         )
-        return await self._storage.add_message(jorb_id, message)
+        msg_id = await self._storage.add_message(jorb_id, message)
+
+        # Increment inbound message counter
+        await self._storage.increment_metrics(jorb_id, messages_in=1)
+
+        return msg_id
 
     async def store_outbound_message(
         self,
@@ -469,7 +516,12 @@ class AgentRunner:
             content=content,
             agent_reasoning=reasoning,
         )
-        return await self._storage.add_message(jorb_id, message)
+        msg_id = await self._storage.add_message(jorb_id, message)
+
+        # Increment outbound message counter
+        await self._storage.increment_metrics(jorb_id, messages_out=1)
+
+        return msg_id
 
     async def update_jorb_status(
         self,
@@ -786,8 +838,8 @@ class AgentRunner:
 
             # Step 3: Call the LLM for decision
             context = self.build_context(enriched_event, open_jorbs)
-            raw_response = await self.call_agent(context)
-            agent_response = self.parse_agent_response(raw_response)
+            raw_response, tokens_used, estimated_cost = await self.call_agent(context)
+            agent_response = self.parse_agent_response(raw_response, tokens_used, estimated_cost)
 
             logger.info(
                 "Agent decided: jorb=%s, action=%s, reasoning=%s",
@@ -799,6 +851,14 @@ class AgentRunner:
             # Step 4: Store the inbound message (if matched to a jorb)
             if agent_response.jorb_id:
                 await self.store_inbound_message(agent_response.jorb_id, enriched_event)
+
+                # Update token metrics for this jorb
+                if tokens_used > 0:
+                    await self._storage.increment_metrics(
+                        agent_response.jorb_id,
+                        tokens_used=tokens_used,
+                        estimated_cost=estimated_cost,
+                    )
 
             # Step 5: Execute the action
             message_sent = False
@@ -942,14 +1002,22 @@ class AgentRunner:
             )
 
             # Call the LLM
-            raw_response = await self.call_agent(context)
-            agent_response = self.parse_agent_response(raw_response)
+            raw_response, tokens_used, estimated_cost = await self.call_agent(context)
+            agent_response = self.parse_agent_response(raw_response, tokens_used, estimated_cost)
 
             logger.info(
                 "Kickoff agent decided: action=%s, reasoning=%s",
                 agent_response.action.type,
                 agent_response.reasoning[:100] if agent_response.reasoning else "",
             )
+
+            # Update token metrics for this jorb
+            if tokens_used > 0:
+                await self._storage.increment_metrics(
+                    jorb.id,
+                    tokens_used=tokens_used,
+                    estimated_cost=estimated_cost,
+                )
 
             # Execute the action
             message_sent = False

@@ -179,6 +179,7 @@ async def list_jorbs_action(
             "status": jorb.status,
             "created_at": jorb.created_at,
             "updated_at": jorb.updated_at,
+            "metrics": jorb.metrics,
         }
         if jorb.progress_summary:
             jorb_data["progress"] = jorb.progress_summary
@@ -186,13 +187,20 @@ async def list_jorbs_action(
             jorb_data["awaiting"] = jorb.awaiting
         if jorb.paused_reason:
             jorb_data["paused_reason"] = jorb.paused_reason
+        # Include outcome for completed/failed jorbs
+        if jorb.outcome:
+            jorb_data["outcome"] = jorb.outcome
 
         result_jorbs.append(jorb_data)
+
+    # Get aggregate metrics for this filter
+    aggregate_metrics = await storage.get_aggregate_metrics(status_filter=status_filter)
 
     return {
         "count": len(result_jorbs),
         "status_filter": status_filter,
         "jorbs": result_jorbs,
+        "aggregate_metrics": aggregate_metrics,
     }
 
 
@@ -248,7 +256,25 @@ async def get_jorb_action(
         "paused_reason": jorb.paused_reason,
         "needs_approval_for": jorb.needs_approval_for,
         "awaiting": jorb.awaiting,
+        "metrics": jorb.metrics,
     }
+
+    # Include outcome for completed/failed jorbs
+    if jorb.outcome:
+        response["outcome"] = jorb.outcome
+
+    # Include checkpoints
+    checkpoints = await storage.get_checkpoints(jorb_id)
+    if checkpoints:
+        response["checkpoints"] = [
+            {
+                "id": cp.id,
+                "timestamp": cp.timestamp,
+                "summary": cp.summary,
+                "token_count": cp.token_count,
+            }
+            for cp in checkpoints
+        ]
 
     if include_messages:
         messages = await storage.get_messages(jorb_id, limit=message_limit)
@@ -496,6 +522,50 @@ async def cancel_jorb_action(
     }
 
 
+async def get_jorbs_stats_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Get aggregate statistics for jorbs.
+
+    Args:
+        arguments: Dict with optional keys:
+            - status: str - Filter by "open", "closed", or "all" (default "all")
+
+    Returns:
+        Dict with aggregate metrics and status counts
+    """
+    args = arguments or {}
+    status_filter = args.get("status", "all")
+
+    if status_filter not in ("open", "closed", "all"):
+        raise ValueError("status must be 'open', 'closed', or 'all'")
+
+    storage = JorbStorage()
+    aggregate = await storage.get_aggregate_metrics(status_filter=status_filter)
+
+    # Calculate success rate
+    completed = aggregate["by_status"].get("complete", 0)
+    failed = aggregate["by_status"].get("failed", 0)
+    total_finished = completed + failed
+    success_rate = (completed / total_finished * 100) if total_finished > 0 else 0
+
+    return {
+        "status_filter": status_filter,
+        "total_jorbs": aggregate["total_jorbs"],
+        "by_status": aggregate["by_status"],
+        "metrics": {
+            "total_messages": aggregate["total_messages"],
+            "total_messages_in": aggregate["total_messages_in"],
+            "total_messages_out": aggregate["total_messages_out"],
+            "total_tokens": aggregate["total_tokens"],
+            "total_cost": round(aggregate["total_cost"], 4),
+            "total_context_resets": aggregate["total_context_resets"],
+        },
+        "success_rate": round(success_rate, 1),
+    }
+
+
 def _get_last_briefing_timestamp() -> str | None:
     """Read the last briefing timestamp from state file."""
     try:
@@ -634,6 +704,9 @@ async def brief_me_action(
     if update_timestamp:
         _save_last_briefing_timestamp(current_time)
 
+    # Get aggregate metrics
+    aggregate = await storage.get_aggregate_metrics(status_filter="all")
+
     return {
         "briefing_time": current_time,
         "since": since_timestamp,
@@ -644,6 +717,12 @@ async def brief_me_action(
         "pending_decisions": pending_decisions,
         "total_open_jorbs": len(active_jorbs) + len(paused_jorbs),
         "recently_completed": len(recently_completed),
+        "aggregate_metrics": {
+            "total_jorbs": aggregate["total_jorbs"],
+            "total_messages": aggregate["total_messages"],
+            "total_cost": round(aggregate["total_cost"], 4),
+            "by_status": aggregate["by_status"],
+        },
     }
 
 
@@ -655,4 +734,5 @@ __all__ = [
     "approve_jorb_action",
     "cancel_jorb_action",
     "brief_me_action",
+    "get_jorbs_stats_action",
 ]

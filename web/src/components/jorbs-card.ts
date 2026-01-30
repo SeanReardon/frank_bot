@@ -410,6 +410,68 @@ export class JorbsCard extends LitElement {
       color: var(--color-text-muted);
       margin-top: var(--spacing-md);
     }
+
+    .metrics-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--spacing-md);
+      padding: var(--spacing-md);
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--border-radius-sm);
+      font-size: var(--font-size-sm);
+    }
+
+    .metric-item {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+    }
+
+    .metric-value {
+      font-weight: 600;
+      color: var(--color-text);
+    }
+
+    .metric-label {
+      color: var(--color-text-muted);
+    }
+
+    .outcome-block {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--border-radius-sm);
+      padding: var(--spacing-md);
+    }
+
+    .outcome-block.complete {
+      border-color: var(--kente-green);
+    }
+
+    .outcome-block.failed {
+      border-color: var(--kente-red);
+    }
+
+    .outcome-header {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+      margin-bottom: var(--spacing-sm);
+      font-weight: 600;
+    }
+
+    .outcome-header.complete {
+      color: var(--kente-green);
+    }
+
+    .outcome-header.failed {
+      color: var(--kente-red);
+    }
+
+    .outcome-content {
+      font-size: var(--font-size-sm);
+      white-space: pre-wrap;
+    }
   `;
 
   @state() private _jorbs: Jorb[] = [];
@@ -616,6 +678,18 @@ export class JorbsCard extends LitElement {
     }
   }
 
+  private _formatTokens(tokens: number): string {
+    if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
+    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
+    return tokens.toString();
+  }
+
+  private _formatCost(cost: number): string {
+    if (cost === 0) return '$0.00';
+    if (cost < 0.01) return '<$0.01';
+    return `$${cost.toFixed(2)}`;
+  }
+
   private _getChannelIcon(channel: string): string {
     switch (channel) {
       case 'telegram':
@@ -711,6 +785,54 @@ export class JorbsCard extends LitElement {
               <h4>Progress</h4>
               <div class="progress-block">${jorb.progress_summary}</div>
             ` : nothing}
+
+            ${jorb.outcome ? html`
+              <h4>Outcome</h4>
+              <div class="outcome-block ${jorb.status}">
+                <div class="outcome-header ${jorb.status}">
+                  ${jorb.status === 'complete' ? '✓ Completed' : '✗ Failed'}
+                  ${jorb.outcome.completed_at ? html`
+                    <span style="font-weight: normal; color: var(--color-text-muted);">
+                      ${this._formatRelativeTime(jorb.outcome.completed_at)}
+                    </span>
+                  ` : nothing}
+                </div>
+                ${jorb.outcome.result ? html`
+                  <div class="outcome-content">${jorb.outcome.result}</div>
+                ` : nothing}
+                ${jorb.outcome.failure_reason ? html`
+                  <div class="outcome-content" style="color: var(--kente-red);">
+                    ${jorb.outcome.failure_reason}
+                  </div>
+                ` : nothing}
+              </div>
+            ` : nothing}
+
+            <h4>Metrics</h4>
+            <div class="metrics-row">
+              <div class="metric-item">
+                <span class="metric-value">${jorb.metrics.messages_in}</span>
+                <span class="metric-label">in</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-value">${jorb.metrics.messages_out}</span>
+                <span class="metric-label">out</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-value">${this._formatTokens(jorb.metrics.tokens_used)}</span>
+                <span class="metric-label">tokens</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-value">${this._formatCost(jorb.metrics.estimated_cost)}</span>
+                <span class="metric-label">cost</span>
+              </div>
+              ${jorb.metrics.context_resets > 0 ? html`
+                <div class="metric-item">
+                  <span class="metric-value">${jorb.metrics.context_resets}</span>
+                  <span class="metric-label">resets</span>
+                </div>
+              ` : nothing}
+            </div>
 
             <h4>Contacts</h4>
             <div class="contacts-list">
