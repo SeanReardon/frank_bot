@@ -625,6 +625,194 @@
       "priority": 39,
       "passes": true,
       "notes": "Depends on frank_bot-00030. Final deployment step for web dashboard. Web container build job added to workflow."
+    },
+    {
+      "id": "frank_bot-00040",
+      "title": "Create SMSStorage service for file-based message persistence",
+      "acceptanceCriteria": [
+        "services/sms_storage.py created with SMSStorage class",
+        "SMSMessage Pydantic model created matching schemas/sms.schema.json",
+        "store_message(message: SMSMessage) writes JSON to ./data/sms/{localNumber}/ directory",
+        "Filename pattern: {ISO8601-timestamp}-{contact-name-or-phone}.json (using - instead of : for filesystem)",
+        "Contact name sanitized for filesystem (replace <>/:\"/\\|?* with _)",
+        "If no contact, use phone number with + as filename identifier",
+        "get_recent_messages(local_number, remote_number, contact_name, limit) retrieves and filters stored messages",
+        "Messages sorted by timestamp descending (most recent first)",
+        "Unit tests verify storage, retrieval, and filename generation"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": "Foundation for SMS storage. Blocking for frank_bot-00041, frank_bot-00042, frank_bot-00046."
+    },
+    {
+      "id": "frank_bot-00041",
+      "title": "Add MMS attachment download and storage to SMSStorage",
+      "acceptanceCriteria": [
+        "SMSStorage._download_attachment(url, filepath) downloads media from Telnyx URL",
+        "Uses httpx async client with proper timeout handling",
+        "Attachment filenames follow pattern: {timestamp}-{contact}-attachment-{n}.{ext}",
+        "Extension determined from MIME type using mimetypes.guess_extension()",
+        "Falls back to .bin extension if MIME type unknown",
+        "store_message() downloads attachments before writing JSON",
+        "Attachment.filename field updated with local filename after download",
+        "Unit tests with mocked HTTP responses verify download logic"
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": "Depends on frank_bot-00040. Extends SMSStorage to handle MMS attachments."
+    },
+    {
+      "id": "frank_bot-00042",
+      "title": "Create ContactLookup service for phone-to-contact reverse lookup",
+      "acceptanceCriteria": [
+        "services/contact_lookup.py created with ContactLookup class",
+        "lookup(phone_number: str) searches Google Contacts for matching phone",
+        "Phone numbers normalized for comparison (strip spaces, dashes, handle country codes)",
+        "Returns Contact dataclass with name and googleContactId, or None if not found",
+        "In-memory cache prevents repeated API calls for same number",
+        "Uses existing GoogleContactsService for API access",
+        "Unit tests with mocked contacts verify lookup and caching behavior"
+      ],
+      "priority": 42,
+      "passes": false,
+      "notes": "Depends on existing GoogleContactsService. Blocking for frank_bot-00044."
+    },
+    {
+      "id": "frank_bot-00043",
+      "title": "Create TelegramBot service for notification messages",
+      "acceptanceCriteria": [
+        "services/telegram_bot.py created with TelegramBot class (separate from Telethon user client)",
+        "Uses Telegram Bot API via httpx (not Telethon)",
+        "TelegramBot(token, chat_id) constructor with credentials",
+        "send_notification(text, parse_mode='HTML') sends message to configured chat",
+        "notify_unknown_sms(from_number, message, attachments) formats and sends unknown sender alert",
+        "notify_spam(from_number, message, reason) formats and sends spam alert",
+        "get_telegram_bot_credentials() added to services/vault_client.py to fetch from Vault",
+        "config.py updated with TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_CHAT_ID settings",
+        "Unit tests with mocked HTTP verify notification formatting"
+      ],
+      "priority": 43,
+      "passes": false,
+      "notes": "No dependencies. Uses Bot API not Telethon. Blocking for frank_bot-00045."
+    },
+    {
+      "id": "frank_bot-00044",
+      "title": "Create SMS webhook endpoint for inbound Telnyx messages",
+      "acceptanceCriteria": [
+        "server/sms_webhook.py created with sms_webhook_handler(request) async function",
+        "Route POST /webhook/sms added to server/routes.py (no API key required)",
+        "Handler extracts event_type and direction from Telnyx payload",
+        "Skips non-inbound messages (outbound confirmations, delivery receipts)",
+        "For inbound messages: parses from_number, to_number, text, media array, telnyx_id",
+        "Calls ContactLookup to resolve sender to contact",
+        "Creates SMSMessage object with all fields populated",
+        "Calls SMSStorage.store_message() to persist immediately",
+        "Returns JSON {status: 'processed'} or {status: 'skipped', reason: '...'}"
+      ],
+      "priority": 44,
+      "passes": false,
+      "notes": "Depends on frank_bot-00040, frank_bot-00042. Core webhook handler without compliance or routing logic."
+    },
+    {
+      "id": "frank_bot-00045",
+      "title": "Add STOP/HELP compliance handling for unknown contacts",
+      "acceptanceCriteria": [
+        "sms_webhook_handler checks for compliance keywords ONLY when contact is None",
+        "STOP command: records opt-out (could be simple file or database), sends confirmation SMS",
+        "HELP command: sends help message with contact info via Telnyx SMS",
+        "START/YES/OPTIN/SUBSCRIBE commands: records opt-in, sends confirmation",
+        "Known contacts bypass all compliance handling (proceed to normal processing)",
+        "Compliance messages stored with classification='compliance'",
+        "opt_outs.json file in ./data/ tracks opted-out phone numbers",
+        "Unit tests verify compliance flows for unknown contacts"
+      ],
+      "priority": 45,
+      "passes": false,
+      "notes": "Depends on frank_bot-00044. Extends webhook with regulatory compliance for unknown senders."
+    },
+    {
+      "id": "frank_bot-00046",
+      "title": "Add Telegram Bot notifications for unknown SMS senders",
+      "acceptanceCriteria": [
+        "sms_webhook_handler sends Telegram notification after storing unknown sender messages",
+        "Notification includes: from_number, message preview (truncated at 500 chars), attachment count",
+        "Uses TelegramBot.notify_unknown_sms() method",
+        "Notification only sent when contact is None and message is not compliance-related",
+        "Gracefully handles Telegram API failures (log error, don't fail webhook)",
+        "Classification set to 'unknown' for messages triggering notification",
+        "Integration test verifies notification is sent for unknown senders"
+      ],
+      "priority": 46,
+      "passes": false,
+      "notes": "Depends on frank_bot-00043, frank_bot-00044. Adds notification flow for unknown contacts."
+    },
+    {
+      "id": "frank_bot-00047",
+      "title": "Update outbound SMS to also store messages",
+      "acceptanceCriteria": [
+        "services/telnyx_sms.py send_sms() modified to store outbound messages",
+        "After successful send, creates SMSMessage with direction='outbound'",
+        "Calls ContactLookup to resolve recipient to contact (for consistent naming)",
+        "Sets processed=True for outbound messages (already 'processed')",
+        "Stores via SMSStorage.store_message()",
+        "Existing send_sms behavior unchanged (still returns SMSResult)",
+        "Unit tests verify outbound messages are stored alongside inbound"
+      ],
+      "priority": 47,
+      "passes": false,
+      "notes": "Depends on frank_bot-00040, frank_bot-00042. Creates complete conversation history."
+    },
+    {
+      "id": "frank_bot-00048",
+      "title": "Add ChatGPT action and route for reading SMS messages",
+      "acceptanceCriteria": [
+        "actions/sms.py created with get_sms_messages_action(arguments) function",
+        "Accepts parameters: limit (default 50, max 100), contact (fuzzy match), phone, direction",
+        "Returns JSON with count and messages array",
+        "Each message includes: timestamp, direction, contact name (if known), phone, preview (100 chars), hasAttachments, jorbId",
+        "GET /actions/sms/messages route added to server/routes.py",
+        "Route protected by existing API key authentication",
+        "OpenAPI spec updated with /actions/sms/messages endpoint definition",
+        "Integration tests verify filtering by contact, phone, and direction"
+      ],
+      "priority": 48,
+      "passes": false,
+      "notes": "Depends on frank_bot-00040. Exposes SMS history to ChatGPT."
+    },
+    {
+      "id": "frank_bot-00049",
+      "title": "Create web dashboard Telegram Bot status card",
+      "acceptanceCriteria": [
+        "GET /telegram-bot/status endpoint added returning {configured: boolean, chatId?: string}",
+        "Checks if TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_CHAT_ID are set",
+        "POST /telegram-bot/test endpoint sends test notification via TelegramBot",
+        "Returns {success: boolean, error?: string}",
+        "web/src/components/telegram-bot-card.ts created as Lit component",
+        "Card displays configuration status (configured/not configured)",
+        "Test Connection button calls POST /telegram-bot/test and shows result",
+        "Uses existing dashboard CSS tokens for styling"
+      ],
+      "priority": 49,
+      "passes": false,
+      "notes": "Depends on frank_bot-00043, frank_bot-00034. Optional web UI for Telegram bot status."
+    },
+    {
+      "id": "frank_bot-00050",
+      "title": "Add SMS messages card to web dashboard",
+      "acceptanceCriteria": [
+        "web/src/lib/api.ts extended with getSmsMessages(options) function",
+        "web/src/components/sms-card.ts created as Lit component",
+        "Card fetches and displays recent SMS messages from GET /actions/sms/messages",
+        "Displays messages grouped by conversation (remote number)",
+        "Shows contact name if known, phone number otherwise",
+        "Inbound/outbound messages visually distinguished (alignment or color)",
+        "MMS attachment indicator shown when hasAttachments is true",
+        "Refresh button to reload messages",
+        "Filter by contact/phone input field"
+      ],
+      "priority": 50,
+      "passes": false,
+      "notes": "Depends on frank_bot-00048, frank_bot-00034. Displays SMS history in web UI."
     }
   ]
 }
