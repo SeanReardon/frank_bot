@@ -56,8 +56,8 @@ export class FrankBotDashboard extends LitElement {
     .dashboard {
       display: grid;
       gap: var(--spacing-lg);
-      padding: var(--spacing-lg);
-      /* Match claudia's width constraints */
+      /* Match claudia exactly: 2rem padding, 1200px max-width */
+      padding: 2rem;
       max-width: 1200px;
       margin: 0 auto;
       box-sizing: border-box;
