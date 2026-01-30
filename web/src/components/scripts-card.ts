@@ -24,6 +24,9 @@ export class ScriptsCard extends LitElement {
 
     :host {
       display: block;
+      /* Prevent expanding beyond container */
+      min-width: 0;
+      max-width: 100%;
     }
 
     .card {
@@ -128,6 +131,8 @@ export class ScriptsCard extends LitElement {
       overflow: hidden;
       border-left: 2px solid transparent;
       transition: border-color var(--transition-fast);
+      /* Prevent expanding beyond container */
+      min-width: 0;
     }
 
     .script-item:hover {
@@ -242,8 +247,10 @@ export class ScriptsCard extends LitElement {
       overflow-x: auto;
       font-family: monospace;
       font-size: var(--font-size-sm);
-      white-space: pre-wrap;
-      word-break: break-word;
+      white-space: pre;
+      /* Prevent code from pushing parent wider */
+      max-width: 100%;
+      box-sizing: border-box;
     }
 
     .script-created {

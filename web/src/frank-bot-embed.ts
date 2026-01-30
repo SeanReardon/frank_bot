@@ -57,10 +57,13 @@ export class FrankBotDashboard extends LitElement {
       display: grid;
       gap: var(--spacing-lg);
       padding: var(--spacing-lg);
-      /* Take full width, no max constraint */
-      width: 100%;
+      /* Match claudia's width constraints */
+      max-width: 1200px;
+      margin: 0 auto;
       box-sizing: border-box;
       flex: 1;
+      /* Prevent children from expanding beyond max-width */
+      min-width: 0;
     }
 
     .version-footer {
