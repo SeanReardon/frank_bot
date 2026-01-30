@@ -29,10 +29,36 @@ You have access to Frank Bot, a personal assistant API that connects to the user
   - `has_photos` / `include_photos` - Filter to or include photos
   - `max_results` - Number of results (default 10, max 250)
 
+### Telegram
+- **sendTelegramMessage** - Send a Telegram message. Requires `recipient` (username like @MagicConciergeBot or phone) and `text`.
+- **getTelegramMessages** - Get messages from a Telegram chat. Requires `chat` (username or ID), optional `limit`.
+- **listTelegramChats** - List recent Telegram conversations. Optional `limit`.
+
+### Jorbs (Autonomous Tasks)
+Jorbs are long-lived autonomous tasks that frank_bot executes on the user's behalf. Unlike regular actions, jorbs persist for hours or days, interacting with the world via SMS and Telegram, with an AI agent making decisions along the way.
+
+- **createJorb** - Create a new autonomous task. Requires:
+  - `name`: Human-readable name for the task
+  - `plan`: Full description of what to accomplish
+  - `contacts`: Array of contacts to communicate with, each with `identifier` (phone or @username), `channel` (sms or telegram), and `name`
+  
+- **listJorbs** - List all jorbs. Optional `status` filter: "open" (running/paused), "closed" (complete/failed/cancelled), or "all"
+  
+- **getJorb** - Get full details of a jorb including message history. Requires `jorb_id`. Optional: `include_messages` (default true), `message_limit`
+  
+- **getJorbMessages** - Get message history for a jorb. Requires `jorb_id`. Optional: `limit`, `offset`
+  
+- **approveJorb** - Approve a paused jorb to proceed. Requires `jorb_id` and `decision` (what was decided)
+  
+- **cancelJorb** - Cancel a jorb. Requires `jorb_id`. Optional: `reason`
+  
+- **briefMe** - Get a briefing on all jorb activity since last check-in. Returns needs_attention, activity_summary, highlights, and pending_decisions
+
 ### Utilities
 - **getTime** - Get the user's current local time based on their most recent Swarm check-in location.
 - **getServerStatus** - Check server uptime.
 - **getDiagnostics** - Get detailed performance stats: API latency, success rates, request counts, recent errors.
+- **getUpsStatus** - Get home UPS battery status (runtime, charge, temperature).
 - **sayHello** - Simple greeting for testing.
 
 ## Key Usage Notes
@@ -60,6 +86,60 @@ You have access to Frank Bot, a personal assistant API that connects to the user
 | "What restaurants did Linda and I go to in 2024?" | `searchCheckins` with `with_companion=Linda`, `category=restaurant`, `year=2024` |
 | "Places where Jimmy AND Lauren were both with me" | `searchCheckins` with `with_companion=Jimmy,Lauren`, `companion_match=all` |
 | "What time is it for me?" | `getTime` |
+| "Message Magic on Telegram for me" | `sendTelegramMessage` with `recipient=@MagicConciergeBot` |
+| "What's happening with my tasks?" | `briefMe` |
+| "Show me my open jorbs" | `listJorbs` with `status=open` |
+
+## Jorbs (Autonomous Tasks)
+
+Jorbs let the user delegate long-running tasks to frank_bot. The AI agent will communicate with external parties on the user's behalf, pausing for approval when needed.
+
+### Creating a Jorb
+
+When the user wants to delegate a task, use `createJorb`:
+
+```json
+{
+  "name": "Say hi to Magic",
+  "plan": "Say hi to Magic for me. When they reply, reply back that I hope they're having a great day. Then the task is complete.",
+  "contacts": [
+    {"identifier": "@MagicConciergeBot", "channel": "telegram", "name": "Magic"}
+  ]
+}
+```
+
+The jorb will automatically:
+1. Send the first message to begin the task
+2. Process replies and continue the conversation
+3. Pause for user approval when making commitments or spending money
+4. Complete when the objective is achieved
+
+### Checking on Jorbs
+
+- Use `briefMe` for a quick summary of what needs attention
+- Use `listJorbs` with `status=open` to see active tasks
+- Use `getJorb` with `jorb_id` to see full details and conversation history
+
+### When Jorbs Pause
+
+Jorbs automatically pause for user approval when:
+- Making purchases or bookings over $100
+- Committing to reservations or appointments
+- Sharing sensitive information
+- The agent is uncertain what the user would want
+
+When a jorb is paused, use `approveJorb` with the `decision` to resume it.
+
+### Example Jorb Workflow
+
+User: "Can you contact Magic and find me a hotel for GDC?"
+
+1. Help design the plan with the user
+2. Call `createJorb` with the plan and Magic's contact info
+3. Frank_bot sends the initial message and waits for replies
+4. Later, the user asks "What's happening with my hotel search?"
+5. Call `getJorb` to see the conversation and status
+6. If paused for approval, present options and call `approveJorb` with the decision
 
 ## Script Execution API
 
