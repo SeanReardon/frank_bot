@@ -102,8 +102,9 @@ async def _is_jorb_contact(username: str | None, name: str | None) -> bool:
             if contact.channel != "telegram":
                 continue
 
-            # Match by username (case-insensitive)
-            if username and contact.identifier.lower() == username.lower():
+            # Match by username (case-insensitive, strip @ prefix)
+            identifier = contact.identifier.lstrip("@").lower()
+            if username and identifier == username.lower():
                 return True
 
             # Match by name if no username
