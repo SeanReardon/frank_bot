@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frank-bot.contrived.com/schemas/sms.schema.json",
+  "title": "SMS/MMS Message",
+  "description": "Stored SMS or MMS message (inbound or outbound)",
+  "type": "object",
+  "required": ["id", "timestamp", "direction", "localNumber", "remoteNumber", "content"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique message ID (sms_{timestamp}_{remoteNumber})",
+      "pattern": "^sms_[0-9]+_\\+[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when message was sent/received"
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["inbound", "outbound"],
+      "description": "Whether message was received or sent"
+    },
+    "localNumber": {
+      "type": "string",
+      "description": "Our Telnyx number (E.164 format)",
+      "pattern": "^\\+[0-9]+$"
+    },
+    "remoteNumber": {
+      "type": "string",
+      "description": "The other party's phone number (E.164 format)",
+      "pattern": "^\\+[0-9]+$"
+    },
+    "contact": {
+      "type": ["object", "null"],
+      "description": "Resolved contact info (null if unknown)",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name from Google Contacts"
+        },
+        "googleContactId": {
+          "type": "string",
+          "description": "Google People API resource name (e.g., people/c1234567890)"
+        }
+      },
+      "required": ["name"]
+    },
+    "content": {
+      "type": "string",
+      "description": "Message text content"
+    },
+    "attachments": {
+      "type": "array",
+      "description": "MMS attachments (if any)",
+      "items": {
+        "type": "object",
+        "required": ["filename", "contentType", "size"],
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "Local filename where attachment is stored (same directory as message JSON)"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "MIME type (e.g., image/jpeg, video/mp4)"
+          },
+          "size": {
+            "type": "integer",
+            "description": "File size in bytes"
+          },
+          "originalUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Original Telnyx media URL (for reference, may expire)"
+          }
+        }
+      }
+    },
+    "telnyxMessageId": {
+      "type": "string",
+      "description": "Telnyx message ID for tracking"
+    },
+    "processed": {
+      "type": "boolean",
+      "description": "Whether message has been processed by jorbs system",
+      "default": false
+    },
+    "jorbId": {
+      "type": ["string", "null"],
+      "description": "Associated jorb ID (if routed to a jorb)",
+      "pattern": "^jorb_[0-9]+$"
+    },
+    "replyToMessageId": {
+      "type": ["string", "null"],
+      "description": "ID of message this is replying to (for threading)"
+    },
+    "classification": {
+      "type": "string",
+      "enum": ["jorb", "spam", "unknown", "compliance"],
+      "description": "How the message was classified by the LLM"
+    }
+  },
+  "examples": [
+    {
+      "id": "sms_1706550332_+15551234567",
+      "timestamp": "2026-01-29T18:45:32Z",
+      "direction": "inbound",
+      "localNumber": "+12148170664",
+      "remoteNumber": "+15551234567",
+      "contact": {
+        "name": "Mom",
+        "googleContactId": "people/c1234567890123456789"
+      },
+      "content": "Hey, are you coming to dinner Sunday?",
+      "attachments": [],
+      "telnyxMessageId": "40e22e10-3b3c-4567-89ab-cdef01234567",
+      "processed": true,
+      "jorbId": null,
+      "classification": "unknown"
+    },
+    {
+      "id": "sms_1706550392_+15551234567",
+      "timestamp": "2026-01-29T18:46:32Z",
+      "direction": "inbound",
+      "localNumber": "+12148170664",
+      "remoteNumber": "+15551234567",
+      "contact": {
+        "name": "Mom",
+        "googleContactId": "people/c1234567890123456789"
+      },
+      "content": "Here's the recipe I mentioned",
+      "attachments": [
+        {
+          "filename": "2026-01-29T18-46-32-Mom-attachment-1.jpg",
+          "contentType": "image/jpeg",
+          "size": 245678,
+          "originalUrl": "https://mms.telnyx.com/media/abc123"
+        }
+      ],
+      "telnyxMessageId": "50f33f20-4c4d-5678-90bc-def012345678",
+      "processed": true,
+      "jorbId": null,
+      "classification": "unknown"
+    }
+  ]
+}

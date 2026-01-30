@@ -72,3 +72,17 @@ resource "vault_kv_secret_v2" "swarm" {
     ignore_changes = [data_json]
   }
 }
+
+# Telegram Bot credentials (for notifications - separate from Telethon user client)
+resource "vault_kv_secret_v2" "telegram_bot" {
+  mount = "secret"
+  name  = "frank-bot/telegram-bot"
+  data_json = jsonencode({
+    token   = var.telegram_bot_token
+    chat_id = var.telegram_bot_chat_id
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}

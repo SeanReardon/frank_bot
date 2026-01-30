@@ -72,3 +72,18 @@ variable "foursquare_api_key" {
   description = "Foursquare API key"
   sensitive   = true
 }
+
+# Telegram Bot (for notifications - separate from Telethon user client)
+variable "telegram_bot_token" {
+  type        = string
+  description = "Telegram Bot token from BotFather"
+  sensitive   = true
+  default     = ""
+}
+
+variable "telegram_bot_chat_id" {
+  type        = string
+  description = "Chat ID for bot notifications (Sean's Telegram user ID)"
+  sensitive   = true
+  default     = ""
+}
