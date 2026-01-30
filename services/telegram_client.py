@@ -232,9 +232,12 @@ class TelegramClientService:
             logger.debug("Skipping message with no sender")
             return
 
-        # Only process messages from mutual contacts (security gate)
+        # Only process messages from mutual contacts or bots (security gate)
         if isinstance(sender, User):
-            if not (sender.mutual_contact or False):
+            # Allow bots (they have sender.bot=True) and mutual contacts
+            is_bot = getattr(sender, 'bot', False)
+            is_mutual = getattr(sender, 'mutual_contact', False)
+            if not (is_bot or is_mutual):
                 logger.debug(
                     "Skipping message from non-mutual contact: %s",
                     sender.first_name or sender.id,
