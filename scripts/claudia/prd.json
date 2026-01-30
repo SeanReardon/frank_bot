@@ -831,7 +831,7 @@
         "Unit tests verify CRUD operations"
       ],
       "priority": 51,
-      "passes": false,
+      "passes": true,
       "notes": "Foundation for jorbs system. Blocks all other jorb tasks. Status values: planning, running, paused, complete, failed, cancelled."
     },
     {
@@ -846,7 +846,7 @@
         "Unit tests verify message storage and retrieval"
       ],
       "priority": 52,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00051. Extends JorbStorage with message tracking."
     },
     {
@@ -1006,7 +1006,7 @@
         "Unit tests verify debouncing behavior with different timing scenarios"
       ],
       "priority": 61,
-      "passes": false,
+      "passes": true,
       "notes": "No direct dependencies but used by frank_bot-00062. Prevents rapid-fire LLM calls."
     },
     {
@@ -1141,7 +1141,7 @@
         "Defaults documented: gpt-5.2 model, $100 spend limit, 3-day context reset"
       ],
       "priority": 69,
-      "passes": false,
+      "passes": true,
       "notes": "Can be done early as it's documentation/config only. Blocks deployment."
     },
     {
@@ -1209,7 +1209,7 @@
         "Schema used for validation in create_jorb_action"
       ],
       "priority": 73,
-      "passes": false,
+      "passes": true,
       "notes": "Foundation task, can be done early. Defines jorb data structure."
     }
   ]

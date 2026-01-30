@@ -815,3 +815,92 @@ Extended web/src/lib/api.ts with getSmsMessages() function and types. Created sm
 - Green left border accent for SMS card
 
 ---
+
+## 2026-01-30: frank_bot-00073 - Add schemas/jorb.schema.json for jorb data validation
+
+### Summary
+Extended the existing jorb.schema.json with a JorbMessage schema definition in the $defs section. The Jorb schema was already present with all required fields (id, name, status, plan, createdAt) and optional fields (contacts, progressSummary, pausedReason, needsApprovalFor, awaiting).
+
+### Files Changed
+- schemas/jorb.schema.json (added $defs/JorbMessage schema)
+
+### Learnings
+- Schema already existed with comprehensive Jorb definition
+- JorbMessage schema added with: id, jorbId, timestamp, direction, channel, sender, senderName, recipient, content, agentReasoning
+- Uses camelCase for JSON serialization, snake_case for Python dataclasses
+
+---
+
+## 2026-01-30: frank_bot-00051 - Create jorb_storage.py with SQLite persistence for jorbs and messages
+
+### Summary
+Created JorbStorage service using aiosqlite for async SQLite persistence. Implements full CRUD operations for jorbs with status tracking, plus message and checkpoint storage. Dataclasses match the schema definition.
+
+### Files Changed
+- services/jorb_storage.py (new - JorbStorage class)
+- pyproject.toml (added aiosqlite dependency)
+- tests/test_jorb_storage.py (new - 19 tests)
+
+### Learnings
+- aiosqlite connections should be created fresh per operation with `async with aiosqlite.connect()`
+- Can't use `async with await connection()` pattern - creates threading issues
+- Schema initialization done once per storage instance with _initialized flag
+- JorbContact dataclass with to_dict/from_dict for JSON serialization
+- Jorb.contacts property handles JSON<->list conversion transparently
+
+---
+
+## 2026-01-30: frank_bot-00052 - Add message tracking methods to JorbStorage
+
+### Summary
+Message tracking methods were implemented as part of frank_bot-00051 in the same service file. Includes add_message, get_messages, get_open_jorbs_with_messages, and checkpoint methods.
+
+### Files Changed
+- services/jorb_storage.py (already includes message methods)
+- tests/test_jorb_storage.py (includes message tests)
+
+### Learnings
+- Implemented together with 00051 since they're in the same service
+- get_open_jorbs_with_messages filters to running/paused only (not planning)
+- Messages sorted by timestamp ascending (oldest first) for conversation view
+- JorbWithMessages dataclass bundles jorb with its message history
+
+---
+
+## 2026-01-30: frank_bot-00069 - Add jorb environment variables to config and documentation
+
+### Summary
+Added all jorb-related settings to config.py Settings dataclass and get_settings() function. Updated .env.example with commented examples. Added Jorbs section to README.md documenting all environment variables and endpoints.
+
+### Files Changed
+- config.py (added 12 new settings for jorbs, SMTP, debouncing)
+- .env.example (added jorbs configuration section)
+- README.md (added Jorbs documentation section)
+
+### Learnings
+- Settings include: OPENAI_API_KEY, JORBS_DB_PATH, JORBS_PROGRESS_LOG
+- Policy settings: AGENT_SPEND_LIMIT ($100 default), CONTEXT_RESET_DAYS (3 default)
+- Debounce settings: DEBOUNCE_TELEGRAM_SECONDS (60), DEBOUNCE_SMS_SECONDS (30)
+- SMTP settings for daily digest emails
+- Documented gpt-5.2 model as hardcoded (not configurable)
+
+---
+
+## 2026-01-30: frank_bot-00061 - Implement message debouncing for incoming messages
+
+### Summary
+Created MessageBuffer service that collects messages from the same sender/channel and combines them after a configurable debounce window. Uses asyncio timers for automatic flushing.
+
+### Files Changed
+- services/message_buffer.py (new - MessageBuffer class)
+- tests/test_message_buffer.py (new - 17 tests)
+
+### Learnings
+- BufferEntry tracks messages list and timer task per sender/channel
+- buffer_message() returns True for first message (starts timer), False for subsequent
+- flush_buffer() cancels timer and immediately returns combined event
+- BufferedEvent includes message_count for downstream processing
+- Messages combined with newlines for natural conversation flow
+- Timer tests use 1-second debounce for fast execution
+
+---

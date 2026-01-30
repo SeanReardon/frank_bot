@@ -223,6 +223,44 @@ Frank Bot can send and receive Telegram messages using your personal Telegram ac
 
 **Note:** Unlike SMS, Telegram messages are sent from YOUR personal account. Recipients will see messages coming from you, not from a service number.
 
+### Jorbs (Autonomous Tasks)
+
+Jorbs are long-lived autonomous tasks that Frank Bot can execute on your behalf. They can send messages via SMS, Telegram, or email, and coordinate multi-step interactions with businesses, services, or other parties.
+
+**Key features:**
+- LLM-powered decision making (uses gpt-5.2 model)
+- Automatic message debouncing (batches rapid messages together)
+- Policy enforcement (spending limits, approval requirements)
+- Context reset mechanism ("Ralph Loop") for long-running tasks
+- Daily digest emails summarizing activity
+
+**Environment variables:**
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | _unset_ | OpenAI API key for gpt-5.2 model |
+| `JORBS_DB_PATH` | `./data/jorbs.db` | SQLite database for jorb storage |
+| `JORBS_PROGRESS_LOG` | `./data/jorbs_progress.txt` | Progress log for context resets |
+| `AGENT_SPEND_LIMIT` | `100.0` | Max spending (USD) before requiring approval |
+| `CONTEXT_RESET_DAYS` | `3` | Days before context is reset |
+| `DEBOUNCE_TELEGRAM_SECONDS` | `60` | Telegram message debounce window |
+| `DEBOUNCE_SMS_SECONDS` | `30` | SMS message debounce window |
+| `SMTP_HOST` | _unset_ | SMTP server for email notifications |
+| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_USER` | _unset_ | SMTP username |
+| `SMTP_PASSWORD` | _unset_ | SMTP password |
+| `DIGEST_EMAIL_TO` | _unset_ | Email address for daily digest |
+| `DIGEST_TIME` | `08:00` | Time to send daily digest (24h format) |
+
+**Available endpoints:**
+- `GET /jorbs` - List all jorbs
+- `GET /jorbs/create` - Create a new jorb
+- `GET /jorbs/{id}` - Get jorb details
+- `GET /jorbs/{id}/messages` - Get jorb message history
+- `GET /jorbs/{id}/approve` - Approve a paused jorb
+- `GET /jorbs/{id}/cancel` - Cancel a jorb
+- `GET /jorbs/brief` - Get activity briefing
+
 ## Maintaining the OpenAPI document
 
 The canonical specification lives at `openapi/spec.json`. Update that file whenever you change the HTTP surface, then restart the server (or redeploy) so the new document is served at `/actions/openapi.json`. A quick workflow:

@@ -76,6 +76,21 @@ class Settings:
     telegram_bot_chat_id: str | None
     stytch_project_id: str | None
     stytch_secret: str | None
+    # Jorb system settings
+    openai_api_key: str | None
+    jorbs_db_path: str
+    jorbs_progress_log: str
+    agent_spend_limit: float
+    context_reset_days: int
+    debounce_telegram_seconds: int
+    debounce_sms_seconds: int
+    # Email/SMTP settings for jorb notifications
+    smtp_host: str | None
+    smtp_port: int
+    smtp_user: str | None
+    smtp_password: str | None
+    digest_email_to: str | None
+    digest_time: str
 
 
 def _load_secrets() -> dict[str, str | None]:
@@ -249,5 +264,20 @@ def get_settings() -> Settings:
         telegram_bot_chat_id=secrets["telegram_bot_chat_id"],
         stytch_project_id=secrets["stytch_project_id"],
         stytch_secret=secrets["stytch_secret"],
+        # Jorb system settings
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        jorbs_db_path=os.getenv("JORBS_DB_PATH", "./data/jorbs.db"),
+        jorbs_progress_log=os.getenv("JORBS_PROGRESS_LOG", "./data/jorbs_progress.txt"),
+        agent_spend_limit=float(os.getenv("AGENT_SPEND_LIMIT", "100.0")),
+        context_reset_days=int(os.getenv("CONTEXT_RESET_DAYS", "3")),
+        debounce_telegram_seconds=int(os.getenv("DEBOUNCE_TELEGRAM_SECONDS", "60")),
+        debounce_sms_seconds=int(os.getenv("DEBOUNCE_SMS_SECONDS", "30")),
+        # Email/SMTP settings for jorb notifications
+        smtp_host=os.getenv("SMTP_HOST"),
+        smtp_port=int(os.getenv("SMTP_PORT", "587")),
+        smtp_user=os.getenv("SMTP_USER"),
+        smtp_password=os.getenv("SMTP_PASSWORD"),
+        digest_email_to=os.getenv("DIGEST_EMAIL_TO"),
+        digest_time=os.getenv("DIGEST_TIME", "08:00"),
     )
 

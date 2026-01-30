@@ -174,5 +174,58 @@
       "type": "string",
       "description": "Optional notes or context for the jorb"
     }
+  },
+  "$defs": {
+    "JorbMessage": {
+      "type": "object",
+      "description": "A message in a jorb's conversation history",
+      "required": ["id", "jorbId", "timestamp", "direction", "channel", "content"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique message identifier"
+        },
+        "jorbId": {
+          "type": "string",
+          "description": "ID of the jorb this message belongs to",
+          "pattern": "^jorb_[0-9]+$"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when message was sent/received"
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["inbound", "outbound"],
+          "description": "Whether message was received or sent"
+        },
+        "channel": {
+          "type": "string",
+          "enum": ["telegram", "sms", "email"],
+          "description": "Communication channel used"
+        },
+        "sender": {
+          "type": "string",
+          "description": "Identifier of the sender (phone, username, email)"
+        },
+        "senderName": {
+          "type": "string",
+          "description": "Human-readable name of the sender (if known)"
+        },
+        "recipient": {
+          "type": "string",
+          "description": "Identifier of the recipient (phone, username, email)"
+        },
+        "content": {
+          "type": "string",
+          "description": "Message text content"
+        },
+        "agentReasoning": {
+          "type": "string",
+          "description": "Agent's reasoning for sending this message (outbound only)"
+        }
+      }
+    }
   }
 }
