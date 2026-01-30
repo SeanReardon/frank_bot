@@ -68,6 +68,8 @@ async def get_telegram_messages(
     Args (in arguments dict):
         chat: Username, phone number, or chat ID to get messages from.
         limit: Maximum number of messages to retrieve (default 20, max 100).
+        mutual_contacts_only: If true, only include messages from mutual contacts.
+                              Outgoing messages are always included. (default false)
 
     Returns:
         Dict with list of messages and metadata.
@@ -75,6 +77,7 @@ async def get_telegram_messages(
     args = arguments or {}
     chat = (args.get("chat") or "").strip()
     limit = args.get("limit", 20)
+    mutual_contacts_only = str(args.get("mutual_contacts_only", "")).lower() in ("true", "1", "yes")
 
     if not chat:
         raise ValueError("chat is required (username, phone number, or chat ID).")
@@ -94,7 +97,7 @@ async def get_telegram_messages(
             "Please set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
         )
 
-    messages = await service.get_messages(chat, limit=limit)
+    messages = await service.get_messages(chat, limit=limit, mutual_contacts_only=mutual_contacts_only)
 
     return {
         "success": True,
@@ -108,6 +111,8 @@ async def get_telegram_messages(
                 "sender_id": msg.sender_id,
                 "sender_name": msg.sender_name,
                 "is_outgoing": msg.is_outgoing,
+                "is_contact": msg.is_contact,
+                "is_mutual_contact": msg.is_mutual_contact,
             }
             for msg in messages
         ],
@@ -156,6 +161,8 @@ async def list_telegram_chats(
                 "type": dialog.chat_type,
                 "unread_count": dialog.unread_count,
                 "last_message_date": dialog.last_message_date,
+                "is_contact": dialog.is_contact,
+                "is_mutual_contact": dialog.is_mutual_contact,
             }
             for dialog in dialogs
         ],
@@ -245,6 +252,8 @@ async def test_telegram_connection(
                         "date": msg.date,
                         "sender": msg.sender_name or ("You" if msg.is_outgoing else "Magic"),
                         "is_outgoing": msg.is_outgoing,
+                        "is_contact": msg.is_contact,
+                        "is_mutual_contact": msg.is_mutual_contact,
                     })
         
         # Sort by date (oldest first for reading order)

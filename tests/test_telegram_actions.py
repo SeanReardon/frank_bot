@@ -145,6 +145,8 @@ class TestGetTelegramMessages:
                 sender_id=123,
                 sender_name="John",
                 is_outgoing=False,
+                is_contact=True,
+                is_mutual_contact=True,
             ),
             TelegramMessage(
                 id=1002,
@@ -153,6 +155,8 @@ class TestGetTelegramMessages:
                 sender_id=456,
                 sender_name="Me",
                 is_outgoing=True,
+                is_contact=False,
+                is_mutual_contact=False,
             ),
         ]
 
@@ -173,7 +177,9 @@ class TestGetTelegramMessages:
             assert len(result["messages"]) == 2
             assert result["messages"][0]["id"] == 1001
             assert result["messages"][0]["text"] == "Hello!"
-            mock_instance.get_messages.assert_called_once_with("@johndoe", limit=10)
+            assert result["messages"][0]["is_contact"] is True
+            assert result["messages"][0]["is_mutual_contact"] is True
+            mock_instance.get_messages.assert_called_once_with("@johndoe", limit=10, mutual_contacts_only=False)
 
     @pytest.mark.asyncio
     async def test_get_messages_default_limit(self) -> None:
@@ -186,7 +192,7 @@ class TestGetTelegramMessages:
 
             await get_telegram_messages({"chat": "@johndoe"})
 
-            mock_instance.get_messages.assert_called_once_with("@johndoe", limit=20)
+            mock_instance.get_messages.assert_called_once_with("@johndoe", limit=20, mutual_contacts_only=False)
 
     @pytest.mark.asyncio
     async def test_get_messages_limit_clamped(self) -> None:
@@ -199,11 +205,24 @@ class TestGetTelegramMessages:
 
             # Test upper bound
             await get_telegram_messages({"chat": "@johndoe", "limit": 500})
-            mock_instance.get_messages.assert_called_with("@johndoe", limit=100)
+            mock_instance.get_messages.assert_called_with("@johndoe", limit=100, mutual_contacts_only=False)
 
             # Test lower bound
             await get_telegram_messages({"chat": "@johndoe", "limit": -5})
-            mock_instance.get_messages.assert_called_with("@johndoe", limit=1)
+            mock_instance.get_messages.assert_called_with("@johndoe", limit=1, mutual_contacts_only=False)
+
+    @pytest.mark.asyncio
+    async def test_get_messages_mutual_contacts_only(self) -> None:
+        """Can filter to mutual contacts only."""
+        with patch("actions.telegram.TelegramClientService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.is_configured = True
+            mock_instance.get_messages = AsyncMock(return_value=[])
+            MockService.return_value = mock_instance
+
+            await get_telegram_messages({"chat": "@johndoe", "mutual_contacts_only": "true"})
+
+            mock_instance.get_messages.assert_called_once_with("@johndoe", limit=20, mutual_contacts_only=True)
 
     @pytest.mark.asyncio
     async def test_get_messages_missing_chat(self) -> None:
@@ -236,6 +255,8 @@ class TestListTelegramChats:
                 chat_type="user",
                 unread_count=3,
                 last_message_date="2026-01-29T10:00:00+00:00",
+                is_contact=True,
+                is_mutual_contact=True,
             ),
             TelegramDialog(
                 id=-1002,
@@ -243,6 +264,8 @@ class TestListTelegramChats:
                 chat_type="group",
                 unread_count=0,
                 last_message_date="2026-01-28T15:00:00+00:00",
+                is_contact=False,
+                is_mutual_contact=False,
             ),
         ]
 
@@ -260,7 +283,10 @@ class TestListTelegramChats:
             assert result["chats"][0]["id"] == 1001
             assert result["chats"][0]["name"] == "John Doe"
             assert result["chats"][0]["type"] == "user"
+            assert result["chats"][0]["is_contact"] is True
+            assert result["chats"][0]["is_mutual_contact"] is True
             assert result["chats"][1]["type"] == "group"
+            assert result["chats"][1]["is_mutual_contact"] is False
             mock_instance.get_dialogs.assert_called_once_with(limit=10)
 
     @pytest.mark.asyncio
@@ -385,36 +411,37 @@ class TestTestTelegramConnection:
 
     @pytest.mark.asyncio
     async def test_connection_success(self) -> None:
-        """Returns connected with dialogs when successful."""
-        mock_dialogs = [
-            TelegramDialog(
+        """Returns connected with messages when successful."""
+        from datetime import datetime, timezone
+
+        # Create a recent message (within 24 hours)
+        recent_date = datetime.now(timezone.utc).isoformat()
+        mock_messages = [
+            TelegramMessage(
                 id=1001,
-                name="John Doe",
-                chat_type="user",
-                unread_count=3,
-                last_message_date="2026-01-29T10:00:00+00:00",
-            ),
-            TelegramDialog(
-                id=-1002,
-                name="Family Group",
-                chat_type="group",
-                unread_count=0,
-                last_message_date="2026-01-28T15:00:00+00:00",
+                text="Hello from Magic!",
+                date=recent_date,
+                sender_id=123,
+                sender_name="Magic",
+                is_outgoing=False,
+                is_contact=True,
+                is_mutual_contact=True,
             ),
         ]
 
         with patch("actions.telegram.TelegramClientService") as MockService:
             mock_instance = MagicMock()
             mock_instance.is_configured = True
-            mock_instance.get_dialogs = AsyncMock(return_value=mock_dialogs)
+            mock_instance.get_messages = AsyncMock(return_value=mock_messages)
             MockService.return_value = mock_instance
 
             result = await test_telegram_connection({})
 
             assert result["connected"] is True
-            assert len(result["dialogs"]) == 2
-            assert result["dialogs"][0]["name"] == "John Doe"
-            mock_instance.get_dialogs.assert_called_once_with(limit=3)
+            assert result["chat_name"] == "Magic"
+            assert result["message_count"] == 1
+            assert len(result["messages"]) == 1
+            mock_instance.get_messages.assert_called_once_with("Magic", limit=100)
 
     @pytest.mark.asyncio
     async def test_connection_failure(self) -> None:
@@ -422,7 +449,7 @@ class TestTestTelegramConnection:
         with patch("actions.telegram.TelegramClientService") as MockService:
             mock_instance = MagicMock()
             mock_instance.is_configured = True
-            mock_instance.get_dialogs = AsyncMock(side_effect=Exception("Connection failed"))
+            mock_instance.get_messages = AsyncMock(side_effect=Exception("Connection failed"))
             MockService.return_value = mock_instance
 
             result = await test_telegram_connection({})

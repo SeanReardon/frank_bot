@@ -57,6 +57,8 @@ class TelegramMessage:
     sender_id: int | None
     sender_name: str | None
     is_outgoing: bool
+    is_contact: bool = False
+    is_mutual_contact: bool = False
 
 
 @dataclass
@@ -68,6 +70,8 @@ class TelegramDialog:
     chat_type: str  # 'user', 'group', 'channel'
     unread_count: int
     last_message_date: str | None
+    is_contact: bool = False
+    is_mutual_contact: bool = False
 
 
 @dataclass
@@ -323,6 +327,7 @@ class TelegramClientService:
         self,
         chat_id: str | int,
         limit: int = 20,
+        mutual_contacts_only: bool = False,
     ) -> list[TelegramMessage]:
         """
         Retrieve recent messages from a chat.
@@ -330,6 +335,8 @@ class TelegramClientService:
         Args:
             chat_id: Username, phone, or numeric chat ID.
             limit: Maximum number of messages to retrieve.
+            mutual_contacts_only: If True, only include messages from mutual contacts.
+                                  Outgoing messages are always included.
 
         Returns:
             List of TelegramMessage objects.
@@ -343,25 +350,42 @@ class TelegramClientService:
             async for message in client.iter_messages(chat_id, limit=limit):
                 sender_name = None
                 sender_id = None
+                is_contact = False
+                is_mutual_contact = False
                 if message.sender:
                     sender_id = message.sender.id
                     if isinstance(message.sender, User):
                         sender_name = message.sender.first_name
                         if message.sender.last_name:
                             sender_name += f" {message.sender.last_name}"
+                        # Capture contact relationship flags
+                        is_contact = message.sender.contact or False
+                        is_mutual_contact = message.sender.mutual_contact or False
                     else:
                         sender_name = getattr(message.sender, "title", str(sender_id))
 
-                messages.append(
-                    TelegramMessage(
-                        id=message.id,
-                        text=message.text,
-                        date=message.date.isoformat() if message.date else None,
-                        sender_id=sender_id,
-                        sender_name=sender_name,
-                        is_outgoing=message.out,
-                    )
+                msg = TelegramMessage(
+                    id=message.id,
+                    text=message.text,
+                    date=message.date.isoformat() if message.date else None,
+                    sender_id=sender_id,
+                    sender_name=sender_name,
+                    is_outgoing=message.out,
+                    is_contact=is_contact,
+                    is_mutual_contact=is_mutual_contact,
                 )
+
+                # Apply mutual contact filter if requested
+                # Always include outgoing messages (from us)
+                if mutual_contacts_only and not msg.is_outgoing and not msg.is_mutual_contact:
+                    logger.debug(
+                        "Filtering out message %s from non-mutual contact %s",
+                        msg.id,
+                        sender_name or sender_id,
+                    )
+                    continue
+
+                messages.append(msg)
 
             elapsed_ms = (time.time() - start) * 1000
             tg_stats.record_request(elapsed_ms, success=True)
@@ -378,6 +402,42 @@ class TelegramClientService:
             )
             logger.exception("Error getting messages from %s", chat_id)
             raise
+
+    async def is_mutual_contact(self, chat_id: str | int) -> bool:
+        """
+        Check if a chat/user is a mutual contact.
+
+        This is the gating check for whether frank_bot should process
+        messages from this user. Only mutual contacts get LLM attention.
+
+        Args:
+            chat_id: Username, phone, or numeric chat ID.
+
+        Returns:
+            True if the user is a mutual contact, False otherwise.
+            Returns False for groups/channels (not applicable).
+        """
+        client = await self._ensure_connected()
+
+        try:
+            entity = await client.get_entity(chat_id)
+
+            if isinstance(entity, User):
+                is_mutual = entity.mutual_contact or False
+                logger.debug(
+                    "Contact check for %s (%s): mutual=%s",
+                    entity.first_name,
+                    chat_id,
+                    is_mutual,
+                )
+                return is_mutual
+
+            # Groups and channels are not "contacts"
+            return False
+
+        except Exception as exc:
+            logger.warning("Error checking mutual contact status for %s: %s", chat_id, exc)
+            return False
 
     async def get_dialogs(
         self,
@@ -399,10 +459,15 @@ class TelegramClientService:
         try:
             dialogs = []
             async for dialog in client.iter_dialogs(limit=limit):
-                # Determine chat type
+                # Determine chat type and contact status
                 entity = dialog.entity
+                is_contact = False
+                is_mutual_contact = False
+
                 if isinstance(entity, User):
                     chat_type = "user"
+                    is_contact = entity.contact or False
+                    is_mutual_contact = entity.mutual_contact or False
                 elif isinstance(entity, Channel):
                     chat_type = "channel" if entity.broadcast else "supergroup"
                 elif isinstance(entity, Chat):
@@ -421,6 +486,8 @@ class TelegramClientService:
                         chat_type=chat_type,
                         unread_count=dialog.unread_count,
                         last_message_date=last_date,
+                        is_contact=is_contact,
+                        is_mutual_contact=is_mutual_contact,
                     )
                 )
 
