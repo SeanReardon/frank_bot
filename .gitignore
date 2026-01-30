@@ -57,6 +57,9 @@ coverage.xml
 token.json
 google-credentials.json
 
+# Runtime data (SQLite databases, state files)
+data/
+
 # Telegram session files (Telethon)
 *.session
 
