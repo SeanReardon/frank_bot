@@ -126,8 +126,19 @@ async def _handle_telegram_message(event: events.NewMessage.Event) -> None:
     """
     # Get sender info
     sender = await event.get_sender()
-    if sender is None or not isinstance(sender, User):
-        logger.debug("Skipping message with no user sender")
+    logger.info(
+        "Telegram message handler invoked: sender=%s, type=%s, text=%s",
+        sender,
+        type(sender).__name__ if sender else "None",
+        (event.message.text or "")[:50],
+    )
+    if sender is None:
+        logger.info("Skipping message with no sender")
+        return
+    
+    # Accept both User and bots (bots are also User type in Telethon but have bot=True)
+    if not isinstance(sender, User):
+        logger.info("Skipping message - sender is not User type: %s", type(sender).__name__)
         return
 
     # Extract sender details
