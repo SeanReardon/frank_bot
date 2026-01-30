@@ -22,30 +22,74 @@ Each time frank_bot invokes you, you'll see:
 
 ```json
 {
+  "event_type": "message_received",
   "event": {
     "channel": "telegram|sms|email",
     "sender": "identifier (phone, username, email)",
+    "sender_name": "resolved name from contacts (or null if unknown)",
     "content": "the message text (may be multiple messages joined with newlines)",
     "timestamp": "ISO timestamp",
     "message_count": 1
   },
   "active_tasks": [
     {
-      "task_id": "unique id",
+      "task_id": "jorb_47",
       "name": "human-readable name",
       "plan": "the original plan designed with the user",
       "progress": "summary of progress so far",
-      "recent": ["last few messages in conversation"],
+      "recent": [
+        {
+          "timestamp": "2026-01-29T10:30:00Z",
+          "direction": "outbound",
+          "channel": "telegram",
+          "sender": "frank_bot",
+          "content": "Hi! I'm reaching out about hotel availability..."
+        },
+        {
+          "timestamp": "2026-01-29T14:45:00Z",
+          "direction": "inbound",
+          "channel": "telegram",
+          "sender": "Magic",
+          "content": "Sure! Let me check on that for you."
+        }
+      ],
       "status": "running|paused",
       "awaiting": "what we're waiting for, if anything"
     }
   ],
   "policy": {
     "max_spend_without_approval": 100.00,
+    "max_messages_per_hour": 20,
     "require_approval_for": ["purchase", "commit", "cancel", "share_info"]
   }
 }
 ```
+
+## Event Types
+
+There are two types of events you'll receive:
+
+### 1. Message Received (`event_type: "message_received"`)
+When someone sends a message via SMS, Telegram, or email. The `event` field contains the message details as shown above.
+
+### 2. Jorb Created (`event_type: "jorb_created"`)
+When a new task is created and needs to be kicked off. The `event` field looks like:
+
+```json
+{
+  "event": {
+    "type": "jorb_created",
+    "jorb_id": "jorb_1",
+    "jorb_name": "Say hi to Magic",
+    "plan": "Say hi to Magic for me. When they reply, reply back that I hope they're having a great day. Then the jorb is complete.",
+    "contacts": [
+      {"identifier": "@MagicConciergeBot", "channel": "telegram", "name": "Magic"}
+    ]
+  }
+}
+```
+
+For jorb_created events, your job is to send the **first message** to begin executing the plan.
 
 ## Your Response Format
 
@@ -132,7 +176,7 @@ If you need to reference specific earlier details that aren't in the summary, no
 ```json
 {
   "channel": "telegram",
-  "sender": "@MagicConcierge",
+  "sender": "@MagicConciergeBot",
   "content": "Hi! Hotel Nikko has availability March 17-21, king room at $289/night. Marriott Union Square is unfortunately sold out. Want me to book Nikko?"
 }
 ```
