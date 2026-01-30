@@ -279,35 +279,6 @@ export class JorbsStatsCard extends LitElement {
   }
 
   render() {
-    if (this._loading) {
-      return html`
-        <div class="card">
-          <div class="loading">
-            <div class="spinner"></div>
-            <span>Loading stats...</span>
-          </div>
-        </div>
-      `;
-    }
-
-    if (this._error) {
-      return html`
-        <div class="card">
-          <div class="error">${this._error}</div>
-        </div>
-      `;
-    }
-
-    if (!this._stats) {
-      return nothing;
-    }
-
-    const stats = this._stats;
-    const { by_status, metrics } = stats;
-
-    // Calculate active (open) count
-    const openCount = by_status.planning + by_status.running + by_status.paused;
-
     return html`
       <div class="card">
         <div class="card-header">
@@ -330,71 +301,90 @@ export class JorbsStatsCard extends LitElement {
           </div>
         </div>
 
-        <div class="status-row">
-          ${by_status.running > 0 ? html`
-            <span class="status-badge running">
-              <span class="status-count">${by_status.running}</span> Running
-            </span>
-          ` : nothing}
-          ${by_status.paused > 0 ? html`
-            <span class="status-badge paused">
-              <span class="status-count">${by_status.paused}</span> Paused
-            </span>
-          ` : nothing}
-          ${by_status.planning > 0 ? html`
-            <span class="status-badge planning">
-              <span class="status-count">${by_status.planning}</span> Planning
-            </span>
-          ` : nothing}
-          ${by_status.complete > 0 ? html`
-            <span class="status-badge complete">
-              <span class="status-count">${by_status.complete}</span> Complete
-            </span>
-          ` : nothing}
-          ${by_status.failed > 0 ? html`
-            <span class="status-badge failed">
-              <span class="status-count">${by_status.failed}</span> Failed
-            </span>
-          ` : nothing}
-          ${by_status.cancelled > 0 ? html`
-            <span class="status-badge cancelled">
-              <span class="status-count">${by_status.cancelled}</span> Cancelled
-            </span>
-          ` : nothing}
-        </div>
+        ${this._loading ? html`
+          <div class="loading">
+            <div class="spinner"></div>
+            <span>Loading stats...</span>
+          </div>
+        ` : this._error ? html`
+          <div class="error">${this._error}</div>
+        ` : this._stats ? this._renderStats() : nothing}
+      </div>
+    `;
+  }
 
-        <div class="stats-grid">
-          <div class="stat-item">
-            <div class="stat-value gold">${openCount}</div>
-            <div class="stat-label">Open Jorbs</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value">${this._formatNumber(metrics.total_messages)}</div>
-            <div class="stat-label">Messages</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value green">${stats.success_rate}%</div>
-            <div class="stat-label">Success Rate</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value blue">${this._formatCost(metrics.total_cost)}</div>
-            <div class="stat-label">Total Cost</div>
-          </div>
-        </div>
+  private _renderStats() {
+    if (!this._stats) return nothing;
 
-        <div class="metrics-row">
-          <div class="metric-item">
-            <span class="metric-value">${this._formatNumber(metrics.total_tokens)}</span>
-            <span>tokens used</span>
-          </div>
-          <div class="metric-item">
-            <span class="metric-value">${metrics.total_context_resets}</span>
-            <span>context resets</span>
-          </div>
-          <div class="metric-item">
-            <span class="metric-value">${stats.total_jorbs}</span>
-            <span>total jorbs</span>
-          </div>
+    const stats = this._stats;
+    const { by_status, metrics } = stats;
+    const openCount = by_status.planning + by_status.running + by_status.paused;
+
+    return html`
+      <div class="status-row">
+        ${by_status.running > 0 ? html`
+          <span class="status-badge running">
+            <span class="status-count">${by_status.running}</span> Running
+          </span>
+        ` : nothing}
+        ${by_status.paused > 0 ? html`
+          <span class="status-badge paused">
+            <span class="status-count">${by_status.paused}</span> Paused
+          </span>
+        ` : nothing}
+        ${by_status.planning > 0 ? html`
+          <span class="status-badge planning">
+            <span class="status-count">${by_status.planning}</span> Planning
+          </span>
+        ` : nothing}
+        ${by_status.complete > 0 ? html`
+          <span class="status-badge complete">
+            <span class="status-count">${by_status.complete}</span> Complete
+          </span>
+        ` : nothing}
+        ${by_status.failed > 0 ? html`
+          <span class="status-badge failed">
+            <span class="status-count">${by_status.failed}</span> Failed
+          </span>
+        ` : nothing}
+        ${by_status.cancelled > 0 ? html`
+          <span class="status-badge cancelled">
+            <span class="status-count">${by_status.cancelled}</span> Cancelled
+          </span>
+        ` : nothing}
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-value gold">${openCount}</div>
+          <div class="stat-label">Open Jorbs</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">${this._formatNumber(metrics.total_messages)}</div>
+          <div class="stat-label">Messages</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value green">${stats.success_rate}%</div>
+          <div class="stat-label">Success Rate</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value blue">${this._formatCost(metrics.total_cost)}</div>
+          <div class="stat-label">Total Cost</div>
+        </div>
+      </div>
+
+      <div class="metrics-row">
+        <div class="metric-item">
+          <span class="metric-value">${this._formatNumber(metrics.total_tokens)}</span>
+          <span>tokens used</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-value">${metrics.total_context_resets}</span>
+          <span>context resets</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-value">${stats.total_jorbs}</span>
+          <span>total jorbs</span>
         </div>
       </div>
     `;
