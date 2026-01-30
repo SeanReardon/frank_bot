@@ -39,7 +39,8 @@ export class FrankBotDashboard extends LitElement {
       font-family: var(--font-family);
       color: var(--color-text);
       background: var(--color-background);
-      overflow-y: auto;
+      /* Always show scrollbar to prevent layout shift when content changes */
+      overflow-y: scroll;
       overflow-x: hidden;
       /* Ensure scrolling works with keyboard navigation */
       scroll-behavior: smooth;
