@@ -208,14 +208,16 @@ async def test_telegram_connection(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Test the Telegram connection by fetching recent dialogs.
+    Test the Telegram connection by fetching recent messages with "Magic".
 
     Returns:
-        Dict with connection status and first 3 chats.
+        Dict with connection status and recent conversation with Magic.
         - connected: boolean
-        - dialogs: (only when connected) first 3 chat names
+        - messages: (only when connected) recent messages from last 24h with Magic
         - error: (only when not connected) error message
     """
+    from datetime import datetime, timedelta, timezone
+
     service = TelegramClientService()
 
     if not service.is_configured:
@@ -225,13 +227,34 @@ async def test_telegram_connection(
         }
 
     try:
-        dialogs = await service.get_dialogs(limit=3)
+        # Fetch messages from "Magic" conversation (last 100 to filter by time)
+        messages = await service.get_messages("Magic", limit=100)
+        
+        # Filter to last 24 hours
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        recent_messages = []
+        
+        for msg in messages:
+            if msg.date:
+                # Parse ISO date string
+                msg_date = datetime.fromisoformat(msg.date.replace("Z", "+00:00"))
+                if msg_date >= cutoff:
+                    recent_messages.append({
+                        "id": msg.id,
+                        "text": msg.text[:200] if msg.text else None,  # Truncate long messages
+                        "date": msg.date,
+                        "sender": msg.sender_name or ("You" if msg.is_outgoing else "Magic"),
+                        "is_outgoing": msg.is_outgoing,
+                    })
+        
+        # Sort by date (oldest first for reading order)
+        recent_messages.sort(key=lambda m: m["date"])
+        
         return {
             "connected": True,
-            "dialogs": [
-                {"id": d.id, "name": d.name, "type": d.chat_type}
-                for d in dialogs
-            ],
+            "chat_name": "Magic",
+            "message_count": len(recent_messages),
+            "messages": recent_messages,
         }
     except Exception as exc:
         logger.warning("Error testing Telegram connection: %s", exc)

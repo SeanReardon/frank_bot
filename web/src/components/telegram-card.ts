@@ -209,6 +209,77 @@ export class TelegramCard extends LitElement {
       margin-bottom: var(--spacing-xs);
     }
 
+    .chat-messages {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-sm);
+      max-height: 400px;
+      overflow-y: auto;
+      padding: var(--spacing-sm);
+      background: var(--color-bg);
+      border-radius: var(--border-radius-sm);
+      margin-top: var(--spacing-sm);
+    }
+
+    .chat-message {
+      display: flex;
+      flex-direction: column;
+      max-width: 80%;
+      padding: var(--spacing-sm) var(--spacing-md);
+      border-radius: var(--border-radius-md);
+      font-size: var(--font-size-sm);
+    }
+
+    .chat-message.outgoing {
+      align-self: flex-end;
+      background: var(--kente-gold-dark);
+      color: white;
+      border-bottom-right-radius: var(--border-radius-xs);
+    }
+
+    .chat-message.incoming {
+      align-self: flex-start;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-bottom-left-radius: var(--border-radius-xs);
+    }
+
+    .chat-message-sender {
+      font-weight: 600;
+      font-size: var(--font-size-xs);
+      margin-bottom: var(--spacing-xs);
+      opacity: 0.8;
+    }
+
+    .chat-message-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .chat-message-time {
+      font-size: 10px;
+      opacity: 0.6;
+      margin-top: var(--spacing-xs);
+      text-align: right;
+    }
+
+    .chat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: var(--spacing-sm);
+    }
+
+    .chat-header h4 {
+      margin: 0;
+      color: var(--kente-green);
+    }
+
+    .message-count {
+      color: var(--color-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
     .wizard {
       display: flex;
       flex-direction: column;
@@ -657,6 +728,26 @@ export class TelegramCard extends LitElement {
     `;
   }
 
+  private _formatTime(isoDate: string): string {
+    try {
+      const date = new Date(isoDate);
+      const now = new Date();
+      const isToday = date.toDateString() === now.toDateString();
+      
+      if (isToday) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      return date.toLocaleString([], { 
+        month: 'short', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+    } catch {
+      return isoDate;
+    }
+  }
+
   private _renderTestResult() {
     if (!this._testResult) return nothing;
 
@@ -668,17 +759,31 @@ export class TelegramCard extends LitElement {
       `;
     }
 
+    const messages = this._testResult.messages || [];
+    const chatName = this._testResult.chat_name || 'Unknown';
+    const messageCount = this._testResult.message_count || 0;
+
     return html`
       <div class="test-result">
-        <h4>Connection successful!</h4>
-        ${this._testResult.dialogs && this._testResult.dialogs.length > 0 ? html`
-          <p>Recent chats:</p>
-          <ul>
-            ${this._testResult.dialogs.map(dialog => html`
-              <li>${dialog.name} (${dialog.type})</li>
+        <div class="chat-header">
+          <h4>Chat with ${chatName}</h4>
+          <span class="message-count">${messageCount} messages (last 24h)</span>
+        </div>
+        ${messages.length > 0 ? html`
+          <div class="chat-messages">
+            ${messages.map(msg => html`
+              <div class="chat-message ${msg.is_outgoing ? 'outgoing' : 'incoming'}">
+                <span class="chat-message-sender">${msg.sender}</span>
+                ${msg.text ? html`
+                  <span class="chat-message-text">${msg.text}</span>
+                ` : html`
+                  <span class="chat-message-text" style="opacity: 0.5; font-style: italic;">[no text]</span>
+                `}
+                <span class="chat-message-time">${this._formatTime(msg.date)}</span>
+              </div>
             `)}
-          </ul>
-        ` : html`<p>No recent chats found.</p>`}
+          </div>
+        ` : html`<p style="color: var(--color-text-muted);">No messages in the last 24 hours.</p>`}
       </div>
     `;
   }

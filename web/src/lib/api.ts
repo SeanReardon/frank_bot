@@ -96,13 +96,19 @@ export interface TelegramAuth2FAResponse {
   error?: string;
 }
 
+export interface TelegramMessage {
+  id: number;
+  text: string | null;
+  date: string;
+  sender: string;
+  is_outgoing: boolean;
+}
+
 export interface TelegramTestResponse {
   connected: boolean;
-  dialogs?: Array<{
-    id: number;
-    name: string;
-    type: string;
-  }>;
+  chat_name?: string;
+  message_count?: number;
+  messages?: TelegramMessage[];
   error?: string;
 }
 
