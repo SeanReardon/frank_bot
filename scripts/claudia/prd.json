@@ -727,7 +727,7 @@
         "Unit tests verify compliance flows for unknown contacts"
       ],
       "priority": 45,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00044. Extends webhook with regulatory compliance for unknown senders."
     },
     {
@@ -743,7 +743,7 @@
         "Integration test verifies notification is sent for unknown senders"
       ],
       "priority": 46,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00043, frank_bot-00044. Adds notification flow for unknown contacts."
     },
     {
@@ -759,7 +759,7 @@
         "Unit tests verify outbound messages are stored alongside inbound"
       ],
       "priority": 47,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00040, frank_bot-00042. Creates complete conversation history."
     },
     {
@@ -776,7 +776,7 @@
         "Integration tests verify filtering by contact, phone, and direction"
       ],
       "priority": 48,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00040. Exposes SMS history to ChatGPT."
     },
     {

@@ -705,3 +705,73 @@ Created SMS webhook handler in server/sms_webhook.py with sms_webhook_handler() 
 - Classification set to 'unknown' for messages from unknown contacts
 
 ---
+
+## 2026-01-30: frank_bot-00045 - Add STOP/HELP compliance handling for unknown contacts
+
+### Summary
+Created SMSComplianceService in services/sms_compliance.py for managing opt-outs/opt-ins. Added compliance keyword detection (STOP/HELP/START and variants). Updated sms_webhook_handler to check for compliance keywords ONLY when contact is None. Sends appropriate response SMS and stores message with classification='compliance'.
+
+### Files Changed
+- services/sms_compliance.py (new)
+- server/sms_webhook.py (added compliance handling)
+- tests/test_sms_compliance.py (new - 19 tests)
+- tests/test_sms_webhook.py (added 4 compliance tests)
+
+### Learnings
+- Standard compliance keywords: STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT (opt-out); HELP, INFO (help); START, YES, OPTIN, SUBSCRIBE, UNSTOP (opt-in)
+- Compliance messages stored with classification='compliance' and processed=True
+- Known contacts bypass all compliance handling
+
+---
+
+## 2026-01-30: frank_bot-00046 - Add Telegram Bot notifications for unknown SMS senders
+
+### Summary
+Extended sms_webhook_handler to send Telegram notifications for unknown senders (non-compliance messages). Added _send_unknown_sender_notification() helper function that uses TelegramBot.notify_unknown_sms(). Failures are logged but don't fail webhook processing.
+
+### Files Changed
+- server/sms_webhook.py (added TelegramBot import and notification handling)
+- tests/test_sms_webhook.py (added 5 Telegram notification tests)
+
+### Learnings
+- Telegram notifications only sent when contact is None AND message is not compliance-related
+- Notification includes: from_number, message preview, attachment_count
+- telegram_notified flag added to response when notification succeeds
+
+---
+
+## 2026-01-30: frank_bot-00047 - Update outbound SMS to also store messages
+
+### Summary
+Extended TelnyxSMSService.send_sms() to store outbound messages after successful send. Added _store_outbound_message() method that creates SMSMessage with direction='outbound', processed=True, and stores via SMSStorage. Contact lookup performed to resolve recipient to contact info.
+
+### Files Changed
+- services/telnyx_sms.py (added _store_outbound_message method, lazy imports)
+- tests/test_telnyx_sms.py (new - 6 tests)
+
+### Learnings
+- Outbound messages marked processed=True (already "processed")
+- Storage failures logged but don't fail the SMS send
+- Contact lookup failures don't prevent storage (contact set to None)
+- Lazy imports to avoid circular dependencies
+
+---
+
+## 2026-01-30: frank_bot-00048 - Add ChatGPT action and route for reading SMS messages
+
+### Summary
+Added get_sms_messages_action() to actions/sms.py for retrieving SMS history. Accepts limit, contact, phone, and direction parameters. Added GET /actions/sms/messages route. Updated OpenAPI spec with endpoint and response schema.
+
+### Files Changed
+- actions/sms.py (added get_sms_messages_action)
+- server/routes.py (added route and handler)
+- openapi/spec.json (added /actions/sms/messages endpoint and schemas)
+- tests/test_sms_messages_action.py (new - 10 tests)
+
+### Learnings
+- Response format: count + messages array with timestamp, direction, contact, phone, preview, hasAttachments, jorbId
+- Direction filter applied after fetching (fetches 2x limit when filtering)
+- Preview truncated at 100 chars with "..." suffix
+- Contact name returned only when available
+
+---

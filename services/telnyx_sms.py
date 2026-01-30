@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 import telnyx
@@ -15,6 +16,12 @@ from config import get_settings
 from services.stats import stats
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_outbound_message_id(timestamp: datetime, to_number: str) -> str:
+    """Generate a unique message ID for outbound messages."""
+    ts = int(timestamp.timestamp())
+    return f"sms_{ts}_{to_number}"
 
 
 @dataclass
@@ -96,15 +103,25 @@ class TelnyxSMSService:
             elapsed_ms = (time.time() - start) * 1000
             sms_stats.record_request(elapsed_ms, success=True)
 
-            message_id = getattr(response, "id", None)
-            logger.info("SMS sent successfully, message_id=%s", message_id)
+            telnyx_message_id = getattr(response, "id", None)
+            logger.info("SMS sent successfully, message_id=%s", telnyx_message_id)
 
-            return SMSResult(
+            result = SMSResult(
                 success=True,
-                message_id=message_id,
+                message_id=telnyx_message_id,
                 to_number=to_number,
                 from_number=sender,
             )
+
+            # Store outbound message for conversation history
+            self._store_outbound_message(
+                to_number=to_number,
+                from_number=sender,
+                content=message,
+                telnyx_message_id=telnyx_message_id,
+            )
+
+            return result
 
         except telnyx.error.TelnyxError as exc:
             elapsed_ms = (time.time() - start) * 1000
@@ -155,6 +172,70 @@ class TelnyxSMSService:
             result = self.send_sms(number.strip(), message)
             results.append(result)
         return results
+
+    def _store_outbound_message(
+        self,
+        to_number: str,
+        from_number: str,
+        content: str,
+        telnyx_message_id: str | None = None,
+    ) -> None:
+        """
+        Store an outbound message to the SMS storage.
+
+        This creates a complete conversation history with both inbound and outbound messages.
+        Storage failures are logged but don't fail the SMS send.
+
+        Args:
+            to_number: The recipient's phone number
+            from_number: Our Telnyx number
+            content: The message content
+            telnyx_message_id: The Telnyx message ID from the API response
+        """
+        # Import here to avoid circular imports
+        from services.contact_lookup import ContactLookup
+        from services.sms_storage import Contact, SMSMessage, SMSStorage
+
+        try:
+            timestamp = datetime.now(timezone.utc)
+
+            # Look up contact for the recipient
+            contact = None
+            try:
+                contact_lookup = ContactLookup()
+                contact_info = contact_lookup.lookup(to_number)
+                if contact_info:
+                    contact = Contact(
+                        name=contact_info.name,
+                        googleContactId=contact_info.googleContactId,
+                    )
+            except Exception as exc:
+                logger.warning("Contact lookup failed for outbound SMS: %s", exc)
+
+            # Create message with outbound direction
+            message_id = _generate_outbound_message_id(timestamp, to_number)
+            sms_message = SMSMessage(
+                id=message_id,
+                timestamp=timestamp.isoformat(),
+                direction="outbound",
+                localNumber=from_number,
+                remoteNumber=to_number,
+                content=content,
+                contact=contact,
+                attachments=[],
+                telnyxMessageId=telnyx_message_id,
+                processed=True,  # Outbound messages are already "processed"
+                classification=None,
+            )
+
+            # Store the message
+            storage = SMSStorage()
+            filepath = storage.store_message(sms_message)
+            logger.info("Stored outbound SMS message at %s", filepath)
+
+        except Exception as exc:
+            # Don't fail the SMS send if storage fails
+            logger.error("Failed to store outbound SMS message: %s", exc)
 
 
 __all__ = ["TelnyxSMSService", "SMSResult"]

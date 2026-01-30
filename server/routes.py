@@ -27,6 +27,7 @@ from actions import (
     search_contacts_action,
     send_sms_action,
 )
+from actions.sms import get_sms_messages_action
 from actions.telegram import (
     get_telegram_messages,
     get_telegram_status,
@@ -160,6 +161,13 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(send_sms_action)
         return await responder(payload)
 
+    async def get_sms_messages_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("getSmsMessages").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_sms_messages_action)
+        return await responder(payload)
+
     # Telegram endpoints
     async def telegram_send_handler(request: Request):
         await _require_api_key(request)
@@ -257,6 +265,11 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route(
             "/actions/sms/send",
             send_sms_handler,
+            methods=["GET"],
+        ),
+        Route(
+            "/actions/sms/messages",
+            get_sms_messages_handler,
             methods=["GET"],
         ),
         Route(

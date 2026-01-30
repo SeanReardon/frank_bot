@@ -335,3 +335,402 @@ class TestSmsWebhookHandler:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "processed"
+
+
+class TestSmsWebhookComplianceHandling:
+    """Tests for compliance keyword handling in webhook."""
+
+    @pytest.fixture
+    def app(self):
+        """Create a test application with the webhook route."""
+        return Starlette(
+            routes=[Route("/webhook/sms", sms_webhook_handler, methods=["POST"])]
+        )
+
+    @pytest.fixture
+    def client(self, app):
+        """Create a test client."""
+        return TestClient(app)
+
+    def test_handles_stop_keyword_for_unknown_contact(self, client):
+        """STOP keyword from unknown contact records opt-out and sends response."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15551234567"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "STOP",
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = None
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook.TelnyxSMSService") as mock_sms_cls:
+                        mock_sms = MagicMock()
+                        mock_sms.is_configured = True
+                        mock_sms.send_sms.return_value = MagicMock(success=True)
+                        mock_sms_cls.return_value = mock_sms
+
+                        response = client.post("/webhook/sms", json=payload)
+
+                        # Verify opt-out SMS was sent
+                        mock_sms.send_sms.assert_called_once()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "processed"
+        assert data["compliance"] is True
+        assert data["compliance_type"] == "opt_out"
+
+    def test_handles_help_keyword_for_unknown_contact(self, client):
+        """HELP keyword from unknown contact sends help response."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15551234567"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "HELP",
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = None
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook.TelnyxSMSService") as mock_sms_cls:
+                        mock_sms = MagicMock()
+                        mock_sms.is_configured = True
+                        mock_sms.send_sms.return_value = MagicMock(success=True)
+                        mock_sms_cls.return_value = mock_sms
+
+                        response = client.post("/webhook/sms", json=payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["compliance"] is True
+        assert data["compliance_type"] == "help"
+
+    def test_handles_start_keyword_for_unknown_contact(self, client):
+        """START keyword from unknown contact records opt-in."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15551234567"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "START",
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = None
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook.TelnyxSMSService") as mock_sms_cls:
+                        mock_sms = MagicMock()
+                        mock_sms.is_configured = True
+                        mock_sms.send_sms.return_value = MagicMock(success=True)
+                        mock_sms_cls.return_value = mock_sms
+
+                        response = client.post("/webhook/sms", json=payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["compliance"] is True
+        assert data["compliance_type"] == "opt_in"
+
+    def test_known_contacts_bypass_compliance(self, client):
+        """Known contacts should NOT trigger compliance handling."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15551234567"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "STOP",  # compliance keyword
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    # Return a contact (known sender)
+                    mock_lookup.lookup.return_value = Contact(
+                        name="Mom",
+                        googleContactId="people/c123",
+                    )
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook.TelnyxSMSService") as mock_sms_cls:
+                        mock_sms = MagicMock()
+                        mock_sms_cls.return_value = mock_sms
+
+                        response = client.post("/webhook/sms", json=payload)
+
+                        # Verify NO compliance SMS was sent
+                        mock_sms.send_sms.assert_not_called()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "processed"
+        assert data["contact"] == "Mom"
+        # Should NOT have compliance flag
+        assert "compliance" not in data
+
+
+class TestSmsWebhookTelegramNotification:
+    """Tests for Telegram notification of unknown SMS senders."""
+
+    @pytest.fixture
+    def app(self):
+        """Create a test application with the webhook route."""
+        return Starlette(
+            routes=[Route("/webhook/sms", sms_webhook_handler, methods=["POST"])]
+        )
+
+    @pytest.fixture
+    def client(self, app):
+        """Create a test client."""
+        return TestClient(app)
+
+    def test_sends_telegram_notification_for_unknown_sender(self, client):
+        """Unknown sender (non-compliance) triggers Telegram notification."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15551234567"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "Hello there, this is a regular message",
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = None
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook.TelegramBot") as mock_bot_cls:
+                        mock_bot = MagicMock()
+                        mock_bot.is_configured = True
+                        mock_bot.notify_unknown_sms = AsyncMock(
+                            return_value=MagicMock(success=True)
+                        )
+                        mock_bot_cls.return_value = mock_bot
+
+                        response = client.post("/webhook/sms", json=payload)
+
+                        # Verify Telegram notification was sent
+                        mock_bot.notify_unknown_sms.assert_called_once_with(
+                            from_number="+15551234567",
+                            message="Hello there, this is a regular message",
+                            attachment_count=0,
+                        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["telegram_notified"] is True
+
+    def test_no_telegram_notification_for_known_contacts(self, client):
+        """Known contacts should NOT receive Telegram notifications."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15551234567"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "Hello from a known person",
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = Contact(
+                        name="Mom",
+                        googleContactId="people/c123",
+                    )
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook.TelegramBot") as mock_bot_cls:
+                        mock_bot = MagicMock()
+                        mock_bot_cls.return_value = mock_bot
+
+                        response = client.post("/webhook/sms", json=payload)
+
+                        # Verify Telegram notification was NOT sent
+                        mock_bot.notify_unknown_sms.assert_not_called()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "telegram_notified" not in data
+
+    def test_no_telegram_notification_for_compliance_messages(self, client):
+        """Compliance messages should NOT receive Telegram notifications."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15551234567"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "STOP",  # compliance keyword
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = None
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook.TelnyxSMSService") as mock_sms_cls:
+                        mock_sms = MagicMock()
+                        mock_sms.is_configured = True
+                        mock_sms.send_sms.return_value = MagicMock(success=True)
+                        mock_sms_cls.return_value = mock_sms
+
+                        with patch("server.sms_webhook.TelegramBot") as mock_bot_cls:
+                            mock_bot = MagicMock()
+                            mock_bot_cls.return_value = mock_bot
+
+                            response = client.post("/webhook/sms", json=payload)
+
+                            # Verify Telegram notification was NOT sent for compliance
+                            mock_bot.notify_unknown_sms.assert_not_called()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["compliance"] is True
+        assert "telegram_notified" not in data
+
+    def test_handles_telegram_api_failure_gracefully(self, client):
+        """Telegram API failure should not fail webhook processing."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15551234567"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "Hello there",
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = None
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook.TelegramBot") as mock_bot_cls:
+                        mock_bot = MagicMock()
+                        mock_bot.is_configured = True
+                        # Simulate API failure
+                        mock_bot.notify_unknown_sms = AsyncMock(
+                            return_value=MagicMock(success=False, error="API error")
+                        )
+                        mock_bot_cls.return_value = mock_bot
+
+                        response = client.post("/webhook/sms", json=payload)
+
+        # Webhook should still succeed even if Telegram fails
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "processed"
+        # telegram_notified should be absent since notification failed
+        assert "telegram_notified" not in data
+
+    def test_includes_attachment_count_in_notification(self, client):
+        """Telegram notification includes attachment count for MMS."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15551234567"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "Photo message",
+                    "media": [
+                        {"url": "https://telnyx.com/1.jpg", "content_type": "image/jpeg", "size": 1000},
+                        {"url": "https://telnyx.com/2.jpg", "content_type": "image/jpeg", "size": 2000},
+                    ],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = None
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook.TelegramBot") as mock_bot_cls:
+                        mock_bot = MagicMock()
+                        mock_bot.is_configured = True
+                        mock_bot.notify_unknown_sms = AsyncMock(
+                            return_value=MagicMock(success=True)
+                        )
+                        mock_bot_cls.return_value = mock_bot
+
+                        # Mock attachment downloads
+                        with patch("services.sms_storage.httpx.AsyncClient") as mock_client:
+                            mock_response = MagicMock()
+                            mock_response.content = b"fake image"
+                            mock_response.raise_for_status = MagicMock()
+                            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                                return_value=mock_response
+                            )
+
+                            response = client.post("/webhook/sms", json=payload)
+
+                        # Verify attachment count was passed
+                        mock_bot.notify_unknown_sms.assert_called_once_with(
+                            from_number="+15551234567",
+                            message="Photo message",
+                            attachment_count=2,
+                        )
+
+        assert response.status_code == 200

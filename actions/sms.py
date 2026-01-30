@@ -1,5 +1,5 @@
 """
-SMS actions: send text messages via Telnyx.
+SMS actions: send and receive text messages via Telnyx.
 """
 
 from __future__ import annotations
@@ -7,9 +7,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
 
 from services.google_contacts import GoogleContactsService
+from services.sms_storage import SMSMessage, SMSStorage
 from services.telnyx_sms import TelnyxSMSService
 
 logger = logging.getLogger(__name__)
@@ -157,7 +158,84 @@ async def send_sms_action(
         raise ValueError(f"Failed to send SMS: {error_detail}")
 
 
-__all__ = ["send_sms_action"]
+async def get_sms_messages_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Get recent SMS messages from storage.
+
+    Supports filtering by contact name (fuzzy match), phone number, and direction.
+
+    Args:
+        arguments: Dict with optional keys:
+            - limit: Max messages to return (default 50, max 100)
+            - contact: Filter by contact name (case-insensitive partial match)
+            - phone: Filter by phone number
+            - direction: Filter by 'inbound' or 'outbound'
+
+    Returns:
+        Dict with count and messages array
+    """
+    args = arguments or {}
+
+    # Parse and validate limit
+    limit = 50
+    if "limit" in args:
+        try:
+            limit = int(args["limit"])
+            limit = max(1, min(100, limit))  # Clamp to 1-100
+        except (ValueError, TypeError):
+            limit = 50
+
+    # Get optional filters
+    contact_name = args.get("contact")
+    phone = args.get("phone")
+    direction_filter = args.get("direction")
+
+    # Validate direction if provided
+    if direction_filter and direction_filter not in ("inbound", "outbound"):
+        raise ValueError("direction must be 'inbound' or 'outbound'")
+
+    # Fetch messages from storage
+    storage = SMSStorage()
+
+    def fetch_messages():
+        return storage.get_recent_messages(
+            remote_number=phone,
+            contact_name=contact_name,
+            limit=limit * 2 if direction_filter else limit,  # Fetch more if filtering by direction
+        )
+
+    messages = await asyncio.to_thread(fetch_messages)
+
+    # Apply direction filter if specified
+    if direction_filter:
+        messages = [m for m in messages if m.direction == direction_filter][:limit]
+
+    # Format messages for response
+    result_messages = []
+    for msg in messages:
+        message_data = {
+            "timestamp": msg.timestamp,
+            "direction": msg.direction,
+            "phone": msg.remoteNumber,
+            "preview": msg.content[:100] + ("..." if len(msg.content) > 100 else ""),
+            "hasAttachments": len(msg.attachments) > 0,
+        }
+        if msg.contact:
+            message_data["contact"] = msg.contact.name
+        if msg.jorbId:
+            message_data["jorbId"] = msg.jorbId
+
+        result_messages.append(message_data)
+
+    return {
+        "count": len(result_messages),
+        "messages": result_messages,
+    }
+
+
+__all__ = ["send_sms_action", "get_sms_messages_action"]
 
 
 
