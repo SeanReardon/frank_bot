@@ -15,8 +15,8 @@ try:
 except ImportError:
     HAS_AIOSMTPLIB = False
 
-from services.email_service import EmailService
-from services.jorb_storage import Jorb
+from services.email_service import EmailService, JorbCosts, JorbDigestSummary
+from services.jorb_storage import Jorb, JorbMessage, JorbWithMessages
 
 
 @pytest.fixture
@@ -262,3 +262,224 @@ class TestNotifyJorbComplete:
 
             result = await configured_service.notify_jorb_complete(sample_jorb)
             assert result is False
+
+
+class TestBuildJorbSummary:
+    """Tests for _build_jorb_summary method."""
+
+    @pytest.fixture
+    def sample_messages(self):
+        """Create sample messages for testing."""
+        return [
+            JorbMessage(
+                id="msg_1",
+                jorb_id="jorb_12345678",
+                timestamp="2026-01-30T10:00:00+00:00",
+                direction="outbound",
+                channel="sms",
+                recipient="+15551234567",
+                content="Hi, this is Frank Bot.",
+                agent_reasoning="Initial outreach to contact.",
+            ),
+            JorbMessage(
+                id="msg_2",
+                jorb_id="jorb_12345678",
+                timestamp="2026-01-30T10:05:00+00:00",
+                direction="inbound",
+                channel="sms",
+                sender="+15551234567",
+                sender_name="Magic Hotel",
+                content="Hello! How can I help you?",
+            ),
+            JorbMessage(
+                id="msg_3",
+                jorb_id="jorb_12345678",
+                timestamp="2026-01-30T10:10:00+00:00",
+                direction="outbound",
+                channel="telegram",
+                recipient="@magic_hotel",
+                content="Can you send availability?",
+                agent_reasoning="Requesting availability info from alternative channel.",
+            ),
+        ]
+
+    def test_counts_messages_correctly(self, configured_service, sample_jorb, sample_messages):
+        """Test message counting is accurate."""
+        summary = configured_service._build_jorb_summary(sample_jorb, sample_messages)
+
+        assert summary.costs.message_count == 3
+        assert summary.costs.inbound_count == 1
+        assert summary.costs.outbound_count == 2
+        assert summary.costs.sms_count == 2
+        assert summary.costs.telegram_count == 1
+
+    def test_extracts_key_decisions(self, configured_service, sample_jorb, sample_messages):
+        """Test key decisions are extracted from agent reasoning."""
+        summary = configured_service._build_jorb_summary(sample_jorb, sample_messages)
+
+        assert len(summary.key_decisions) == 2
+        assert "Initial outreach" in summary.key_decisions[0]
+        assert "alternative channel" in summary.key_decisions[1]
+
+    def test_limits_key_decisions_to_5(self, configured_service, sample_jorb):
+        """Test key decisions are limited to 5."""
+        messages = [
+            JorbMessage(
+                id=f"msg_{i}",
+                jorb_id="jorb_12345678",
+                timestamp=f"2026-01-30T10:{i:02d}:00+00:00",
+                direction="outbound",
+                channel="sms",
+                recipient="+15551234567",
+                content=f"Message {i}",
+                agent_reasoning=f"Reasoning for message {i}",
+            )
+            for i in range(10)
+        ]
+
+        summary = configured_service._build_jorb_summary(sample_jorb, messages)
+        assert len(summary.key_decisions) == 5
+        # Should be the last 5
+        assert "message 5" in summary.key_decisions[0]
+        assert "message 9" in summary.key_decisions[4]
+
+    def test_empty_messages(self, configured_service, sample_jorb):
+        """Test handling of empty messages list."""
+        summary = configured_service._build_jorb_summary(sample_jorb, [])
+
+        assert summary.costs.message_count == 0
+        assert summary.key_decisions == []
+
+
+class TestSendDailyDigest:
+    """Tests for send_daily_digest method."""
+
+    @pytest.fixture
+    def sample_jorb_with_messages(self, sample_jorb):
+        """Create a sample JorbWithMessages."""
+        sample_jorb.status = "running"
+        messages = [
+            JorbMessage(
+                id="msg_1",
+                jorb_id=sample_jorb.id,
+                timestamp="2026-01-30T10:00:00+00:00",
+                direction="outbound",
+                channel="sms",
+                recipient="+15551234567",
+                content="Initial contact message",
+                agent_reasoning="Starting the task.",
+            ),
+            JorbMessage(
+                id="msg_2",
+                jorb_id=sample_jorb.id,
+                timestamp="2026-01-30T10:30:00+00:00",
+                direction="inbound",
+                channel="sms",
+                sender="+15551234567",
+                sender_name="Hotel",
+                content="Thanks for reaching out!",
+            ),
+        ]
+        return JorbWithMessages(jorb=sample_jorb, messages=messages)
+
+    async def test_digest_no_recipient(self, sample_jorb_with_messages):
+        """Test digest returns False without recipient."""
+        service = EmailService(
+            smtp_host="smtp.example.com",
+            smtp_user="user",
+            smtp_password="pass",
+            default_to=None,
+        )
+
+        result = await service.send_daily_digest([sample_jorb_with_messages])
+        assert result is False
+
+    @pytest.mark.skipif(not HAS_AIOSMTPLIB, reason="aiosmtplib not installed")
+    async def test_digest_success(self, configured_service, sample_jorb_with_messages):
+        """Test daily digest sends successfully."""
+        with patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send:
+            result = await configured_service.send_daily_digest(
+                [sample_jorb_with_messages]
+            )
+
+            assert result is True
+            mock_send.assert_called_once()
+
+            # Check message content
+            call_args = mock_send.call_args
+            msg = call_args[0][0]
+            assert "[Frank Bot] Daily Digest" in msg["Subject"]
+            assert msg["To"] == "owner@example.com"
+
+    @pytest.mark.skipif(not HAS_AIOSMTPLIB, reason="aiosmtplib not installed")
+    async def test_digest_paused_jorbs_in_subject(self, configured_service, sample_jorb_with_messages):
+        """Test paused jorbs count appears in subject."""
+        sample_jorb_with_messages.jorb.status = "paused"
+        sample_jorb_with_messages.jorb.paused_reason = "Needs approval"
+
+        with patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send:
+            await configured_service.send_daily_digest([sample_jorb_with_messages])
+
+            call_args = mock_send.call_args
+            msg = call_args[0][0]
+            assert "need attention" in msg["Subject"]
+
+    @pytest.mark.skipif(not HAS_AIOSMTPLIB, reason="aiosmtplib not installed")
+    async def test_digest_empty_jorbs(self, configured_service):
+        """Test digest handles empty jorbs list."""
+        with patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send:
+            result = await configured_service.send_daily_digest([])
+
+            assert result is True
+            mock_send.assert_called_once()
+
+    @pytest.mark.skipif(not HAS_AIOSMTPLIB, reason="aiosmtplib not installed")
+    async def test_digest_multiple_jorbs(self, configured_service, sample_jorb_with_messages):
+        """Test digest handles multiple jorbs."""
+        # Create a completed jorb
+        completed_jorb = Jorb(
+            id="jorb_87654321",
+            name="Task Complete",
+            status="complete",
+            original_plan="Do something",
+            progress_summary="Done!",
+        )
+        completed_jwm = JorbWithMessages(jorb=completed_jorb, messages=[])
+
+        with patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send:
+            result = await configured_service.send_daily_digest([
+                sample_jorb_with_messages,
+                completed_jwm,
+            ])
+
+            assert result is True
+
+    @pytest.mark.skipif(not HAS_AIOSMTPLIB, reason="aiosmtplib not installed")
+    async def test_digest_custom_recipient(self, configured_service, sample_jorb_with_messages):
+        """Test digest can use custom recipient."""
+        with patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send:
+            result = await configured_service.send_daily_digest(
+                [sample_jorb_with_messages],
+                to="custom@example.com",
+            )
+
+            assert result is True
+            call_args = mock_send.call_args
+            msg = call_args[0][0]
+            assert msg["To"] == "custom@example.com"
+
+
+class TestDigestTime:
+    """Tests for get_digest_time method."""
+
+    def test_default_digest_time(self):
+        """Test default digest time is 08:00."""
+        with patch.dict(os.environ, {}, clear=True):
+            # Remove DIGEST_TIME if it exists
+            os.environ.pop("DIGEST_TIME", None)
+            assert EmailService.get_digest_time() == "08:00"
+
+    def test_custom_digest_time(self):
+        """Test custom digest time from environment."""
+        with patch.dict(os.environ, {"DIGEST_TIME": "09:30"}):
+            assert EmailService.get_digest_time() == "09:30"

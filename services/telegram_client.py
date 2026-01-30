@@ -16,7 +16,7 @@ import os
 import time
 from dataclasses import dataclass
 
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.errors import (
     FloodWaitError,
     PhoneCodeExpiredError,
@@ -27,6 +27,8 @@ from telethon.errors import (
 )
 from telethon.tl.types import Channel, Chat, User
 
+from typing import Callable, Coroutine, Any
+
 from config import get_settings
 from services.stats import stats
 
@@ -35,6 +37,9 @@ logger = logging.getLogger(__name__)
 # Module-level singleton client and lock to prevent concurrent access
 _shared_client: TelegramClient | None = None
 _client_lock = asyncio.Lock()
+# Registered message handlers for real-time message processing
+_message_handlers: list[Callable[[events.NewMessage.Event], Coroutine[Any, Any, None]]] = []
+_handler_registered: bool = False
 
 
 @dataclass
@@ -165,12 +170,135 @@ class TelegramClientService:
     async def disconnect(self) -> None:
         """Cleanly shut down the shared client."""
         global _shared_client
-        
+
         async with _client_lock:
             if _shared_client is not None:
                 await _shared_client.disconnect()
                 _shared_client = None
                 logger.info("Telegram client disconnected")
+
+    def register_message_handler(
+        self,
+        handler: Callable[[events.NewMessage.Event], Coroutine[Any, Any, None]],
+    ) -> None:
+        """
+        Register a callback to receive incoming Telegram messages in real-time.
+
+        The callback will be called with Telethon NewMessage.Event objects
+        for all incoming messages (not outgoing).
+
+        Note: Only messages from mutual contacts will be processed by the
+        internal handler to maintain security.
+
+        Args:
+            handler: Async function that receives NewMessage.Event
+        """
+        global _message_handlers
+        _message_handlers.append(handler)
+        logger.info("Registered Telegram message handler (total: %d)", len(_message_handlers))
+
+    def unregister_message_handler(
+        self,
+        handler: Callable[[events.NewMessage.Event], Coroutine[Any, Any, None]],
+    ) -> bool:
+        """
+        Unregister a previously registered message handler.
+
+        Args:
+            handler: The handler to remove
+
+        Returns:
+            True if the handler was found and removed, False otherwise
+        """
+        global _message_handlers
+        try:
+            _message_handlers.remove(handler)
+            logger.info("Unregistered Telegram message handler (total: %d)", len(_message_handlers))
+            return True
+        except ValueError:
+            return False
+
+    async def _dispatch_to_handlers(self, event: events.NewMessage.Event) -> None:
+        """Internal handler that dispatches to all registered handlers."""
+        global _message_handlers
+
+        # Only process incoming messages (not outgoing)
+        if event.out:
+            return
+
+        # Get sender info
+        sender = await event.get_sender()
+        if sender is None:
+            logger.debug("Skipping message with no sender")
+            return
+
+        # Only process messages from mutual contacts (security gate)
+        if isinstance(sender, User):
+            if not (sender.mutual_contact or False):
+                logger.debug(
+                    "Skipping message from non-mutual contact: %s",
+                    sender.first_name or sender.id,
+                )
+                return
+        else:
+            # Skip groups/channels
+            logger.debug("Skipping message from non-user entity: %s", type(sender).__name__)
+            return
+
+        logger.info(
+            "Dispatching Telegram message from %s (%s) to %d handlers",
+            sender.first_name or sender.id,
+            sender.username or "no username",
+            len(_message_handlers),
+        )
+
+        # Dispatch to all registered handlers
+        for handler in _message_handlers:
+            try:
+                await handler(event)
+            except Exception as e:
+                logger.error("Error in Telegram message handler: %s", e)
+
+    async def start_listening(self) -> None:
+        """
+        Start listening for incoming messages.
+
+        Must be called after connect() to begin receiving real-time messages.
+        Messages will be dispatched to all registered handlers.
+        """
+        global _handler_registered
+
+        client = await self._get_shared_client()
+
+        if _handler_registered:
+            logger.debug("Message handler already registered with client")
+            return
+
+        # Register the internal dispatcher with the client
+        client.add_event_handler(
+            self._dispatch_to_handlers,
+            events.NewMessage(incoming=True),
+        )
+        _handler_registered = True
+        logger.info("Started listening for Telegram messages")
+
+    async def stop_listening(self) -> None:
+        """
+        Stop listening for incoming messages.
+
+        Removes the event handler from the client.
+        """
+        global _handler_registered, _shared_client
+
+        if not _handler_registered or _shared_client is None:
+            return
+
+        _shared_client.remove_event_handler(
+            self._dispatch_to_handlers,
+            events.NewMessage(incoming=True),
+        )
+        _handler_registered = False
+        logger.info("Stopped listening for Telegram messages")
 
     async def _ensure_connected(self) -> TelegramClient:
         """Ensure client is connected and return it."""

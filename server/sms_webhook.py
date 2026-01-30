@@ -15,7 +15,10 @@ from typing import Any
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from services.agent_runner import AgentRunner, IncomingEvent
 from services.contact_lookup import ContactLookup
+from services.jorb_storage import JorbContact, JorbStorage
+from services.message_buffer import BufferedEvent, MessageBuffer
 from services.sms_compliance import (
     HELP_RESPONSE,
     OPT_IN_RESPONSE,
@@ -34,6 +37,85 @@ from services.telegram_bot import TelegramBot
 from services.telnyx_sms import TelnyxSMSService
 
 logger = logging.getLogger(__name__)
+
+# Module-level message buffer and agent runner for SMS processing
+_sms_message_buffer: MessageBuffer | None = None
+_agent_runner: AgentRunner | None = None
+
+
+async def _on_sms_buffer_flush(event: BufferedEvent) -> None:
+    """
+    Callback called when the message buffer flushes SMS messages.
+
+    Routes debounced messages to the AgentRunner for processing.
+    """
+    global _agent_runner
+
+    if _agent_runner is None:
+        _agent_runner = AgentRunner()
+
+    if not _agent_runner.is_configured:
+        logger.warning("AgentRunner not configured (no OPENAI_API_KEY), skipping jorb processing")
+        return
+
+    # Convert BufferedEvent to IncomingEvent
+    incoming_event = IncomingEvent(
+        channel="sms",
+        sender=event.sender,
+        sender_name=event.sender_name,
+        content=event.content,
+        timestamp=event.timestamp,
+        message_count=event.message_count,
+    )
+
+    logger.info(
+        "Processing debounced SMS from %s (%d messages combined)",
+        event.sender,
+        event.message_count,
+    )
+
+    try:
+        result = await _agent_runner.process_incoming_message(incoming_event)
+        logger.info(
+            "AgentRunner result for SMS from %s: jorb=%s, action=%s, success=%s",
+            event.sender,
+            result.jorb_id,
+            result.action_taken,
+            result.success,
+        )
+    except Exception as exc:
+        logger.error("Error processing SMS through AgentRunner: %s", exc)
+
+
+def _get_message_buffer() -> MessageBuffer:
+    """Get or create the module-level message buffer."""
+    global _sms_message_buffer
+
+    if _sms_message_buffer is None:
+        _sms_message_buffer = MessageBuffer(on_flush=_on_sms_buffer_flush)
+
+    return _sms_message_buffer
+
+
+async def _is_jorb_contact(phone_number: str) -> bool:
+    """
+    Check if a phone number belongs to a contact in any active jorb.
+
+    Args:
+        phone_number: The phone number to check
+
+    Returns:
+        True if the phone number is in an active jorb's contacts
+    """
+    storage = JorbStorage()
+    open_jorbs = await storage.list_jorbs(status_filter="open")
+
+    for jorb in open_jorbs:
+        for contact in jorb.contacts:
+            if contact.channel == "sms" and contact.identifier == phone_number:
+                return True
+
+    return False
 
 
 async def _send_unknown_sender_notification(
@@ -356,9 +438,32 @@ async def sms_webhook_handler(request: Request) -> JSONResponse:
             status_code=500,
         )
 
+    # Check if sender is in any active jorb's contacts
+    is_jorb_participant = await _is_jorb_contact(parsed["from_number"])
+
+    # Route to jorb processing if sender is a known contact or jorb participant
+    jorb_routed = False
+    if (contact is not None or is_jorb_participant) and not is_compliance_message:
+        # Buffer the message for debouncing before routing to agent
+        message_buffer = _get_message_buffer()
+        await message_buffer.buffer_message(
+            channel="sms",
+            sender=parsed["from_number"],
+            content=parsed["text"],
+            sender_name=contact.name if contact else None,
+            timestamp=timestamp.isoformat(),
+        )
+        jorb_routed = True
+        logger.info(
+            "Buffered SMS from %s for jorb processing (contact=%s, jorb_participant=%s)",
+            parsed["from_number"],
+            contact.name if contact else None,
+            is_jorb_participant,
+        )
+
     # Send Telegram notification for unknown senders (non-compliance messages only)
     telegram_notified = False
-    if contact is None and not is_compliance_message:
+    if contact is None and not is_compliance_message and not is_jorb_participant:
         telegram_notified = await _send_unknown_sender_notification(
             from_number=parsed["from_number"],
             message=parsed["text"],
@@ -375,8 +480,10 @@ async def sms_webhook_handler(request: Request) -> JSONResponse:
         response_data["compliance_type"] = keyword_type
     if telegram_notified:
         response_data["telegram_notified"] = True
+    if jorb_routed:
+        response_data["jorb_routed"] = True
 
     return JSONResponse(response_data)
 
 
-__all__ = ["sms_webhook_handler"]
+__all__ = ["sms_webhook_handler", "_get_message_buffer", "_is_jorb_contact"]

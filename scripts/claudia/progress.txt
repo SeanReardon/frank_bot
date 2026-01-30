@@ -1077,3 +1077,70 @@ Added JorbPolicy dataclass and enforcement to AgentRunner. Rate limiting tracks 
 - Environment variables: AGENT_MAX_MESSAGES_PER_HOUR, AGENT_STALE_JORB_HOURS, AGENT_MAX_JORB_DURATION_DAYS
 
 ---
+
+---
+
+## 2026-01-30: frank_bot-00062 - Connect SMS webhook to jorb message processing
+
+### Summary
+Extended the SMS webhook handler to route messages from known contacts and jorb participants through the MessageBuffer for debouncing, then to AgentRunner for processing. Added helper functions to check if a phone number belongs to any active jorb's contacts.
+
+### Files Changed
+- server/sms_webhook.py (extended with jorb routing)
+- tests/test_sms_webhook.py (added TestSmsWebhookJorbRouting, TestSmsJorbContactCheck)
+
+### Learnings
+- SMS webhook already had contact lookup; extended to also check jorb participant status
+- Message buffering callback triggers agent processing after debounce period
+- Known contacts bypass Telegram notification since they're routed to jorb processing
+
+---
+
+## 2026-01-30: frank_bot-00063 - Connect Telegram messages to jorb message processing
+
+### Summary
+Extended TelegramClientService with on_message callback registration using Telethon events. Created telegram_jorb_router.py service to handle message routing through MessageBuffer to AgentRunner. Only processes messages from mutual contacts who are in active jorb contact lists.
+
+### Files Changed
+- services/telegram_client.py (added register_message_handler, start_listening, stop_listening)
+- services/telegram_jorb_router.py (new - handles Telegram → debounce → agent flow)
+- tests/test_telegram_jorb_router.py (new - 16 tests)
+
+### Learnings
+- Telethon's events.NewMessage works well for real-time message capture
+- Module-level handlers list with dispatcher pattern allows multiple registrations
+- Contact matching uses username (case-insensitive) or name for Telegram (not phone)
+
+---
+
+## 2026-01-30: frank_bot-00067 - Implement daily digest email for jorbs
+
+### Summary
+Added send_daily_digest method to EmailService with comprehensive HTML and plain text digest formatting. Digest includes active/paused/completed jorbs, message counts by channel, key agent reasoning, and costs. Added DIGEST_TIME environment variable for scheduling.
+
+### Files Changed
+- services/email_service.py (added send_daily_digest, JorbCosts, JorbDigestSummary, DailyDigestData)
+- tests/test_email_service.py (added TestBuildJorbSummary, TestSendDailyDigest, TestDigestTime)
+
+### Learnings
+- HTML email with inline styles works best for email client compatibility
+- Key decisions extracted from agent_reasoning field on outbound messages
+- Paused jorbs trigger different subject line to highlight need for attention
+
+---
+
+## 2026-01-30: frank_bot-00065 - Implement context reset (Ralph Loop) mechanism
+
+### Summary
+Created ContextResetService for periodic context compression in long-running jorbs. Tracks reset state, generates LLM handoff summaries, maintains progress log in Claudia-inspired markdown format, and updates jorb progress summaries.
+
+### Files Changed
+- services/context_reset.py (new - ContextResetService, ContextResetState, HandoffSummary, JorbHandoff)
+- tests/test_context_reset.py (new - 16 tests)
+
+### Learnings
+- CONTEXT_RESET_DAYS default of 3 balances context freshness with overhead
+- Progress log uses markdown format for human readability
+- build_fresh_context() provides complete restart context including last 100 lines of progress log
+
+---

@@ -734,3 +734,261 @@ class TestSmsWebhookTelegramNotification:
                         )
 
         assert response.status_code == 200
+
+
+class TestSmsWebhookJorbRouting:
+    """Tests for SMS routing to jorb message processing."""
+
+    @pytest.fixture
+    def app(self):
+        """Create a test application with the webhook route."""
+        return Starlette(
+            routes=[Route("/webhook/sms", sms_webhook_handler, methods=["POST"])]
+        )
+
+    @pytest.fixture
+    def client(self, app):
+        """Create a test client."""
+        return TestClient(app)
+
+    def test_routes_known_contact_to_jorb_buffer(self, client):
+        """Known contacts should be routed to jorb message buffer."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15551234567"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "Hello from a known contact",
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = Contact(
+                        name="Mom",
+                        googleContactId="people/c123",
+                    )
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook._get_message_buffer") as mock_buffer_fn:
+                        mock_buffer = MagicMock()
+                        mock_buffer.buffer_message = AsyncMock(return_value=True)
+                        mock_buffer_fn.return_value = mock_buffer
+
+                        response = client.post("/webhook/sms", json=payload)
+
+                        # Verify message was buffered
+                        mock_buffer.buffer_message.assert_called_once()
+                        call_kwargs = mock_buffer.buffer_message.call_args.kwargs
+                        assert call_kwargs["channel"] == "sms"
+                        assert call_kwargs["sender"] == "+15551234567"
+                        assert call_kwargs["sender_name"] == "Mom"
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["jorb_routed"] is True
+
+    def test_routes_jorb_participant_to_buffer(self, client):
+        """Jorb participants should be routed to message buffer."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15559876543"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "Reply from jorb contact",
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = None  # Not in Google Contacts
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook._is_jorb_contact", new_callable=AsyncMock) as mock_jorb_check:
+                        mock_jorb_check.return_value = True  # Is a jorb participant
+
+                        with patch("server.sms_webhook._get_message_buffer") as mock_buffer_fn:
+                            mock_buffer = MagicMock()
+                            mock_buffer.buffer_message = AsyncMock(return_value=True)
+                            mock_buffer_fn.return_value = mock_buffer
+
+                            response = client.post("/webhook/sms", json=payload)
+
+                            # Verify message was buffered
+                            mock_buffer.buffer_message.assert_called_once()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["jorb_routed"] is True
+        assert "telegram_notified" not in data  # No notification for jorb participants
+
+    def test_unknown_sender_not_jorb_routed(self, client):
+        """Unknown senders who aren't jorb participants should not be routed."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15559999999"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "Random stranger message",
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = None
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook._is_jorb_contact", new_callable=AsyncMock) as mock_jorb_check:
+                        mock_jorb_check.return_value = False
+
+                        with patch("server.sms_webhook._get_message_buffer") as mock_buffer_fn:
+                            mock_buffer = MagicMock()
+                            mock_buffer.buffer_message = AsyncMock(return_value=True)
+                            mock_buffer_fn.return_value = mock_buffer
+
+                            with patch("server.sms_webhook.TelegramBot") as mock_bot_cls:
+                                mock_bot = MagicMock()
+                                mock_bot.is_configured = True
+                                mock_bot.notify_unknown_sms = AsyncMock(
+                                    return_value=MagicMock(success=True)
+                                )
+                                mock_bot_cls.return_value = mock_bot
+
+                                response = client.post("/webhook/sms", json=payload)
+
+                                # Buffer should NOT be called
+                                mock_buffer.buffer_message.assert_not_called()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "jorb_routed" not in data
+        assert data["telegram_notified"] is True
+
+    def test_compliance_messages_not_jorb_routed(self, client):
+        """Compliance messages should not be routed to jorb processing."""
+        payload = {
+            "data": {
+                "event_type": "message.received",
+                "payload": {
+                    "direction": "inbound",
+                    "from": {"phone_number": "+15559999999"},
+                    "to": [{"phone_number": "+12148170664"}],
+                    "text": "STOP",
+                    "media": [],
+                },
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"DATA_DIR": tmpdir}):
+                with patch("server.sms_webhook.ContactLookup") as mock_lookup_cls:
+                    mock_lookup = MagicMock()
+                    mock_lookup.lookup.return_value = None
+                    mock_lookup_cls.return_value = mock_lookup
+
+                    with patch("server.sms_webhook._get_message_buffer") as mock_buffer_fn:
+                        mock_buffer = MagicMock()
+                        mock_buffer_fn.return_value = mock_buffer
+
+                        with patch("server.sms_webhook.TelnyxSMSService") as mock_sms_cls:
+                            mock_sms = MagicMock()
+                            mock_sms.is_configured = True
+                            mock_sms.send_sms.return_value = MagicMock(success=True)
+                            mock_sms_cls.return_value = mock_sms
+
+                            response = client.post("/webhook/sms", json=payload)
+
+                            # Buffer should NOT be called for compliance messages
+                            mock_buffer.buffer_message.assert_not_called()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["compliance"] is True
+        assert "jorb_routed" not in data
+
+
+@pytest.mark.asyncio
+class TestSmsJorbContactCheck:
+    """Tests for _is_jorb_contact function."""
+
+    async def test_phone_in_active_jorb(self):
+        """Returns True if phone is in an active jorb's contacts."""
+        from server.sms_webhook import _is_jorb_contact
+        from services.jorb_storage import JorbContact
+
+        with patch("server.sms_webhook.JorbStorage") as mock_storage_cls:
+            mock_storage = MagicMock()
+            mock_jorb = MagicMock()
+            mock_jorb.contacts = [
+                JorbContact(identifier="+15551234567", channel="sms", name="Test"),
+            ]
+            mock_storage.list_jorbs = AsyncMock(return_value=[mock_jorb])
+            mock_storage_cls.return_value = mock_storage
+
+            result = await _is_jorb_contact("+15551234567")
+            assert result is True
+
+    async def test_phone_not_in_any_jorb(self):
+        """Returns False if phone is not in any jorb's contacts."""
+        from server.sms_webhook import _is_jorb_contact
+        from services.jorb_storage import JorbContact
+
+        with patch("server.sms_webhook.JorbStorage") as mock_storage_cls:
+            mock_storage = MagicMock()
+            mock_jorb = MagicMock()
+            mock_jorb.contacts = [
+                JorbContact(identifier="+15559999999", channel="sms", name="Other"),
+            ]
+            mock_storage.list_jorbs = AsyncMock(return_value=[mock_jorb])
+            mock_storage_cls.return_value = mock_storage
+
+            result = await _is_jorb_contact("+15551234567")
+            assert result is False
+
+    async def test_no_open_jorbs(self):
+        """Returns False if there are no open jorbs."""
+        from server.sms_webhook import _is_jorb_contact
+
+        with patch("server.sms_webhook.JorbStorage") as mock_storage_cls:
+            mock_storage = MagicMock()
+            mock_storage.list_jorbs = AsyncMock(return_value=[])
+            mock_storage_cls.return_value = mock_storage
+
+            result = await _is_jorb_contact("+15551234567")
+            assert result is False
+
+    async def test_only_checks_sms_channel(self):
+        """Only matches phone numbers in SMS channel contacts."""
+        from server.sms_webhook import _is_jorb_contact
+        from services.jorb_storage import JorbContact
+
+        with patch("server.sms_webhook.JorbStorage") as mock_storage_cls:
+            mock_storage = MagicMock()
+            mock_jorb = MagicMock()
+            # Same identifier but on Telegram channel
+            mock_jorb.contacts = [
+                JorbContact(identifier="+15551234567", channel="telegram", name="Test"),
+            ]
+            mock_storage.list_jorbs = AsyncMock(return_value=[mock_jorb])
+            mock_storage_cls.return_value = mock_storage
+
+            result = await _is_jorb_contact("+15551234567")
+            assert result is False
