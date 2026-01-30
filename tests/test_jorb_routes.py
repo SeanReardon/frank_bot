@@ -107,13 +107,21 @@ def client(app):
 class TestJorbRoutes:
     """Tests for jorb HTTP routes."""
 
-    def test_list_jorbs_requires_api_key(self, client):
-        """Test that /jorbs requires API key."""
-        response = client.get("/jorbs")
-        assert response.status_code == 401
+    def test_list_jorbs_public(self, client, temp_db_path):
+        """Test that /jorbs is public (no API key required for web dashboard)."""
+        with patch("actions.jorbs.JorbStorage") as mock_class:
+            storage = JorbStorage(db_path=temp_db_path)
+            mock_class.return_value = storage
+
+            # Works without API key
+            response = client.get("/jorbs")
+            assert response.status_code == 200
+            data = response.json()
+            assert "count" in data
+            assert "jorbs" in data
 
     def test_list_jorbs_with_api_key(self, client, temp_db_path):
-        """Test listing jorbs with valid API key."""
+        """Test listing jorbs also works with API key (for ChatGPT)."""
         with patch("actions.jorbs.JorbStorage") as mock_class:
             storage = JorbStorage(db_path=temp_db_path)
             mock_class.return_value = storage

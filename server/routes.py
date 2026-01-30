@@ -272,9 +272,9 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(get_sms_messages_action)
         return await responder(payload)
 
-    # Jorb endpoints (protected by API key)
+    # Jorb endpoints - read-only endpoints are public for web dashboard
+    # Write operations (approve, cancel) require Stytch session
     async def jorbs_list_handler(request: Request):
-        await _require_api_key(request)
         stats.get_endpoint_stats("jorbsList").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(list_jorbs_action)
@@ -288,7 +288,6 @@ def build_action_routes(settings: Settings) -> list[Route]:
         return await responder(payload)
 
     async def jorbs_get_handler(request: Request):
-        await _require_api_key(request)
         stats.get_endpoint_stats("jorbsGet").record_call()
         jorb_id = request.path_params.get("id", "")
         payload = dict(request.query_params)
@@ -297,7 +296,6 @@ def build_action_routes(settings: Settings) -> list[Route]:
         return await responder(payload)
 
     async def jorbs_messages_handler(request: Request):
-        await _require_api_key(request)
         stats.get_endpoint_stats("jorbsMessages").record_call()
         jorb_id = request.path_params.get("id", "")
         payload = dict(request.query_params)
@@ -324,14 +322,12 @@ def build_action_routes(settings: Settings) -> list[Route]:
         return await responder(payload)
 
     async def jorbs_brief_handler(request: Request):
-        await _require_api_key(request)
         stats.get_endpoint_stats("jorbsBrief").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(brief_me_action)
         return await responder(payload)
 
     async def jorbs_stats_handler(request: Request):
-        await _require_api_key(request)
         stats.get_endpoint_stats("jorbsStats").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(get_jorbs_stats_action)
