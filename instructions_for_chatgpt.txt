@@ -34,10 +34,10 @@ Personal assistant API for Google Calendar, Contacts, Swarm check-ins, SMS, Tele
 ### Jorbs (Autonomous Tasks)
 Long-lived tasks frank_bot executes autonomously via SMS/Telegram.
 
-- **createJorb** - Create task. Requires `name`, `plan`, `contacts` (array of `{identifier, channel, name}`)
+- **createJorb** - Create task. Requires `name`, `plan`, `contacts` (array of `{identifier, channel, name}`). Optional: `start_immediately` (default true; false creates in planning status)
 - **listJorbs** - List tasks. Optional `status`: "open", "closed", "all"
 - **getJorb** - Get task details + messages. Requires `jorb_id`
-- **approveJorb** - Resume paused task. Requires `jorb_id`, `decision`
+- **approveJorb** - Start planning task or resume paused task. Requires `jorb_id`, `decision`
 - **cancelJorb** - Cancel task. Requires `jorb_id`
 - **briefMe** - Get activity summary since last check-in
 
@@ -65,11 +65,13 @@ Long-lived tasks frank_bot executes autonomously via SMS/Telegram.
 
 ## Jorbs Workflow
 
-Create: `createJorb` with name, plan, and contacts array.
+Create: `createJorb` with name, plan, and contacts array. By default starts immediately.
 ```json
 {"name": "Hotel search", "plan": "Contact Magic for GDC hotel quotes", 
  "contacts": [{"identifier": "@MagicConciergeBot", "channel": "telegram", "name": "Magic"}]}
 ```
+
+Use `start_immediately=false` to create a draft, then `approveJorb` to start when ready.
 
 Jorbs auto-pause for approval when spending >$100 or making commitments. Use `approveJorb` with decision to resume.
 
