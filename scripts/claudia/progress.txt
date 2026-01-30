@@ -775,3 +775,43 @@ Added get_sms_messages_action() to actions/sms.py for retrieving SMS history. Ac
 - Contact name returned only when available
 
 ---
+
+## 2026-01-30: frank_bot-00049 - Create web dashboard Telegram Bot status card
+
+### Summary
+Added GET /telegram-bot/status and POST /telegram-bot/test endpoints to server/routes.py. Created actions/telegram_bot.py with get_telegram_bot_status() and test_telegram_bot() action handlers. Created telegram-bot-card.ts Lit component that displays configuration status and allows testing the bot connection.
+
+### Files Changed
+- actions/telegram_bot.py (new)
+- server/routes.py (added telegram-bot routes)
+- web/src/lib/api.ts (added TelegramBotStatus, testTelegramBot)
+- web/src/components/telegram-bot-card.ts (new)
+- web/src/frank-bot-embed.ts (imported telegram-bot-card)
+- tests/test_telegram_bot_actions.py (new - 7 tests)
+
+### Learnings
+- GET /telegram-bot/status is public (no auth) for dashboard access
+- POST /telegram-bot/test protected by Stytch session (sends real message)
+- Card uses blue left accent border to distinguish from Telegram client card
+
+---
+
+## 2026-01-30: frank_bot-00050 - Add SMS messages card to web dashboard
+
+### Summary
+Extended web/src/lib/api.ts with getSmsMessages() function and types. Created sms-card.ts Lit component that displays SMS messages grouped by conversation (remote phone number). Shows contact name if known, direction-based styling (outbound=right-aligned gold, inbound=left-aligned border), attachment indicator, timestamp formatting, and filter input with debounce.
+
+### Files Changed
+- web/src/lib/api.ts (added SmsMessage, SmsMessagesResponse, getSmsMessages)
+- web/src/components/sms-card.ts (new)
+- web/src/frank-bot-embed.ts (imported sms-card)
+- web/src/vite-env.d.ts (new - TypeScript declarations for Vite CSS imports)
+
+### Learnings
+- Conversations grouped by phone number using Map
+- Filter input detects phone numbers (+ and digits) vs contact names
+- Debounce set to 300ms for filter input
+- Attachment indicator uses SVG paperclip icon
+- Green left border accent for SMS card
+
+---

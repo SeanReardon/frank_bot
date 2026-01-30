@@ -38,6 +38,7 @@ from actions.telegram import (
     verify_telegram_2fa,
     verify_telegram_code,
 )
+from actions.telegram_bot import get_telegram_bot_status, test_telegram_bot
 from server.sms_webhook import sms_webhook_handler
 from server.stytch_middleware import require_stytch_session
 from config import Settings
@@ -239,6 +240,21 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(verify_telegram_2fa)
         return await responder(payload)
 
+    # Telegram Bot status endpoint (public - no API key required for web dashboard)
+    async def telegram_bot_status_handler(request: Request):
+        stats.get_endpoint_stats("telegramBotStatus").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_telegram_bot_status)
+        return await responder(payload)
+
+    # Telegram Bot test endpoint (protected by Stytch session - sends real message)
+    @require_stytch_session
+    async def telegram_bot_test_handler(request: Request):
+        stats.get_endpoint_stats("telegramBotTest").record_call()
+        payload = await _read_body(request)
+        responder = _build_responder(test_telegram_bot)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -298,6 +314,9 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/telegram/auth/2fa", telegram_auth_2fa_handler, methods=["POST"]),
         # SMS webhook endpoint (no API key - called by Telnyx)
         Route("/webhook/sms", sms_webhook_handler, methods=["POST"]),
+        # Telegram Bot status and test endpoints
+        Route("/telegram-bot/status", telegram_bot_status_handler, methods=["GET"]),
+        Route("/telegram-bot/test", telegram_bot_test_handler, methods=["POST"]),
     ]
 
     return routes

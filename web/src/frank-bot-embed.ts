@@ -11,6 +11,8 @@ import * as api from './lib/api.js';
 
 // Import components
 import './components/telegram-card.js';
+import './components/telegram-bot-card.js';
+import './components/sms-card.js';
 import './components/scripts-card.js';
 import './components/jobs-card.js';
 
@@ -354,6 +356,10 @@ export class FrankBotDashboard extends LitElement {
     return html`
       <div class="dashboard">
         <telegram-card></telegram-card>
+
+        <telegram-bot-card></telegram-bot-card>
+
+        <sms-card></sms-card>
 
         <scripts-card></scripts-card>
 

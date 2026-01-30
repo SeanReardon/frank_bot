@@ -16,7 +16,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from actions.swarm import list_my_swarm_checkins_action
+from actions.swarm import search_checkins_action
 
 
 def print_header(title: str):
@@ -30,7 +30,7 @@ async def test_recent_checkins():
     """Test basic recent check-ins."""
     print_header("TEST 1: Recent Check-ins (no filters)")
 
-    result = await list_my_swarm_checkins_action({"max_results": 5})
+    result = await search_checkins_action({"max_results": 5})
     print(f"\n✓ {result['message']}")
 
     for checkin in result["checkins"]:
@@ -47,7 +47,7 @@ async def test_year_filter():
     """Test filtering by year."""
     print_header("TEST 2: Check-ins from 2024")
 
-    result = await list_my_swarm_checkins_action({
+    result = await search_checkins_action({
         "year": 2024,
         "max_results": 5,
     })
@@ -67,7 +67,7 @@ async def test_companion_filter():
     print_header("TEST 3: Check-ins with a specific companion")
 
     # First, find a companion from recent checkins
-    recent = await list_my_swarm_checkins_action({
+    recent = await search_checkins_action({
         "only_with_companions": True,
         "max_results": 10,
     })
@@ -82,7 +82,7 @@ async def test_companion_filter():
     print(f"\n  Found companion: {companion_name}")
 
     # Now filter by that companion
-    result = await list_my_swarm_checkins_action({
+    result = await search_checkins_action({
         "with_companion": companion_name,
         "max_results": 5,
     })
@@ -101,7 +101,7 @@ async def test_category_filter():
     """Test filtering by venue category."""
     print_header("TEST 4: Restaurant check-ins")
 
-    result = await list_my_swarm_checkins_action({
+    result = await search_checkins_action({
         "category": "restaurant",
         "max_results": 5,
     })
@@ -121,7 +121,7 @@ async def test_combined_filters():
     print_header("TEST 5: Restaurant check-ins with companion in 2024")
 
     # Find a companion first
-    recent = await list_my_swarm_checkins_action({
+    recent = await search_checkins_action({
         "only_with_companions": True,
         "max_results": 5,
     })
@@ -132,7 +132,7 @@ async def test_combined_filters():
 
     companion_name = recent["checkins"][0]["companions"][0]["first_name"]
 
-    result = await list_my_swarm_checkins_action({
+    result = await search_checkins_action({
         "year": 2024,
         "with_companion": companion_name,
         "category": "restaurant",
@@ -160,7 +160,7 @@ async def test_only_with_companions():
     """Test filtering to only show check-ins with companions."""
     print_header("TEST 6: Only check-ins with companions")
 
-    result = await list_my_swarm_checkins_action({
+    result = await search_checkins_action({
         "only_with_companions": True,
         "max_results": 5,
     })

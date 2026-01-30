@@ -249,6 +249,74 @@ export async function getJob(jobId: string): Promise<Job> {
   return request<Job>(`/frank/jobs/${encodeURIComponent(jobId)}`);
 }
 
+// Telegram Bot types and functions
+
+export interface TelegramBotStatus {
+  configured: boolean;
+  chatId?: string;
+}
+
+export interface TelegramBotTestResponse {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Get Telegram Bot notification service status.
+ */
+export async function getTelegramBotStatus(): Promise<TelegramBotStatus> {
+  return request<TelegramBotStatus>('/telegram-bot/status');
+}
+
+/**
+ * Test Telegram Bot notification by sending a test message.
+ */
+export async function testTelegramBot(): Promise<TelegramBotTestResponse> {
+  return request<TelegramBotTestResponse>('/telegram-bot/test', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+// SMS types and functions
+
+export interface SmsMessage {
+  timestamp: string;
+  direction: 'inbound' | 'outbound';
+  contact: string | null;
+  phone: string;
+  preview: string;
+  hasAttachments: boolean;
+  jorbId: string | null;
+}
+
+export interface SmsMessagesResponse {
+  count: number;
+  messages: SmsMessage[];
+}
+
+export interface GetSmsMessagesOptions {
+  limit?: number;
+  contact?: string;
+  phone?: string;
+  direction?: 'inbound' | 'outbound';
+}
+
+/**
+ * Get SMS messages with optional filtering.
+ */
+export async function getSmsMessages(options: GetSmsMessagesOptions = {}): Promise<SmsMessagesResponse> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  if (options.contact) params.set('contact', options.contact);
+  if (options.phone) params.set('phone', options.phone);
+  if (options.direction) params.set('direction', options.direction);
+
+  const queryString = params.toString();
+  const path = `/actions/sms/messages${queryString ? `?${queryString}` : ''}`;
+  return request<SmsMessagesResponse>(path);
+}
+
 // Version types and functions
 
 export interface VersionInfo {

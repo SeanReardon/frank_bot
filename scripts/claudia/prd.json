@@ -793,7 +793,7 @@
         "Uses existing dashboard CSS tokens for styling"
       ],
       "priority": 49,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00043, frank_bot-00034. Optional web UI for Telegram bot status."
     },
     {
@@ -811,7 +811,7 @@
         "Filter by contact/phone input field"
       ],
       "priority": 50,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00048, frank_bot-00034. Displays SMS history in web UI."
     }
   ]
