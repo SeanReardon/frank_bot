@@ -813,6 +813,404 @@
       "priority": 50,
       "passes": true,
       "notes": "Depends on frank_bot-00048, frank_bot-00034. Displays SMS history in web UI."
+    },
+    {
+      "id": "frank_bot-00051",
+      "title": "Create jorb_storage.py with SQLite persistence for jorbs and messages",
+      "acceptanceCriteria": [
+        "services/jorb_storage.py created with JorbStorage class",
+        "aiosqlite added to pyproject.toml dependencies",
+        "SQLite schema created with jorbs, jorb_messages, and jorb_checkpoints tables",
+        "Jorb dataclass with fields: id, name, status, original_plan, contacts_json, progress_summary, created_at, updated_at, paused_reason, needs_approval_for, awaiting",
+        "JorbMessage dataclass with fields: id, jorb_id, timestamp, direction, channel, sender, sender_name, recipient, content, agent_reasoning",
+        "create_jorb(name, plan, contacts) returns new Jorb with generated ID",
+        "get_jorb(jorb_id) returns Jorb or None",
+        "list_jorbs(status_filter) returns list of Jorb objects (filters: open, closed, all)",
+        "update_jorb(jorb_id, **updates) updates jorb fields and returns updated Jorb",
+        "Database file stored at JORBS_DB_PATH (default: ./data/jorbs.db)",
+        "Unit tests verify CRUD operations"
+      ],
+      "priority": 51,
+      "passes": false,
+      "notes": "Foundation for jorbs system. Blocks all other jorb tasks. Status values: planning, running, paused, complete, failed, cancelled."
+    },
+    {
+      "id": "frank_bot-00052",
+      "title": "Add message tracking methods to JorbStorage",
+      "acceptanceCriteria": [
+        "add_message(jorb_id, message: JorbMessage) inserts message and returns message ID",
+        "get_messages(jorb_id, limit=50) returns list of JorbMessage objects sorted by timestamp",
+        "get_open_jorbs_with_messages() returns list of JorbWithMessages (jorb + all messages) for running/paused jorbs",
+        "add_checkpoint(jorb_id, summary, token_count) creates checkpoint record",
+        "Messages indexed by jorb_id and timestamp for efficient queries",
+        "Unit tests verify message storage and retrieval"
+      ],
+      "priority": 52,
+      "passes": false,
+      "notes": "Depends on frank_bot-00051. Extends JorbStorage with message tracking."
+    },
+    {
+      "id": "frank_bot-00053",
+      "title": "Create agent_runner.py with OpenAI wrapper and context building",
+      "acceptanceCriteria": [
+        "services/agent_runner.py created with AgentRunner class",
+        "openai package added to pyproject.toml if not present",
+        "Uses gpt-5.2 model (hardcoded, not configurable)",
+        "OPENAI_API_KEY read from environment",
+        "build_context(event, open_jorbs) constructs context dict matching agent_system.md format",
+        "call_agent(context) sends to OpenAI API with response_format=json_object",
+        "parse_agent_response(response) extracts jorb_id, reasoning, action, task_update from JSON",
+        "AgentAction dataclass with type, channel, recipient, content, pause_reason, needs_approval_for",
+        "Error handling for API failures with clear error messages",
+        "Unit tests with mocked OpenAI client verify context building and response parsing"
+      ],
+      "priority": 53,
+      "passes": false,
+      "notes": "Depends on frank_bot-00051, frank_bot-00052. Core LLM integration. Read prompts/agent_system.md for expected format."
+    },
+    {
+      "id": "frank_bot-00054",
+      "title": "Implement process_incoming_message in AgentRunner",
+      "acceptanceCriteria": [
+        "process_incoming_message(event: IncomingEvent) async method processes incoming SMS/Telegram",
+        "IncomingEvent dataclass with channel, sender, sender_name, content, timestamp",
+        "Fetches all open jorbs with messages from JorbStorage",
+        "Enriches event with contact lookup (uses ContactLookup service)",
+        "Builds context and calls gpt-5.2 for decision",
+        "Stores inbound message in matched jorb's message history",
+        "Executes agent action (send_message, pause, complete, no_action)",
+        "For send_message: calls appropriate send function (SMS or Telegram)",
+        "Stores outbound message with agent_reasoning",
+        "Returns AgentResponse with jorb_id, action_taken, success",
+        "Unit tests verify message routing and action execution"
+      ],
+      "priority": 54,
+      "passes": false,
+      "notes": "Depends on frank_bot-00053, frank_bot-00042 (ContactLookup). Core message processing loop."
+    },
+    {
+      "id": "frank_bot-00055",
+      "title": "Implement jorb kickoff flow in AgentRunner",
+      "acceptanceCriteria": [
+        "kickoff_jorb(jorb: Jorb) async method sends initial message for new jorb",
+        "Builds context with jorb_created event type and empty messages array",
+        "Calls gpt-5.2 to determine first action",
+        "Executes initial send_message action if returned",
+        "Stores outbound message in jorb's message history",
+        "Updates jorb status from planning to running",
+        "Handles case where agent decides no initial action needed",
+        "Unit tests verify kickoff flow with mock OpenAI"
+      ],
+      "priority": 55,
+      "passes": false,
+      "notes": "Depends on frank_bot-00054. Used when creating jorbs with start_immediately=True."
+    },
+    {
+      "id": "frank_bot-00056",
+      "title": "Create actions/jorbs.py with jorb CRUD actions",
+      "acceptanceCriteria": [
+        "actions/jorbs.py created following existing action patterns",
+        "create_jorb_action(arguments) creates jorb with name, plan, contacts, start_immediately (default True)",
+        "Contacts validated as array of {identifier, channel, name} objects",
+        "If start_immediately=True, calls AgentRunner.kickoff_jorb()",
+        "list_jorbs_action(arguments) lists jorbs with status filter (open, closed, all)",
+        "get_jorb_action(arguments) returns full jorb details with optional messages",
+        "get_jorb_messages_action(arguments) returns message history with limit and offset",
+        "Actions follow signature: async def action_name(arguments: dict[str, Any] | None = None)",
+        "Unit tests verify action behavior"
+      ],
+      "priority": 56,
+      "passes": false,
+      "notes": "Depends on frank_bot-00051, frank_bot-00055. Action layer for jorb management."
+    },
+    {
+      "id": "frank_bot-00057",
+      "title": "Add approve and cancel actions for jorbs",
+      "acceptanceCriteria": [
+        "approve_jorb_action(arguments) approves paused jorb with jorb_id and decision",
+        "Updates jorb status from paused to running",
+        "Clears paused_reason and needs_approval_for fields",
+        "Records approval decision in jorb progress_summary",
+        "Triggers agent to process the approval and take next action",
+        "cancel_jorb_action(arguments) cancels jorb with jorb_id and optional reason",
+        "Updates jorb status to cancelled",
+        "Cannot cancel already complete/cancelled jorbs",
+        "Unit tests verify approval and cancellation flows"
+      ],
+      "priority": 57,
+      "passes": false,
+      "notes": "Depends on frank_bot-00056. Completes jorb lifecycle management."
+    },
+    {
+      "id": "frank_bot-00058",
+      "title": "Implement brief_me action for jorb status briefing",
+      "acceptanceCriteria": [
+        "brief_me_action(arguments) returns activity summary since last briefing",
+        "Returns JSON with needs_attention (count), activity_summary, highlights, pending_decisions",
+        "needs_attention counts paused jorbs requiring approval",
+        "activity_summary lists recent activity per jorb (last N hours configurable)",
+        "highlights includes notable events (completions, new contacts, spending)",
+        "pending_decisions lists each paused jorb with reason and options",
+        "Updates last_briefing_timestamp in persistent state",
+        "Unit tests verify briefing content generation"
+      ],
+      "priority": 58,
+      "passes": false,
+      "notes": "Depends on frank_bot-00056. Designed for ChatGPT to quickly catch up on jorb status."
+    },
+    {
+      "id": "frank_bot-00059",
+      "title": "Add jorb routes to server",
+      "acceptanceCriteria": [
+        "GET /jorbs route lists jorbs (query param: status)",
+        "GET /jorbs/create route creates new jorb (query params: name, plan, contacts JSON, start_immediately)",
+        "GET /jorbs/{id} route returns jorb details (query params: include_messages, message_limit)",
+        "GET /jorbs/{id}/messages route returns message history (query params: limit, offset)",
+        "GET /jorbs/{id}/approve route approves paused jorb (query params: decision)",
+        "GET /jorbs/{id}/cancel route cancels jorb (query params: reason)",
+        "GET /jorbs/brief route returns briefing",
+        "Routes use _build_responder wrapper pattern",
+        "Routes protected by existing API key authentication",
+        "Integration tests verify routes call correct actions"
+      ],
+      "priority": 59,
+      "passes": false,
+      "notes": "Depends on frank_bot-00056, frank_bot-00057, frank_bot-00058. Exposes jorb functionality via HTTP."
+    },
+    {
+      "id": "frank_bot-00060",
+      "title": "Update OpenAPI spec with jorb endpoints",
+      "acceptanceCriteria": [
+        "openapi/spec.json includes all jorb endpoints with query parameters and response schemas",
+        "Jorb schema defined with all fields (id, name, status, plan, contacts, etc.)",
+        "JorbMessage schema defined (timestamp, direction, channel, sender, content)",
+        "Response schemas for list, create, get, approve, cancel, brief endpoints",
+        "Endpoint descriptions explain jorb lifecycle and status meanings",
+        "Spec passes linting with npx @redocly/cli lint openapi/spec.json"
+      ],
+      "priority": 60,
+      "passes": false,
+      "notes": "Depends on frank_bot-00059. Documents API for ChatGPT integration."
+    },
+    {
+      "id": "frank_bot-00061",
+      "title": "Implement message debouncing for incoming messages",
+      "acceptanceCriteria": [
+        "services/message_buffer.py created with MessageBuffer class",
+        "Configurable debounce times per channel (DEBOUNCE_TELEGRAM_SECONDS=60, DEBOUNCE_SMS_SECONDS=30)",
+        "buffer_message(event) adds message to buffer, returns True if first in window",
+        "flush_buffer(sender, channel) returns combined messages and clears buffer",
+        "Messages from same sender/channel within window combined with newlines",
+        "Timer triggers flush after debounce window expires",
+        "message_count field added to flushed event",
+        "Unit tests verify debouncing behavior with different timing scenarios"
+      ],
+      "priority": 61,
+      "passes": false,
+      "notes": "No direct dependencies but used by frank_bot-00062. Prevents rapid-fire LLM calls."
+    },
+    {
+      "id": "frank_bot-00062",
+      "title": "Connect SMS webhook to jorb message processing",
+      "acceptanceCriteria": [
+        "sms_webhook_handler (from frank_bot-00044) extended to route to jorbs",
+        "After storing inbound SMS, calls MessageBuffer.buffer_message()",
+        "When debounce timer fires, calls AgentRunner.process_incoming_message()",
+        "Messages from known contacts (in any jorb's contacts) processed immediately",
+        "Messages from unknown contacts follow existing notification flow",
+        "jorbId field populated in SMSMessage when matched to a jorb",
+        "Integration test verifies SMS -> debounce -> agent flow"
+      ],
+      "priority": 62,
+      "passes": false,
+      "notes": "Depends on frank_bot-00044, frank_bot-00054, frank_bot-00061. Connects SMS to jorb processing."
+    },
+    {
+      "id": "frank_bot-00063",
+      "title": "Connect Telegram messages to jorb message processing",
+      "acceptanceCriteria": [
+        "TelegramClientService extended with on_message callback registration",
+        "Callback receives Telethon message events in real-time",
+        "Messages routed through MessageBuffer for debouncing",
+        "When debounce timer fires, calls AgentRunner.process_incoming_message()",
+        "Channel set to 'telegram', sender is username or phone",
+        "Contact lookup uses Telegram username/name (not phone-based)",
+        "Integration test verifies Telegram -> debounce -> agent flow"
+      ],
+      "priority": 63,
+      "passes": false,
+      "notes": "Depends on frank_bot-00016, frank_bot-00054, frank_bot-00061. Connects Telegram to jorb processing."
+    },
+    {
+      "id": "frank_bot-00064",
+      "title": "Implement JorbPolicy enforcement in AgentRunner",
+      "acceptanceCriteria": [
+        "JorbPolicy dataclass with max_spend_without_approval, max_messages_per_hour, require_approval_for, stale_jorb_hours, max_jorb_duration_days",
+        "Policy values read from environment (AGENT_SPEND_LIMIT default $100)",
+        "Policy included in context sent to gpt-5.2",
+        "Rate limiting enforced: track messages per hour per jorb",
+        "Auto-pause stale jorbs after stale_jorb_hours of inactivity",
+        "Auto-fail jorbs exceeding max_jorb_duration_days",
+        "Policy violations logged and reported in brief_me output",
+        "Unit tests verify policy enforcement scenarios"
+      ],
+      "priority": 64,
+      "passes": false,
+      "notes": "Depends on frank_bot-00054. Adds guardrails to autonomous operation."
+    },
+    {
+      "id": "frank_bot-00065",
+      "title": "Implement context reset (Ralph Loop) mechanism",
+      "acceptanceCriteria": [
+        "CONTEXT_RESET_DAYS environment variable (default 3)",
+        "data/jorbs_progress.txt created for progress log",
+        "maybe_reset_context() checks if reset needed (days elapsed AND activity occurred)",
+        "perform_context_reset() asks gpt-5.2 for structured handoff summary",
+        "Handoff includes per-jorb status and session summary",
+        "Progress log appended in Claudia-inspired markdown format",
+        "Jorb progress_summary fields updated with handoff content",
+        "build_fresh_context() includes original plans, current states, last 100 lines of progress log",
+        "Unit tests verify reset timing and handoff generation"
+      ],
+      "priority": 65,
+      "passes": false,
+      "notes": "Depends on frank_bot-00054. Prevents context overflow in long-running jorbs."
+    },
+    {
+      "id": "frank_bot-00066",
+      "title": "Create email_service.py for notifications and digest",
+      "acceptanceCriteria": [
+        "services/email_service.py created with EmailService class",
+        "aiosmtplib added to pyproject.toml dependencies",
+        "SMTP settings from environment: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD",
+        "send(to, subject, body_html, body_text) sends email via SMTP",
+        "notify_jorb_paused(jorb) sends notification email when jorb pauses for approval",
+        "notify_jorb_complete(jorb) sends notification email when jorb completes",
+        "DIGEST_EMAIL_TO environment variable for recipient address",
+        "Graceful handling of SMTP failures (log, don't crash)",
+        "Unit tests with mocked SMTP verify email formatting"
+      ],
+      "priority": 66,
+      "passes": false,
+      "notes": "No direct dependencies. Used for daily digest and notifications."
+    },
+    {
+      "id": "frank_bot-00067",
+      "title": "Implement daily digest email for jorbs",
+      "acceptanceCriteria": [
+        "send_daily_digest(jorbs) method in EmailService",
+        "Digest includes: active jorbs summary, completed jorbs, all interactions log, agent reasoning highlights, costs",
+        "Interactions grouped by jorb with timestamps",
+        "Agent reasoning shown for key decisions",
+        "Costs include token count and SMS count per jorb",
+        "HTML formatted for readability with text fallback",
+        "DIGEST_TIME environment variable (e.g., '08:00') for send time",
+        "Unit tests verify digest content generation"
+      ],
+      "priority": 67,
+      "passes": false,
+      "notes": "Depends on frank_bot-00066. Daily summary of jorb activity."
+    },
+    {
+      "id": "frank_bot-00068",
+      "title": "Create background event loop for jorb system",
+      "acceptanceCriteria": [
+        "Background asyncio task started with Starlette app lifecycle",
+        "Listens for incoming Telegram messages via Telethon callback",
+        "Processes debounced messages when timers fire",
+        "Runs heartbeat every hour: check stale jorbs, scheduled actions",
+        "Sends daily digest at configured time",
+        "Graceful shutdown on SIGTERM/SIGINT",
+        "Errors logged but don't crash the background loop",
+        "Integration test verifies background task starts and processes events"
+      ],
+      "priority": 68,
+      "passes": false,
+      "notes": "Depends on frank_bot-00062, frank_bot-00063, frank_bot-00067. Orchestrates jorb event processing."
+    },
+    {
+      "id": "frank_bot-00069",
+      "title": "Add jorb environment variables to config and documentation",
+      "acceptanceCriteria": [
+        "config.py updated with all jorb-related settings",
+        "Settings: OPENAI_API_KEY, AGENT_SPEND_LIMIT, DEBOUNCE_TELEGRAM_SECONDS, DEBOUNCE_SMS_SECONDS",
+        "Settings: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, DIGEST_EMAIL_TO, DIGEST_TIME",
+        "Settings: JORBS_DB_PATH, JORBS_PROGRESS_LOG, CONTEXT_RESET_DAYS",
+        ".env.example updated with all new environment variables",
+        "README.md updated with jorbs configuration section",
+        "Defaults documented: gpt-5.2 model, $100 spend limit, 3-day context reset"
+      ],
+      "priority": 69,
+      "passes": false,
+      "notes": "Can be done early as it's documentation/config only. Blocks deployment."
+    },
+    {
+      "id": "frank_bot-00070",
+      "title": "Create web dashboard jorbs card component",
+      "acceptanceCriteria": [
+        "web/src/lib/api.ts extended with getJorbs(), getJorb(id), approveJorb(id, decision), cancelJorb(id, reason)",
+        "web/src/components/jorbs-card.ts created as Lit component",
+        "Card fetches and displays jorbs from GET /jorbs",
+        "Status badges color-coded: planning (gray), running (blue), paused (yellow), complete (green), failed (red), cancelled (gray)",
+        "Click on jorb expands to show: plan summary, contacts, recent messages, progress",
+        "Paused jorbs show approve/cancel buttons with input for decision/reason",
+        "Filter by status dropdown (open, closed, all)",
+        "Auto-refresh toggle for polling active jorbs"
+      ],
+      "priority": 70,
+      "passes": false,
+      "notes": "Depends on frank_bot-00059, frank_bot-00034. Web UI for jorb management."
+    },
+    {
+      "id": "frank_bot-00071",
+      "title": "Add jorb message thread view to web dashboard",
+      "acceptanceCriteria": [
+        "Clicking jorb in jorbs-card opens message thread view",
+        "Thread displays full conversation history from GET /jorbs/{id}/messages",
+        "Messages styled differently by direction (inbound left, outbound right)",
+        "Channel indicated with icon (SMS, Telegram, email)",
+        "Agent reasoning shown as collapsible detail on outbound messages",
+        "Timestamps in human-readable format with relative time",
+        "Auto-scroll to newest messages",
+        "Load more button for pagination"
+      ],
+      "priority": 71,
+      "passes": false,
+      "notes": "Depends on frank_bot-00070. Detailed jorb conversation view."
+    },
+    {
+      "id": "frank_bot-00072",
+      "title": "Write integration tests for jorb end-to-end flow",
+      "acceptanceCriteria": [
+        "Test: Create jorb, verify initial message sent, mock reply, verify agent processes",
+        "Test: Jorb pauses when policy requires approval, verify pause state",
+        "Test: Approve paused jorb, verify agent takes next action",
+        "Test: Cancel jorb, verify status updated",
+        "Test: Message debouncing combines rapid messages",
+        "Test: Context reset generates handoff and updates progress log",
+        "Test: Brief me returns accurate activity summary",
+        "Tests use mocked OpenAI, Telegram, and SMS services"
+      ],
+      "priority": 72,
+      "passes": false,
+      "notes": "Depends on all jorb tasks. Validates complete jorb system."
+    },
+    {
+      "id": "frank_bot-00073",
+      "title": "Add schemas/jorb.schema.json for jorb data validation",
+      "acceptanceCriteria": [
+        "schemas/jorb.schema.json created with Jorb object schema",
+        "Required fields: id, name, status, original_plan",
+        "Optional fields: contacts, progress_summary, paused_reason, needs_approval_for, awaiting",
+        "contacts array items have: identifier (required), channel (required), name (optional)",
+        "status enum: planning, running, paused, complete, failed, cancelled",
+        "channel enum: telegram, sms, email",
+        "JorbMessage schema defined with all message fields",
+        "Schema used for validation in create_jorb_action"
+      ],
+      "priority": 73,
+      "passes": false,
+      "notes": "Foundation task, can be done early. Defines jorb data structure."
     }
   ]
 }
