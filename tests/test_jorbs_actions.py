@@ -415,12 +415,38 @@ class TestApproveJorbAction:
         assert result["agent_result"]["success"] is True
         assert result["agent_result"]["action_taken"] == "send_message"
 
-    async def test_approve_not_paused(self, mock_storage):
-        """Test approving a non-paused jorb raises error."""
+    async def test_approve_planning_jorb(self, mock_storage):
+        """Test approving a planning jorb kicks it off."""
+        # Create a jorb in planning status (simulating start_immediately=False)
+        jorb = await mock_storage.create_jorb("Planning Task", "Do the thing")
+        # It starts in planning status by default before kickoff
+
+        with patch("actions.jorbs.AgentRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            mock_runner_class.return_value = mock_runner
+            mock_runner.is_configured = True
+            mock_runner.kickoff_jorb = AsyncMock(return_value=MagicMock(
+                success=True,
+                action_taken="send_message",
+                message_sent=True,
+                error=None,
+            ))
+
+            result = await approve_jorb_action({
+                "jorb_id": jorb.id,
+                "decision": "Go ahead and start",
+            })
+
+        assert result["status"] == "running"
+        assert "Started with instructions: Go ahead and start" in result["progress_summary"]
+        mock_runner.kickoff_jorb.assert_called_once()
+
+    async def test_approve_not_paused_or_planning(self, mock_storage):
+        """Test approving a running jorb raises error."""
         jorb = await mock_storage.create_jorb("Running Task", "Plan")
         await mock_storage.update_jorb(jorb.id, status="running")
 
-        with pytest.raises(ValueError, match="not paused"):
+        with pytest.raises(ValueError, match="must be paused or planning"):
             await approve_jorb_action({
                 "jorb_id": jorb.id,
                 "decision": "Approved",

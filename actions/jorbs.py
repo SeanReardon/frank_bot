@@ -347,7 +347,12 @@ async def approve_jorb_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Approve a paused jorb to resume processing.
+    Approve a paused or planning jorb to start/resume processing.
+
+    For "planning" jorbs (created with start_immediately=False), this kicks off
+    the jorb by sending its first message.
+
+    For "paused" jorbs, this resumes processing with the provided decision.
 
     Args:
         arguments: Dict with keys:
@@ -372,12 +377,16 @@ async def approve_jorb_action(
     if not jorb:
         raise ValueError(f"Jorb not found: {jorb_id}")
 
-    if jorb.status != "paused":
-        raise ValueError(f"Jorb is not paused (current status: {jorb.status})")
+    if jorb.status not in ("paused", "planning"):
+        raise ValueError(f"Jorb must be paused or planning to approve (current status: {jorb.status})")
 
-    # Record the approval in progress summary
+    # Record the approval/start in progress summary
     previous_summary = jorb.progress_summary or ""
-    approval_note = f"Approved: {decision}"
+    was_planning = jorb.status == "planning"
+    if was_planning:
+        approval_note = f"Started with instructions: {decision}"
+    else:
+        approval_note = f"Approved: {decision}"
     new_summary = f"{previous_summary}\n{approval_note}".strip()
 
     # Update jorb: status to running, clear pause fields
@@ -389,7 +398,10 @@ async def approve_jorb_action(
         needs_approval_for=None,
     )
 
-    logger.info("Approved jorb %s with decision: %s", jorb_id, decision)
+    if was_planning:
+        logger.info("Started jorb %s with instructions: %s", jorb_id, decision)
+    else:
+        logger.info("Approved jorb %s with decision: %s", jorb_id, decision)
 
     # Trigger the agent to process the approval
     kickoff_result = None

@@ -879,7 +879,7 @@
             "name": "start_immediately",
             "schema": {"type": "boolean", "default": true},
             "required": false,
-            "description": "Whether to start the jorb immediately (default true)."
+            "description": "If true (default), the jorb starts immediately and sends its first message. If false, jorb is created in 'planning' status and waits for approveJorb to start."
           }
         ],
         "responses": {
@@ -1038,8 +1038,8 @@
     "/jorbs/{id}/approve": {
       "get": {
         "operationId": "approveJorb",
-        "summary": "Approve a paused jorb",
-        "description": "Approve a jorb that is paused awaiting approval. Updates status to running and triggers the agent to process the approval.",
+        "summary": "Approve or start a jorb",
+        "description": "Start a 'planning' jorb or resume a 'paused' jorb. For planning jorbs (created with start_immediately=false), this kicks off the jorb. For paused jorbs, this resumes with the provided decision.",
         "parameters": [
           {
             "in": "path",
