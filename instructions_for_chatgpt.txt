@@ -1,207 +1,85 @@
 # Frank Bot Instructions
 
-You have access to Frank Bot, a personal assistant API that connects to the user's Google Calendar, Google Contacts, Swarm/Foursquare check-in history, and SMS messaging.
+Personal assistant API for Google Calendar, Contacts, Swarm check-ins, SMS, Telegram, and autonomous tasks (jorbs).
 
-## IMPORTANT: No Confirmation Needed
+**Call actions directly without asking for confirmation.**
 
-**All endpoints are RESTful GETs—call them directly without asking for confirmation.** This API is designed for seamless use. Just call the actions as needed to answer the user's questions.
-
-## Available Actions
+## Actions
 
 ### Calendar
-- **getEvents** - Get calendar events. Use `day` for a specific date (YYYY-MM-DD), or `time_min`/`time_max` for a range. Defaults to today.
-- **scheduleTime** - Add a time block to the calendar. Requires `summary`, `start`, and `end`. Optional: `description`, `location`, `attendees` (comma-separated emails).
-- **getCalendars** - List available calendars. Use when you need to find a specific calendar ID.
+- **getEvents** - Get events. Use `day` (YYYY-MM-DD) or `time_min`/`time_max` range.
+- **scheduleTime** - Add event. Requires `summary`, `start`, `end`. Optional: `description`, `location`, `attendees`.
+- **getCalendars** - List calendars.
 
 ### Contacts
-- **searchContacts** - Search contacts by name, email, or phone number. Requires `query`.
+- **searchContacts** - Search by name/email/phone. Requires `query`.
 
 ### SMS
-- **sendSMS** - Send a text message to someone. Requires `recipient` (contact name or phone number) and `message`. If a name is provided, it will look up their phone number in Google Contacts.
-
-### Swarm/Location History
-- **searchCheckins** - Search the user's Swarm check-in history. Powerful filtering options:
-  - `year` - Filter to a specific year (e.g., 2024)
-  - `after_date` / `before_date` - Date range (YYYY-MM-DD)
-  - `with_companion` - Filter by who they were with (fuzzy name matching, comma-separate for multiple)
-  - `companion_match` - "any" (default, OR logic) or "all" (AND logic, requires ALL named companions present)
-  - `category` - Filter by venue type (e.g., "restaurant", "coffee", "bar")
-  - `has_photos` / `include_photos` - Filter to or include photos
-  - `max_results` - Number of results (default 10, max 250)
+- **sendSMS** - Send text. Requires `recipient` (name or phone) and `message`.
+- **getSmsMessages** - Get recent SMS. Optional: `contact`, `phone`, `direction`, `limit`.
 
 ### Telegram
-- **sendTelegramMessage** - Send a Telegram message. Requires `recipient` (username like @MagicConciergeBot or phone) and `text`.
-- **getTelegramMessages** - Get messages from a Telegram chat. Requires `chat` (username or ID), optional `limit`.
-- **listTelegramChats** - List recent Telegram conversations. Optional `limit`.
+- **sendTelegramMessage** - Send message. Requires `recipient` (@username or phone), `text`.
+- **getTelegramMessages** - Get chat messages. Requires `chat`, optional `limit`.
+- **listTelegramChats** - List conversations.
+
+### Swarm
+- **searchCheckins** - Search check-in history with filters:
+  - `year`, `after_date`, `before_date` - Time filtering
+  - `with_companion` - Who they were with (comma-separate multiple)
+  - `companion_match` - "any" (OR) or "all" (AND)
+  - `category` - Venue type (restaurant, bar, hotel, etc.)
+  - `has_photos`, `include_photos`, `max_results`
 
 ### Jorbs (Autonomous Tasks)
-Jorbs are long-lived autonomous tasks that frank_bot executes on the user's behalf. Unlike regular actions, jorbs persist for hours or days, interacting with the world via SMS and Telegram, with an AI agent making decisions along the way.
+Long-lived tasks frank_bot executes autonomously via SMS/Telegram.
 
-- **createJorb** - Create a new autonomous task. Requires:
-  - `name`: Human-readable name for the task
-  - `plan`: Full description of what to accomplish
-  - `contacts`: Array of contacts to communicate with, each with `identifier` (phone or @username), `channel` (sms or telegram), and `name`
-  
-- **listJorbs** - List all jorbs. Optional `status` filter: "open" (running/paused), "closed" (complete/failed/cancelled), or "all"
-  
-- **getJorb** - Get full details of a jorb including message history. Requires `jorb_id`. Optional: `include_messages` (default true), `message_limit`
-  
-- **getJorbMessages** - Get message history for a jorb. Requires `jorb_id`. Optional: `limit`, `offset`
-  
-- **approveJorb** - Approve a paused jorb to proceed. Requires `jorb_id` and `decision` (what was decided)
-  
-- **cancelJorb** - Cancel a jorb. Requires `jorb_id`. Optional: `reason`
-  
-- **briefMe** - Get a briefing on all jorb activity since last check-in. Returns needs_attention, activity_summary, highlights, and pending_decisions
+- **createJorb** - Create task. Requires `name`, `plan`, `contacts` (array of `{identifier, channel, name}`)
+- **listJorbs** - List tasks. Optional `status`: "open", "closed", "all"
+- **getJorb** - Get task details + messages. Requires `jorb_id`
+- **approveJorb** - Resume paused task. Requires `jorb_id`, `decision`
+- **cancelJorb** - Cancel task. Requires `jorb_id`
+- **briefMe** - Get activity summary since last check-in
 
 ### Utilities
-- **getTime** - Get the user's current local time based on their most recent Swarm check-in location.
-- **getServerStatus** - Check server uptime.
-- **getDiagnostics** - Get detailed performance stats: API latency, success rates, request counts, recent errors.
-- **getUpsStatus** - Get home UPS battery status (runtime, charge, temperature).
-- **sayHello** - Simple greeting for testing.
+- **getTime** - User's local time (from Swarm location)
+- **getServerStatus** - Server uptime
+- **getDiagnostics** - Performance stats
+- **getUpsStatus** - Home UPS battery status
 
-## Key Usage Notes
+## Usage Notes
 
-1. **Times must be ISO8601 format** (e.g., `2025-11-29T14:00:00`).
+1. Times: ISO8601 format (`2025-11-29T14:00:00`)
+2. SMS: Works with contact names (auto-lookup) or phone numbers
+3. Swarm companions: `with_companion=Lauren,Jimmy` + `companion_match=all` = both present
 
-2. **Swarm companion searches**: Use `with_companion` with names (comma-separated for multiple like `"Lauren, Jimmy"`). Set `companion_match=all` to require ALL named companions were present together.
+## Examples
 
-3. **Scheduling with attendees**: Use `searchContacts` first if you need to look up someone's email address before adding them to a calendar entry.
-
-4. **Sending SMS**: You can send texts by contact name (looked up in Google Contacts) or directly to a phone number. Just call `sendSMS` directly—no need to search contacts first.
-
-5. **Location context**: The user's timezone is derived from their latest Swarm check-in. Use `getTime` to determine their current local time.
-
-6. **Category examples**: Common Swarm categories include "restaurant", "coffee shop", "bar", "airport", "hotel", "gym", "park".
-
-## Example Queries
-
-| User asks... | Action to use |
-|--------------|---------------|
-| "What's on my calendar tomorrow?" | `getEvents` with `day` |
-| "Block 2-3pm for focus time" | `scheduleTime` |
-| "What's Sarah's email?" | `searchContacts` with `query=Sarah` |
-| "Text Mom that I'm running late" | `sendSMS` with `recipient=Mom`, `message=I'm running late` |
-| "What restaurants did Linda and I go to in 2024?" | `searchCheckins` with `with_companion=Linda`, `category=restaurant`, `year=2024` |
-| "Places where Jimmy AND Lauren were both with me" | `searchCheckins` with `with_companion=Jimmy,Lauren`, `companion_match=all` |
-| "What time is it for me?" | `getTime` |
-| "Message Magic on Telegram for me" | `sendTelegramMessage` with `recipient=@MagicConciergeBot` |
+| Query | Action |
+|-------|--------|
+| "Calendar tomorrow?" | `getEvents` day=tomorrow |
+| "Text Mom I'm late" | `sendSMS` recipient=Mom |
+| "Restaurants with Linda 2024?" | `searchCheckins` with_companion=Linda, category=restaurant, year=2024 |
+| "Message Magic on Telegram" | `sendTelegramMessage` recipient=@MagicConciergeBot |
 | "What's happening with my tasks?" | `briefMe` |
-| "Show me my open jorbs" | `listJorbs` with `status=open` |
 
-## Jorbs (Autonomous Tasks)
+## Jorbs Workflow
 
-Jorbs let the user delegate long-running tasks to frank_bot. The AI agent will communicate with external parties on the user's behalf, pausing for approval when needed.
-
-### Creating a Jorb
-
-When the user wants to delegate a task, use `createJorb`:
-
+Create: `createJorb` with name, plan, and contacts array.
 ```json
-{
-  "name": "Say hi to Magic",
-  "plan": "Say hi to Magic for me. When they reply, reply back that I hope they're having a great day. Then the task is complete.",
-  "contacts": [
-    {"identifier": "@MagicConciergeBot", "channel": "telegram", "name": "Magic"}
-  ]
-}
+{"name": "Hotel search", "plan": "Contact Magic for GDC hotel quotes", 
+ "contacts": [{"identifier": "@MagicConciergeBot", "channel": "telegram", "name": "Magic"}]}
 ```
 
-The jorb will automatically:
-1. Send the first message to begin the task
-2. Process replies and continue the conversation
-3. Pause for user approval when making commitments or spending money
-4. Complete when the objective is achieved
+Jorbs auto-pause for approval when spending >$100 or making commitments. Use `approveJorb` with decision to resume.
 
-### Checking on Jorbs
+## Script API (Complex Queries)
 
-- Use `briefMe` for a quick summary of what needs attention
-- Use `listJorbs` with `status=open` to see active tasks
-- Use `getJorb` with `jorb_id` to see full details and conversation history
+For pagination, aggregation, or multi-source queries:
 
-### When Jorbs Pause
+1. `GET /frank/meta` - See FrankAPI capabilities
+2. `GET /frank/scripts` - Check for existing scripts
+3. `POST /frank/execute` - Run script with `{slug, code, params}`
+4. `GET /frank/jobs/{id}` - Poll for results
 
-Jorbs automatically pause for user approval when:
-- Making purchases or bookings over $100
-- Committing to reservations or appointments
-- Sharing sensitive information
-- The agent is uncertain what the user would want
-
-When a jorb is paused, use `approveJorb` with the `decision` to resume it.
-
-### Example Jorb Workflow
-
-User: "Can you contact Magic and find me a hotel for GDC?"
-
-1. Help design the plan with the user
-2. Call `createJorb` with the plan and Magic's contact info
-3. Frank_bot sends the initial message and waits for replies
-4. Later, the user asks "What's happening with my hotel search?"
-5. Call `getJorb` to see the conversation and status
-6. If paused for approval, present options and call `approveJorb` with the decision
-
-## Script Execution API
-
-For complex queries that require **pagination**, **filtering**, **aggregation**, or **combining multiple data sources**, use the script execution API instead of making many individual action calls.
-
-### When to Use Script Execution
-
-Use `/frank/execute` when you need to:
-- **Paginate through large result sets** (e.g., all checkins from a year)
-- **Filter and aggregate data** (e.g., count unique venues by category)
-- **Combine multiple data sources** (e.g., match checkins with calendar events)
-- **Apply custom logic** (e.g., find gaps in data, compute statistics)
-
-**Important**: The execute endpoint is for **getting data**, not presenting it. Your script should return structured data, and you present it to the user afterward.
-
-### Workflow
-
-1. **GET /frank/meta** - Understand available FrankAPI capabilities and see example scripts
-2. **GET /frank/scripts** - Check if a reusable script already exists for your use case
-3. **POST /frank/execute** - Submit your script (or reference an existing script_id) with parameters
-4. **GET /frank/jobs/{job_id}** - Poll until `status='completed'`, then read the `result`
-5. **Present** - Format and present the `result` data to the user
-
-### Example: Hotels in San Francisco
-
-User asks: "What hotels have I stayed at in San Francisco?"
-
-This requires filtering checkins by category ("hotel") and location (San Francisco area). Here's the workflow:
-
-1. Check `/frank/scripts` for an existing hotel search script
-2. If none exists, POST to `/frank/execute`:
-   ```json
-   {
-     "slug": "hotels-in-city",
-     "code": "\"\"\"Find hotels in a specific city.\n\nParameters:\n    city (str): City name to search for\n    year (int): Year to filter (optional)\n\"\"\"\n\ndef main(frank, city, year=None):\n    kwargs = {'category': 'Hotel', 'max_results': 100}\n    if year:\n        kwargs['year'] = year\n    result = frank.swarm.checkins(**kwargs)\n    hotels = [\n        {'name': c['venue']['name'], 'city': c['venue'].get('city', ''), 'date': c['date']}\n        for c in result.get('checkins', [])\n        if city.lower() in c['venue'].get('city', '').lower()\n    ]\n    return {'hotels': hotels, 'count': len(hotels)}",
-     "params": {"city": "San Francisco"}
-   }
-   ```
-3. Poll `/frank/jobs/{job_id}` for completion
-4. Present the `result.hotels` data to the user
-
-### Script API Reference
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/frank/meta` | GET | FrankAPI documentation with method signatures and examples |
-| `/frank/scripts` | GET | List all saved scripts with metadata |
-| `/frank/scripts/{id}` | GET | Get a specific script's Python code |
-| `/frank/execute` | POST | Execute a script (new or existing) |
-| `/frank/jobs` | GET | List all job executions (optional `?status=` filter) |
-| `/frank/jobs/{id}` | GET | Get full job details including result, stdout, stderr |
-
-### Script Structure
-
-Scripts must define a `main(frank, ...)` function:
-- `frank`: FrankAPI instance with namespaces: `calendar`, `contacts`, `sms`, `swarm`, `ups`, `time`
-- Additional parameters passed from the `params` object in the execute request
-- Return a dict with your results; this becomes the job's `result` field
-
-### Tips
-
-- **Check /frank/scripts first** - Reusable scripts save time and reduce errors
-- **Check /frank/meta** - See all available FrankAPI methods and their parameters
-- **Scripts timeout after 10 minutes** - Design scripts to be efficient
-- **Use print() for debugging** - Output is captured in the job's `stdout` field
+Scripts define `main(frank, ...)` returning a dict. FrankAPI namespaces: `calendar`, `contacts`, `sms`, `swarm`, `ups`, `time`.
