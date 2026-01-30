@@ -37,6 +37,7 @@ from actions.telegram import (
     verify_telegram_2fa,
     verify_telegram_code,
 )
+from server.sms_webhook import sms_webhook_handler
 from server.stytch_middleware import require_stytch_session
 from config import Settings
 from services.stats import stats
@@ -282,6 +283,8 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/telegram/auth/start", telegram_auth_start_handler, methods=["POST"]),
         Route("/telegram/auth/verify", telegram_auth_verify_handler, methods=["POST"]),
         Route("/telegram/auth/2fa", telegram_auth_2fa_handler, methods=["POST"]),
+        # SMS webhook endpoint (no API key - called by Telnyx)
+        Route("/webhook/sms", sms_webhook_handler, methods=["POST"]),
     ]
 
     return routes

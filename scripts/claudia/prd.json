@@ -641,7 +641,7 @@
         "Unit tests verify storage, retrieval, and filename generation"
       ],
       "priority": 40,
-      "passes": false,
+      "passes": true,
       "notes": "Foundation for SMS storage. Blocking for frank_bot-00041, frank_bot-00042, frank_bot-00046."
     },
     {
@@ -658,7 +658,7 @@
         "Unit tests with mocked HTTP responses verify download logic"
       ],
       "priority": 41,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00040. Extends SMSStorage to handle MMS attachments."
     },
     {
@@ -674,7 +674,7 @@
         "Unit tests with mocked contacts verify lookup and caching behavior"
       ],
       "priority": 42,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on existing GoogleContactsService. Blocking for frank_bot-00044."
     },
     {
@@ -692,7 +692,7 @@
         "Unit tests with mocked HTTP verify notification formatting"
       ],
       "priority": 43,
-      "passes": false,
+      "passes": true,
       "notes": "No dependencies. Uses Bot API not Telethon. Blocking for frank_bot-00045."
     },
     {
@@ -710,7 +710,7 @@
         "Returns JSON {status: 'processed'} or {status: 'skipped', reason: '...'}"
       ],
       "priority": 44,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00040, frank_bot-00042. Core webhook handler without compliance or routing logic."
     },
     {

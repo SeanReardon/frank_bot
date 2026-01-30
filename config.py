@@ -17,6 +17,7 @@ from services.vault_client import (
     get_stytch_credentials,
     get_swarm_credentials,
     get_telegram_credentials,
+    get_telegram_bot_credentials,
     get_telnyx_credentials,
 )
 
@@ -71,6 +72,8 @@ class Settings:
     telegram_api_hash: str | None
     telegram_phone: str | None
     telegram_session_name: str
+    telegram_bot_token: str | None
+    telegram_bot_chat_id: str | None
     stytch_project_id: str | None
     stytch_secret: str | None
 
@@ -91,6 +94,8 @@ def _load_secrets() -> dict[str, str | None]:
         "telegram_api_id": None,
         "telegram_api_hash": None,
         "telegram_phone": None,
+        "telegram_bot_token": None,
+        "telegram_bot_chat_id": None,
         "telnyx_api_key": None,
         "telnyx_phone_number": None,
     }
@@ -123,6 +128,12 @@ def _load_secrets() -> dict[str, str | None]:
             secrets["telegram_api_hash"] = telegram_creds.get("api_hash")
             secrets["telegram_phone"] = telegram_creds.get("phone")
 
+        # Telegram Bot credentials
+        telegram_bot_creds = get_telegram_bot_credentials()
+        if telegram_bot_creds:
+            secrets["telegram_bot_token"] = telegram_bot_creds.get("bot_token")
+            secrets["telegram_bot_chat_id"] = telegram_bot_creds.get("chat_id")
+
         # Telnyx credentials
         telnyx_creds = get_telnyx_credentials()
         if telnyx_creds:
@@ -150,6 +161,10 @@ def _load_secrets() -> dict[str, str | None]:
         secrets["telegram_api_hash"] = os.getenv("TELEGRAM_API_HASH")
     if not secrets["telegram_phone"]:
         secrets["telegram_phone"] = os.getenv("TELEGRAM_PHONE")
+    if not secrets["telegram_bot_token"]:
+        secrets["telegram_bot_token"] = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not secrets["telegram_bot_chat_id"]:
+        secrets["telegram_bot_chat_id"] = os.getenv("TELEGRAM_BOT_CHAT_ID")
     if not secrets["telnyx_api_key"]:
         secrets["telnyx_api_key"] = os.getenv("TELNYX_LET_FOOD_INTO_CIVIC_KEY")
     if not secrets["telnyx_phone_number"]:
@@ -230,6 +245,8 @@ def get_settings() -> Settings:
         telegram_api_hash=secrets["telegram_api_hash"],
         telegram_phone=secrets["telegram_phone"],
         telegram_session_name=os.getenv("TELEGRAM_SESSION_NAME", "frank_bot"),
+        telegram_bot_token=secrets["telegram_bot_token"],
+        telegram_bot_chat_id=secrets["telegram_bot_chat_id"],
         stytch_project_id=secrets["stytch_project_id"],
         stytch_secret=secrets["stytch_secret"],
     )

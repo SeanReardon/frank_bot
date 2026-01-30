@@ -617,3 +617,91 @@ BLOCKED: The workflow changes are prepared locally but cannot be pushed because 
 - Pushing workflow file changes requires a PAT with `workflow` scope
 
 ---
+
+## 2026-01-30: frank_bot-00040 - Create SMSStorage service for file-based message persistence
+
+### Summary
+Created SMSStorage service in services/sms_storage.py with Pydantic models (SMSMessage, Contact, Attachment) matching schemas/sms.schema.json. Implements store_message() to write JSON files to ./data/sms/{localNumber}/ and get_recent_messages() for retrieval with filtering by local_number, remote_number, and contact_name. Messages sorted by timestamp descending.
+
+### Files Changed
+- services/sms_storage.py (new)
+- tests/test_sms_storage.py (new - 25 tests)
+
+### Learnings
+- Pydantic BaseModel provides easy JSON serialization with model_dump(mode="json")
+- Filename pattern uses - instead of : for filesystem safety (2026-01-29T18-45-32Z)
+- Contact names sanitized by replacing <>:"/\|?* with underscores
+- Plus sign (+) is valid in filenames and preserves phone number format
+
+---
+
+## 2026-01-30: frank_bot-00042 - Create ContactLookup service for phone-to-contact reverse lookup
+
+### Summary
+Created ContactLookup service in services/contact_lookup.py that searches Google Contacts for matching phone numbers. Implements phone normalization for comparison (strips spaces, dashes, handles +1 country code). Uses in-memory caching to prevent repeated API calls. Loads all contacts once then filters locally for efficiency.
+
+### Files Changed
+- services/contact_lookup.py (new)
+- tests/test_contact_lookup.py (new - 28 tests)
+
+### Learnings
+- Phone matching needs to handle +1 country code differences (10 vs 11 digits)
+- Loading all contacts once is more efficient than searching per lookup
+- Cache stores both hits and misses to avoid repeated API calls
+- GoogleContactsService.list_contacts() with pagination loads all contacts
+
+---
+
+## 2026-01-30: frank_bot-00043 - Create TelegramBot service for notification messages
+
+### Summary
+Created TelegramBot service in services/telegram_bot.py using Telegram Bot API (via httpx, not Telethon). Implements send_notification(), notify_unknown_sms(), and notify_spam() methods for SMS-related notifications. Added get_telegram_bot_credentials() to vault_client.py and TELEGRAM_BOT_TOKEN/TELEGRAM_BOT_CHAT_ID settings to config.py.
+
+### Files Changed
+- services/telegram_bot.py (new)
+- services/vault_client.py (added get_telegram_bot_credentials)
+- config.py (added telegram_bot_token and telegram_bot_chat_id settings)
+- tests/test_telegram_bot.py (new - 23 tests)
+
+### Learnings
+- Telegram Bot API uses simple HTTP POST (no Telethon needed)
+- Bot token format: {bot_id}:{secret} obtained from @BotFather
+- HTML parse mode requires escaping &, <, > characters
+- Notification messages should truncate long content (500 chars)
+
+---
+
+## 2026-01-30: frank_bot-00041 - Add MMS attachment download and storage to SMSStorage
+
+### Summary
+Extended SMSStorage with MMS attachment download capability. Added _download_attachment() async method using httpx, store_message_async() that downloads attachments before storing, and _generate_attachment_filename() for proper naming. Extension determined from MIME type with .bin fallback.
+
+### Files Changed
+- services/sms_storage.py (added httpx import, _generate_attachment_filename, _download_attachment, store_message_async)
+- tests/test_sms_storage.py (added 11 tests for attachment functionality)
+
+### Learnings
+- mimetypes.guess_extension() returns extension with leading dot (.jpg)
+- httpx.AsyncClient with timeout handles download failures gracefully
+- Attachment filenames follow {timestamp}-{contact}-attachment-{n}.{ext} pattern
+- Download failures don't prevent message storage - original attachment info preserved
+
+---
+
+## 2026-01-30: frank_bot-00044 - Create SMS webhook endpoint for inbound Telnyx messages
+
+### Summary
+Created SMS webhook handler in server/sms_webhook.py with sms_webhook_handler() async function. Parses Telnyx webhook payload, extracts message data, looks up sender contact, creates SMSMessage, and stores via SMSStorage. Added POST /webhook/sms route (no API key required - called by Telnyx).
+
+### Files Changed
+- server/sms_webhook.py (new)
+- server/routes.py (added sms_webhook_handler import and /webhook/sms route)
+- tests/test_sms_webhook.py (new - 13 tests)
+
+### Learnings
+- Telnyx webhook payload has nested structure: data.payload contains message details
+- Direction field filters outbound confirmations and delivery receipts
+- Contact lookup failures shouldn't fail webhook processing
+- Classification set to 'unknown' for messages from unknown contacts
+
+---

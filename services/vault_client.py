@@ -227,6 +227,19 @@ def get_swarm_credentials() -> dict[str, str] | None:
     return get_secret("frank-bot/swarm")
 
 
+def get_telegram_bot_credentials() -> dict[str, str] | None:
+    """
+    Get Telegram Bot credentials from Vault.
+
+    Returns dict with:
+        - bot_token: Telegram bot token
+        - chat_id: Default chat ID for notifications
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/telegram-bot")
+
+
 __all__ = [
     "vault_enabled",
     "get_secret",
@@ -235,6 +248,7 @@ __all__ = [
     "get_telnyx_credentials",
     "get_google_credentials",
     "get_swarm_credentials",
+    "get_telegram_bot_credentials",
     "clear_client_cache",
     "clear_secret_cache",
 ]
