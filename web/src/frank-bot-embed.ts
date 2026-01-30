@@ -57,10 +57,9 @@ export class FrankBotDashboard extends LitElement {
       display: grid;
       gap: var(--spacing-lg);
       padding: var(--spacing-lg);
-      max-width: 1200px;
-      /* Min width ensures consistent wider layout even when content is short */
-      min-width: min(900px, 100%);
-      margin: 0 auto;
+      /* Take full width, no max constraint */
+      width: 100%;
+      box-sizing: border-box;
       flex: 1;
     }
 
