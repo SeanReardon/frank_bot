@@ -15,6 +15,8 @@ import './components/telegram-bot-card.js';
 import './components/sms-card.js';
 import './components/scripts-card.js';
 import './components/jobs-card.js';
+import './components/jorbs-card.js';
+import './components/jorb-thread-view.js';
 
 // Import styles
 import tokensCSS from './styles/tokens.css?inline';
@@ -224,6 +226,7 @@ export class FrankBotDashboard extends LitElement {
   @state() private _initialized = false;
   @state() private _apiCommit: string | null = null;
   @state() private _webCommit: string = api.getWebCommit();
+  @state() private _selectedJorbId: string | null = null;
 
   connectedCallback() {
     super.connectedCallback();
@@ -232,6 +235,8 @@ export class FrankBotDashboard extends LitElement {
     // Make element focusable and add keyboard handler
     this.setAttribute('tabindex', '0');
     this.addEventListener('keydown', this._handleKeydown);
+    // Listen for jorb selection events
+    this.addEventListener('jorb-select', this._handleJorbSelect as EventListener);
   }
 
   private async _fetchVersion() {
@@ -247,7 +252,16 @@ export class FrankBotDashboard extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this.removeEventListener('keydown', this._handleKeydown);
+    this.removeEventListener('jorb-select', this._handleJorbSelect as EventListener);
   }
+
+  private _handleJorbSelect = (e: CustomEvent<{ jorbId: string }>) => {
+    this._selectedJorbId = e.detail.jorbId;
+  };
+
+  private _handleJorbThreadClose = () => {
+    this._selectedJorbId = null;
+  };
 
   private _handleKeydown = (e: KeyboardEvent) => {
     // Handle keyboard scrolling
@@ -360,6 +374,15 @@ export class FrankBotDashboard extends LitElement {
         <telegram-bot-card></telegram-bot-card>
 
         <sms-card></sms-card>
+
+        ${this._selectedJorbId ? html`
+          <jorb-thread-view
+            jorb-id=${this._selectedJorbId}
+            @close=${this._handleJorbThreadClose}
+          ></jorb-thread-view>
+        ` : html`
+          <jorbs-card></jorbs-card>
+        `}
 
         <scripts-card></scripts-card>
 

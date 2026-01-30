@@ -339,3 +339,138 @@ export async function getVersion(): Promise<VersionInfo> {
 export function getWebCommit(): string {
   return (import.meta as any).env?.VITE_GIT_COMMIT || 'dev';
 }
+
+// Jorb types and functions
+
+export type JorbStatus = 'planning' | 'running' | 'paused' | 'complete' | 'failed' | 'cancelled';
+export type JorbChannel = 'telegram' | 'sms' | 'email';
+
+export interface JorbContact {
+  identifier: string;
+  channel: JorbChannel;
+  name?: string;
+}
+
+export interface Jorb {
+  id: string;
+  name: string;
+  status: JorbStatus;
+  original_plan: string;
+  contacts: JorbContact[];
+  progress_summary: string | null;
+  created_at: string;
+  updated_at: string;
+  paused_reason: string | null;
+  needs_approval_for: string | null;
+  awaiting: string | null;
+}
+
+export interface JorbMessage {
+  id: string;
+  jorb_id: string;
+  timestamp: string;
+  direction: 'inbound' | 'outbound';
+  channel: JorbChannel;
+  sender: string | null;
+  sender_name: string | null;
+  recipient: string | null;
+  content: string;
+  agent_reasoning: string | null;
+}
+
+export interface JorbsResponse {
+  count: number;
+  jorbs: Jorb[];
+}
+
+export interface JorbDetailResponse extends Jorb {
+  messages?: JorbMessage[];
+}
+
+export interface JorbMessagesResponse {
+  count: number;
+  messages: JorbMessage[];
+}
+
+export interface ApproveJorbResponse {
+  success: boolean;
+  jorb_id: string;
+  status: JorbStatus;
+  message?: string;
+}
+
+export interface CancelJorbResponse {
+  success: boolean;
+  jorb_id: string;
+  status: JorbStatus;
+  message?: string;
+}
+
+export interface GetJorbsOptions {
+  status?: 'open' | 'closed' | 'all';
+}
+
+export interface GetJorbMessagesOptions {
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Get list of jorbs.
+ */
+export async function getJorbs(options: GetJorbsOptions = {}): Promise<JorbsResponse> {
+  const params = new URLSearchParams();
+  if (options.status) params.set('status', options.status);
+
+  const queryString = params.toString();
+  const path = `/jorbs${queryString ? `?${queryString}` : ''}`;
+  return request<JorbsResponse>(path);
+}
+
+/**
+ * Get a specific jorb by ID.
+ */
+export async function getJorb(jorbId: string, includeMessages = false, messageLimit = 50): Promise<JorbDetailResponse> {
+  const params = new URLSearchParams();
+  if (includeMessages) params.set('include_messages', 'true');
+  if (messageLimit !== 50) params.set('message_limit', String(messageLimit));
+
+  const queryString = params.toString();
+  const path = `/jorbs/${encodeURIComponent(jorbId)}${queryString ? `?${queryString}` : ''}`;
+  return request<JorbDetailResponse>(path);
+}
+
+/**
+ * Get messages for a jorb.
+ */
+export async function getJorbMessages(jorbId: string, options: GetJorbMessagesOptions = {}): Promise<JorbMessagesResponse> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  if (options.offset !== undefined) params.set('offset', String(options.offset));
+
+  const queryString = params.toString();
+  const path = `/jorbs/${encodeURIComponent(jorbId)}/messages${queryString ? `?${queryString}` : ''}`;
+  return request<JorbMessagesResponse>(path);
+}
+
+/**
+ * Approve a paused jorb.
+ */
+export async function approveJorb(jorbId: string, decision: string): Promise<ApproveJorbResponse> {
+  const params = new URLSearchParams();
+  params.set('decision', decision);
+
+  return request<ApproveJorbResponse>(`/jorbs/${encodeURIComponent(jorbId)}/approve?${params.toString()}`);
+}
+
+/**
+ * Cancel a jorb.
+ */
+export async function cancelJorb(jorbId: string, reason?: string): Promise<CancelJorbResponse> {
+  const params = new URLSearchParams();
+  if (reason) params.set('reason', reason);
+
+  const queryString = params.toString();
+  const path = `/jorbs/${encodeURIComponent(jorbId)}/cancel${queryString ? `?${queryString}` : ''}`;
+  return request<CancelJorbResponse>(path);
+}

@@ -1144,3 +1144,68 @@ Created ContextResetService for periodic context compression in long-running jor
 - build_fresh_context() provides complete restart context including last 100 lines of progress log
 
 ---
+
+## 2026-01-30: frank_bot-00068 - Create background event loop for jorb system
+
+### Summary
+Created BackgroundLoopService with Starlette lifecycle integration. Manages Telegram message listening, hourly heartbeat for stale/expired jorb detection, daily digest scheduling, and graceful shutdown handling. All background tasks are fault-tolerant with error logging.
+
+### Files Changed
+- services/background_loop.py (new - BackgroundLoopService, start/stop functions)
+- server/app.py (added lifecycle events to start/stop background loop)
+- tests/test_background_loop.py (new - 20 tests)
+
+### Learnings
+- asyncio.Event with wait_for timeout allows clean shutdown signaling
+- Signal handlers need try/except for Windows/non-main-thread compatibility
+- Module-level singleton pattern works well for service lifecycle management
+
+---
+
+## 2026-01-30: frank_bot-00070 - Create web dashboard jorbs card component
+
+### Summary
+Extended web/src/lib/api.ts with jorb API functions and types. Created jorbs-card.ts Lit component with status filtering, auto-refresh, expandable details, and approve/cancel actions for paused jorbs. Status badges use color-coded styling.
+
+### Files Changed
+- web/src/lib/api.ts (added Jorb types and API functions)
+- web/src/components/jorbs-card.ts (new - JorbsCard Lit component)
+- web/src/frank-bot-embed.ts (added jorbs-card import and usage)
+
+### Learnings
+- Lit state updates work well with Map/Set using spread operator for immutability
+- Status badge styling needs inline styles for dynamic colors
+- Event bubbling with composed: true needed for cross-shadow-DOM communication
+
+---
+
+## 2026-01-30: frank_bot-00071 - Add jorb message thread view to web dashboard
+
+### Summary
+Created jorb-thread-view.ts component for detailed conversation history. Features message grouping by date, inbound/outbound styling, collapsible agent reasoning, auto-scroll, and pagination support. Dashboard switches between jorbs-card and thread view on selection.
+
+### Files Changed
+- web/src/components/jorb-thread-view.ts (new - JorbThreadView Lit component)
+- web/src/frank-bot-embed.ts (added thread view routing and state)
+
+### Learnings
+- requestAnimationFrame needed for reliable scroll-to-bottom after render
+- Date grouping with Map preserves insertion order for chronological display
+- Channel icons using emoji work well cross-platform
+
+---
+
+## 2026-01-30: frank_bot-00072 - Write integration tests for jorb end-to-end flow
+
+### Summary
+Created comprehensive integration test suite covering jorb lifecycle, pause/approve/cancel workflows, message debouncing, context reset, and brief_me summary. Tests use mocked OpenAI, Telegram, and SMS services.
+
+### Files Changed
+- tests/test_jorb_integration.py (new - 13 test cases)
+
+### Learnings
+- Tests with skipif for optional dependencies keep test suite runnable
+- Actions create their own storage instances, so integration tests may need mocking
+- MessageBuffer debounce times need adjustment for test reliability
+
+---

@@ -1125,7 +1125,7 @@
         "Integration test verifies background task starts and processes events"
       ],
       "priority": 68,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00062, frank_bot-00063, frank_bot-00067. Orchestrates jorb event processing."
     },
     {
@@ -1158,7 +1158,7 @@
         "Auto-refresh toggle for polling active jorbs"
       ],
       "priority": 70,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00059, frank_bot-00034. Web UI for jorb management."
     },
     {
@@ -1175,7 +1175,7 @@
         "Load more button for pagination"
       ],
       "priority": 71,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00070. Detailed jorb conversation view."
     },
     {
@@ -1192,7 +1192,7 @@
         "Tests use mocked OpenAI, Telegram, and SMS services"
       ],
       "priority": 72,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on all jorb tasks. Validates complete jorb system."
     },
     {

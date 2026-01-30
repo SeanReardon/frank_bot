@@ -25,6 +25,10 @@ from server.manifests import (
 from server.openapi import load_openapi_document
 from server.meta_routes import build_meta_routes
 from server.routes import build_action_routes
+from services.background_loop import (
+    start_background_loop,
+    stop_background_loop,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +121,22 @@ def create_starlette_app() -> Starlette:
     @app.on_event("startup")
     async def startup_event():
         logger.info("Starlette app started - Actions endpoints configured")
+        # Start the background event loop for jorb system
+        try:
+            await start_background_loop()
+            logger.info("Background loop started")
+        except Exception as e:
+            logger.error("Failed to start background loop: %s", e)
 
     @app.on_event("shutdown")
     async def shutdown_event():
         logger.info("Shutdown signal received - terminating HTTP server")
+        # Stop the background event loop
+        try:
+            await stop_background_loop()
+            logger.info("Background loop stopped")
+        except Exception as e:
+            logger.error("Error stopping background loop: %s", e)
 
     @app.exception_handler(404)
     async def not_found_handler(request, _exc):
