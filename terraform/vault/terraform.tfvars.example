@@ -22,3 +22,6 @@ google_client_secret = "GOCSPX-..."
 # Swarm/Foursquare credentials
 swarm_oauth_token  = "..."
 foursquare_api_key = "fsq3..."
+
+# OpenAI API key (for gpt-5.2 agent reasoning in jorbs)
+openai_api_key = "sk-..."

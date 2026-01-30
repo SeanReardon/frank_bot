@@ -14,6 +14,7 @@ from functools import lru_cache
 from services.vault_client import (
     vault_enabled,
     get_google_credentials,
+    get_openai_credentials,
     get_stytch_credentials,
     get_swarm_credentials,
     get_telegram_credentials,
@@ -113,6 +114,7 @@ def _load_secrets() -> dict[str, str | None]:
         "telegram_bot_chat_id": None,
         "telnyx_api_key": None,
         "telnyx_phone_number": None,
+        "openai_api_key": None,
     }
 
     if vault_enabled():
@@ -154,6 +156,11 @@ def _load_secrets() -> dict[str, str | None]:
         if telnyx_creds:
             secrets["telnyx_api_key"] = telnyx_creds.get("api_key")
             secrets["telnyx_phone_number"] = telnyx_creds.get("phone_number")
+
+        # OpenAI credentials
+        openai_creds = get_openai_credentials()
+        if openai_creds:
+            secrets["openai_api_key"] = openai_creds.get("api_key")
     else:
         logger.info("Vault not configured, using environment variables")
 
@@ -184,6 +191,8 @@ def _load_secrets() -> dict[str, str | None]:
         secrets["telnyx_api_key"] = os.getenv("TELNYX_LET_FOOD_INTO_CIVIC_KEY")
     if not secrets["telnyx_phone_number"]:
         secrets["telnyx_phone_number"] = os.getenv("TELNYX_PHONE_NUMBER")
+    if not secrets["openai_api_key"]:
+        secrets["openai_api_key"] = os.getenv("OPENAI_API_KEY")
 
     return secrets
 
@@ -265,7 +274,7 @@ def get_settings() -> Settings:
         stytch_project_id=secrets["stytch_project_id"],
         stytch_secret=secrets["stytch_secret"],
         # Jorb system settings
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        openai_api_key=secrets["openai_api_key"],
         jorbs_db_path=os.getenv("JORBS_DB_PATH", "./data/jorbs.db"),
         jorbs_progress_log=os.getenv("JORBS_PROGRESS_LOG", "./data/jorbs_progress.txt"),
         agent_spend_limit=float(os.getenv("AGENT_SPEND_LIMIT", "100.0")),

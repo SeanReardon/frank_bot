@@ -86,3 +86,16 @@ resource "vault_kv_secret_v2" "telegram_bot" {
     ignore_changes = [data_json]
   }
 }
+
+# OpenAI API credentials (for gpt-5.2 agent reasoning)
+resource "vault_kv_secret_v2" "openai" {
+  mount = "secret"
+  name  = "frank-bot/openai"
+  data_json = jsonencode({
+    api_key = var.openai_api_key
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}

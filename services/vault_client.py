@@ -240,6 +240,18 @@ def get_telegram_bot_credentials() -> dict[str, str] | None:
     return get_secret("frank-bot/telegram-bot")
 
 
+def get_openai_credentials() -> dict[str, str] | None:
+    """
+    Get OpenAI API credentials from Vault.
+
+    Returns dict with:
+        - api_key: OpenAI API key
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/openai")
+
+
 __all__ = [
     "vault_enabled",
     "get_secret",
@@ -249,6 +261,7 @@ __all__ = [
     "get_google_credentials",
     "get_swarm_credentials",
     "get_telegram_bot_credentials",
+    "get_openai_credentials",
     "clear_client_cache",
     "clear_secret_cache",
 ]

@@ -87,3 +87,10 @@ variable "telegram_bot_chat_id" {
   sensitive   = true
   default     = ""
 }
+
+# OpenAI
+variable "openai_api_key" {
+  type        = string
+  description = "OpenAI API key for gpt-5.2 agent reasoning"
+  sensitive   = true
+}
