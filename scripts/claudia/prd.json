@@ -1475,7 +1475,7 @@
         "All tests pass in CI"
       ],
       "priority": 89,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00079 through frank_bot-00081, frank_bot-00086. Validates Stream B."
     },
     {
@@ -1491,7 +1491,7 @@
         "All tests pass in CI"
       ],
       "priority": 90,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00082 through frank_bot-00085. Validates Stream C."
     }
   ]

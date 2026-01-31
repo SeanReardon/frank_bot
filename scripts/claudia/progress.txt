@@ -1459,3 +1459,36 @@ Updated JorbSession to label sean_direct messages as "GUIDANCE FROM PRINCIPAL" i
 - High confidence for direct observations from principal
 
 ---
+
+## 2026-01-31: frank_bot-00089 - Add integration tests for human intervention flow
+
+### Summary
+Created comprehensive integration tests for the human intervention flow (Stream B). Tests cover the complete flow from Telegram listener detecting outgoing messages, through routing with is_human_intervention flag, to storing messages without LLM response and learning from them.
+
+### Files Changed
+- tests/test_human_intervention_integration.py (new - 12 integration tests)
+
+### Learnings
+- Integration tests should verify the complete flow, not just individual components
+- Mocking switchboard and jorb session allows testing the flow without actual LLM calls
+- Human intervention events need is_human_intervention=True flag set explicitly
+- Tests verify: listener detection, routing with flag, storage without LLM, progress updates, learning from sean_direct
+
+---
+
+## 2026-01-31: frank_bot-00090 - Add integration tests for catch-up jorb flow
+
+### Summary
+Created comprehensive integration tests for the catch-up jorb flow (Stream C). Tests cover trusted sender detection, catch-up jorb creation with sean-voice personality, kickoff message style, unknown sender flagging, and context recovery flow.
+
+### Files Changed
+- tests/test_catch_up_jorb_integration.py (new - 13 integration tests)
+
+### Learnings
+- Catch-up jorb names are truncated to ~30 chars; full content is in original_plan
+- Tests should verify personality assignment and kickoff message style
+- Unknown sender flagging prevents spam from creating jorbs
+- Trusted sender detection relies on contact history across all jorbs (any status)
+- Phone number normalization is important for trusted sender matching
+
+---
