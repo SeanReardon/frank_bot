@@ -12,6 +12,7 @@ from typing import Any
 
 from services.style_analyzer import StyleAnalyzer
 from services.telegram_client import TelegramClientService
+from services.telegram_bot import TelegramBot
 
 logger = logging.getLogger(__name__)
 
@@ -172,15 +173,24 @@ async def generate_sean_md_action(
         analysis_result.total_messages_analyzed,
     )
 
-    # Step 4: Send via Telegram (unless dry run)
+    # Step 4: Send via Telegram Bot (unless dry run)
+    # Use TelegramBot (@Seans_frank_bot) to send to Sean, not Telethon client
     message_count = 0
     if not dry_run:
+        bot = TelegramBot()
+        
+        if not bot.is_configured:
+            raise ValueError(
+                "Telegram Bot is not configured. "
+                "Please set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID."
+            )
+        
         # Split content if it exceeds Telegram's limit
         chunks = _split_message(sean_md_content)
         message_count = len(chunks)
 
         logger.info(
-            "Sending SEAN.md to %s in %d message(s)",
+            "Sending SEAN.md via @Seans_frank_bot to %s in %d message(s)",
             recipient,
             message_count,
         )
@@ -191,14 +201,15 @@ async def generate_sean_md_action(
                 prefix = f"[SEAN.md Part {i}/{message_count}]\n\n"
                 chunk = prefix + chunk
 
-            result = await telegram.send_message(recipient, chunk)
+            # Use bot.send() which sends to the configured chat_id (Sean)
+            result = bot.send(chunk)
 
             if not result.success:
                 raise ValueError(
                     f"Failed to send message {i}/{message_count}: {result.error}"
                 )
 
-            logger.debug("Sent part %d/%d to %s", i, message_count, recipient)
+            logger.debug("Sent part %d/%d via bot", i, message_count)
 
     # Return result
     return {
