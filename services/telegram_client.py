@@ -34,6 +34,14 @@ from typing import Callable, Coroutine, Any
 DirectionFilter = Literal["all", "outgoing", "incoming"]
 
 from config import get_settings
+
+# Types for dispatch context
+@dataclass
+class DispatchContext:
+    """Context passed to message handlers along with the event."""
+
+    is_self_sent: bool = False
+    is_human_intervention: bool = False
 from services.stats import stats
 
 logger = logging.getLogger(__name__)
@@ -42,8 +50,11 @@ logger = logging.getLogger(__name__)
 _shared_client: TelegramClient | None = None
 _client_lock = asyncio.Lock()
 # Registered message handlers for real-time message processing
-_message_handlers: list[Callable[[events.NewMessage.Event], Coroutine[Any, Any, None]]] = []
+# Handlers receive (event, context) tuple
+_message_handlers: list[Callable[[events.NewMessage.Event, "DispatchContext"], Coroutine[Any, Any, None]]] = []
 _handler_registered: bool = False
+# Handler for outgoing messages (registered separately)
+_outgoing_handler_registered: bool = False
 
 
 @dataclass
@@ -183,19 +194,23 @@ class TelegramClientService:
 
     def register_message_handler(
         self,
-        handler: Callable[[events.NewMessage.Event], Coroutine[Any, Any, None]],
+        handler: Callable[[events.NewMessage.Event, DispatchContext], Coroutine[Any, Any, None]],
     ) -> None:
         """
-        Register a callback to receive incoming Telegram messages in real-time.
+        Register a callback to receive Telegram messages in real-time.
 
         The callback will be called with Telethon NewMessage.Event objects
-        for all incoming messages (not outgoing).
+        and a DispatchContext containing metadata about the message.
 
-        Note: Only messages from mutual contacts will be processed by the
-        internal handler to maintain security.
+        For incoming messages (is_self_sent=False):
+        - Only messages from mutual contacts or bots are processed
+
+        For outgoing messages (is_self_sent=True):
+        - Messages are checked against jorb_messages to detect human intervention
+        - If not found in jorb_messages, is_human_intervention=True
 
         Args:
-            handler: Async function that receives NewMessage.Event
+            handler: Async function that receives (NewMessage.Event, DispatchContext)
         """
         global _message_handlers
         _message_handlers.append(handler)
@@ -203,7 +218,7 @@ class TelegramClientService:
 
     def unregister_message_handler(
         self,
-        handler: Callable[[events.NewMessage.Event], Coroutine[Any, Any, None]],
+        handler: Callable[[events.NewMessage.Event, DispatchContext], Coroutine[Any, Any, None]],
     ) -> bool:
         """
         Unregister a previously registered message handler.
@@ -223,12 +238,8 @@ class TelegramClientService:
             return False
 
     async def _dispatch_to_handlers(self, event: events.NewMessage.Event) -> None:
-        """Internal handler that dispatches to all registered handlers."""
+        """Internal handler that dispatches incoming messages to all registered handlers."""
         global _message_handlers
-
-        # Only process incoming messages (not outgoing)
-        if event.out:
-            return
 
         # Get sender info
         sender = await event.get_sender()
@@ -252,8 +263,11 @@ class TelegramClientService:
             logger.debug("Skipping message from non-user entity: %s", type(sender).__name__)
             return
 
+        # Create context for incoming messages
+        context = DispatchContext(is_self_sent=False, is_human_intervention=False)
+
         logger.info(
-            "Dispatching Telegram message from %s (%s) to %d handlers",
+            "Dispatching incoming Telegram message from %s (%s) to %d handlers",
             sender.first_name or sender.id,
             sender.username or "no username",
             len(_message_handlers),
@@ -262,50 +276,111 @@ class TelegramClientService:
         # Dispatch to all registered handlers
         for handler in _message_handlers:
             try:
-                await handler(event)
+                await handler(event, context)
             except Exception as e:
                 logger.error("Error in Telegram message handler: %s", e)
 
-    async def start_listening(self) -> None:
+    async def _dispatch_outgoing_to_handlers(self, event: events.NewMessage.Event) -> None:
+        """Internal handler that dispatches outgoing messages to all registered handlers."""
+        global _message_handlers
+
+        from services.jorb_storage import JorbStorage
+
+        # Get message content and timestamp
+        message_text = event.message.text or ""
+        message_date = event.message.date
+
+        if not message_text.strip():
+            logger.debug("Skipping outgoing message with no text")
+            return
+
+        # Check if this message was sent by frank_bot (exists in jorb_messages)
+        storage = JorbStorage()
+        is_frank_bot = await storage.is_frank_bot_message(
+            content=message_text,
+            timestamp=message_date,
+            time_window_seconds=5,
+        )
+
+        if is_frank_bot:
+            logger.debug("Skipping outgoing message - sent by frank_bot")
+            return
+
+        # This is a human intervention - Sean sent this message directly
+        context = DispatchContext(is_self_sent=True, is_human_intervention=True)
+
+        logger.info(
+            "Dispatching outgoing Telegram message (human intervention) to %d handlers",
+            len(_message_handlers),
+        )
+
+        # Dispatch to all registered handlers
+        for handler in _message_handlers:
+            try:
+                await handler(event, context)
+            except Exception as e:
+                logger.error("Error in Telegram message handler: %s", e)
+
+    async def start_listening(self, include_outgoing: bool = False) -> None:
         """
-        Start listening for incoming messages.
+        Start listening for messages.
 
         Must be called after connect() to begin receiving real-time messages.
         Messages will be dispatched to all registered handlers.
+
+        Args:
+            include_outgoing: If True, also process outgoing messages for
+                             human intervention detection. Default False
+                             for backward compatibility.
         """
-        global _handler_registered
+        global _handler_registered, _outgoing_handler_registered
 
         client = await self._get_shared_client()
 
-        if _handler_registered:
-            logger.debug("Message handler already registered with client")
-            return
+        if not _handler_registered:
+            # Register incoming message handler
+            client.add_event_handler(
+                self._dispatch_to_handlers,
+                events.NewMessage(incoming=True),
+            )
+            _handler_registered = True
+            logger.info("Started listening for incoming Telegram messages")
 
-        # Register the internal dispatcher with the client
-        client.add_event_handler(
-            self._dispatch_to_handlers,
-            events.NewMessage(incoming=True),
-        )
-        _handler_registered = True
-        logger.info("Started listening for Telegram messages")
+        if include_outgoing and not _outgoing_handler_registered:
+            # Register outgoing message handler for human intervention detection
+            client.add_event_handler(
+                self._dispatch_outgoing_to_handlers,
+                events.NewMessage(outgoing=True),
+            )
+            _outgoing_handler_registered = True
+            logger.info("Started listening for outgoing Telegram messages (human intervention)")
 
     async def stop_listening(self) -> None:
         """
-        Stop listening for incoming messages.
+        Stop listening for all messages.
 
-        Removes the event handler from the client.
+        Removes all event handlers from the client.
         """
-        global _handler_registered, _shared_client
+        global _handler_registered, _outgoing_handler_registered, _shared_client
 
-        if not _handler_registered or _shared_client is None:
+        if _shared_client is None:
             return
 
-        _shared_client.remove_event_handler(
-            self._dispatch_to_handlers,
-            events.NewMessage(incoming=True),
-        )
-        _handler_registered = False
-        logger.info("Stopped listening for Telegram messages")
+        if _handler_registered:
+            _shared_client.remove_event_handler(
+                self._dispatch_to_handlers,
+                events.NewMessage(incoming=True),
+            )
+            _handler_registered = False
+            logger.info("Stopped listening for incoming Telegram messages")
+
+        if _outgoing_handler_registered:
+            _shared_client.remove_event_handler(
+                self._dispatch_outgoing_to_handlers,
+                events.NewMessage(outgoing=True),
+            )
+            _outgoing_handler_registered = False
+            logger.info("Stopped listening for outgoing Telegram messages")
 
     async def _ensure_connected(self) -> TelegramClient:
         """Ensure client is connected and return it."""
@@ -953,4 +1028,5 @@ __all__ = [
     "TelegramDialog",
     "TelegramAuthResult",
     "DirectionFilter",
+    "DispatchContext",
 ]

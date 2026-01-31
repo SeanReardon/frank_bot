@@ -49,6 +49,7 @@ from actions.telegram import (
     verify_telegram_code,
 )
 from actions.telegram_bot import get_telegram_bot_status, test_telegram_bot
+from actions.style_capture import generate_sean_md_action
 from server.sms_webhook import sms_webhook_handler
 from server.stytch_middleware import require_stytch_session
 from config import Settings
@@ -333,6 +334,14 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(get_jorbs_stats_action)
         return await responder(payload)
 
+    # Style capture endpoint (protected by API key)
+    async def style_generate_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("styleGenerate").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(generate_sean_md_action)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -406,6 +415,8 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/jorbs/{id}/messages", jorbs_messages_handler, methods=["GET"]),
         Route("/jorbs/{id}/approve", jorbs_approve_handler, methods=["GET"]),
         Route("/jorbs/{id}/cancel", jorbs_cancel_handler, methods=["GET"]),
+        # Style capture endpoint (SEAN.md generation)
+        Route("/actions/style/generate", style_generate_handler, methods=["GET"]),
     ]
 
     return routes

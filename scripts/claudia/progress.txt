@@ -1292,3 +1292,85 @@ Added get_all_contacts_from_jorbs() to JorbStorage and is_trusted_sender() to Ag
 - Trusted sender check enables catch-up jorb creation for known contacts only
 
 ---
+
+## 2026-01-31: frank_bot-00077 - Add action to generate and send SEAN.md via Telegram
+
+### Summary
+Created actions/style_capture.py with generate_sean_md_action that fetches Magic conversation history, runs style analysis, generates SEAN.md, and sends to @SeanReardon. Splits content into multiple Telegram messages if needed.
+
+### Files Changed
+- actions/style_capture.py (new)
+- server/routes.py (added style_generate_handler and /actions/style/generate route)
+- tests/test_style_capture_action.py (new - 18 tests)
+
+### Learnings
+- Telegram message limit is 4096 characters - need smart splitting at paragraphs
+- Action supports dry_run mode for testing without sending
+- Chat ID defaults to @MagicConciergeBot, recipient defaults to @SeanReardon
+
+---
+
+## 2026-01-31: frank_bot-00087 - Add CLI script for SEAN.md generation
+
+### Summary
+Created scripts/generate_sean_md.py as standalone CLI script for SEAN.md generation. Supports --chat-id, --before-date, --output, and --send arguments.
+
+### Files Changed
+- scripts/generate_sean_md.py (new)
+
+### Learnings
+- CLI provides manual trigger for style capture workflow
+- Progress display helps user understand multi-step process
+- Error handling provides clear messages for configuration issues
+
+---
+
+## 2026-01-31: frank_bot-00088 - Add integration tests for Sean voice capture flow
+
+### Summary
+Created comprehensive integration tests for Stream A (Sean voice capture). Tests verify date filtering, hedging pattern extraction, SEAN.md generation, sean-voice personality loading, and end-to-end flow.
+
+### Files Changed
+- tests/test_integration_sean_voice.py (new - 13 tests)
+
+### Learnings
+- Integration tests should test the complete flow from fetch to generation
+- Mock messages need realistic dates and content for pattern matching
+- Personality loader caches results - tests need to consider this
+
+---
+
+## 2026-01-31: frank_bot-00079 - Modify Telegram listener to process outgoing messages
+
+### Summary
+Updated TelegramClientService to process outgoing messages for human intervention detection. Added DispatchContext dataclass with is_self_sent and is_human_intervention flags. Added is_frank_bot_message method to JorbStorage for deduplication.
+
+### Files Changed
+- services/telegram_client.py (added DispatchContext, _dispatch_outgoing_to_handlers, updated handler signatures)
+- services/jorb_storage.py (added is_frank_bot_message method)
+- tests/test_telegram_outgoing.py (new - 13 tests)
+
+### Learnings
+- Outgoing messages need deduplication against jorb_messages to identify Sean's direct messages
+- Content matching uses substring for flexibility (slight message variations)
+- Time window of 5 seconds handles typical latency between send and record
+- Handler signatures updated to accept (event, context) for backward compatibility
+
+---
+
+## 2026-01-31: frank_bot-00080 - Update switchboard to handle human intervention flag
+
+### Summary
+Updated Switchboard.route() to accept is_human_intervention parameter. RoutingDecision now includes is_human_intervention field. When Sean intervenes and a jorb is matched, confidence is upgraded to "high".
+
+### Files Changed
+- services/switchboard.py (added is_human_intervention to RoutingDecision and route method)
+- prompts/switchboard_system.md (added human intervention section)
+- tests/test_switchboard_human_intervention.py (new - 9 tests)
+
+### Learnings
+- Human intervention messages still need routing to identify affected jorb
+- Confidence upgrade for Sean's messages reflects "principal knows best"
+- Flag must be preserved through all routing paths (fast match, LLM, error)
+
+---

@@ -913,6 +913,67 @@ class JorbStorage:
         # Default: just lowercase
         return identifier.lower()
 
+    async def is_frank_bot_message(
+        self,
+        content: str,
+        timestamp: datetime | str,
+        time_window_seconds: int = 5,
+    ) -> bool:
+        """
+        Check if a message was sent by frank_bot (exists in jorb_messages).
+
+        Used to distinguish between Sean's direct messages and frank_bot's messages.
+        A message is considered from frank_bot if there's a matching outbound message
+        in jorb_messages within the time window.
+
+        Args:
+            content: The message content to check
+            timestamp: The message timestamp (datetime or ISO string)
+            time_window_seconds: How many seconds to look around the timestamp
+
+        Returns:
+            True if a matching message exists in jorb_messages, False otherwise
+        """
+        await self._ensure_initialized()
+
+        # Convert timestamp to datetime if needed
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+
+        # Calculate time bounds
+        from datetime import timedelta
+
+        time_lower = (timestamp - timedelta(seconds=time_window_seconds)).isoformat()
+        time_upper = (timestamp + timedelta(seconds=time_window_seconds)).isoformat()
+
+        async with aiosqlite.connect(self._db_path) as conn:
+            # Look for outbound messages with similar content within time window
+            cursor = await conn.execute(
+                """
+                SELECT id, content FROM jorb_messages
+                WHERE direction = 'outbound'
+                AND timestamp >= ?
+                AND timestamp <= ?
+                """,
+                (time_lower, time_upper),
+            )
+            rows = await cursor.fetchall()
+
+            # Check for content similarity (substring match)
+            content_lower = content.lower().strip()
+            for row in rows:
+                db_content = row[1].lower().strip() if row[1] else ""
+                # Match if content is a substring or vice versa
+                if content_lower in db_content or db_content in content_lower:
+                    logger.debug(
+                        "Message matches frank_bot message (id=%s): %s...",
+                        row[0],
+                        content[:30],
+                    )
+                    return True
+
+        return False
+
     async def get_aggregate_metrics(
         self,
         status_filter: Literal["open", "closed", "all"] = "all",

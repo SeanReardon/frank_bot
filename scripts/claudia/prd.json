@@ -1278,7 +1278,7 @@
         "Route protected by existing API key authentication"
       ],
       "priority": 77,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00076. Delivery mechanism for SEAN.md to Sean."
     },
     {
@@ -1312,7 +1312,7 @@
         "Unit tests verify: frank_bot messages are skipped, Sean's direct messages are processed"
       ],
       "priority": 79,
-      "passes": false,
+      "passes": true,
       "notes": "Stream B foundation. Requires access to jorb_messages table for deduplication."
     },
     {
@@ -1327,7 +1327,7 @@
         "Unit tests verify routing with and without is_human_intervention flag"
       ],
       "priority": 80,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00079. Extends switchboard for Stream B."
     },
     {
@@ -1443,7 +1443,7 @@
         "Handles errors gracefully with clear messages"
       ],
       "priority": 87,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00076. Provides manual trigger for SEAN.md generation."
     },
     {
@@ -1459,7 +1459,7 @@
         "All tests pass in CI"
       ],
       "priority": 88,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00074 through frank_bot-00078. Validates Stream A."
     },
     {

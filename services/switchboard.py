@@ -42,6 +42,7 @@ class RoutingDecision:
     is_spam: bool = False
     is_urgent: bool = False
     unknown_sender: bool = False
+    is_human_intervention: bool = False  # True when Sean sent this message directly
     # Token usage
     tokens_used: int = 0
 
@@ -165,6 +166,7 @@ class Switchboard:
         content: str,
         timestamp: str,
         open_jorbs: list[JorbWithMessages],
+        is_human_intervention: bool = False,
     ) -> RoutingDecision:
         """
         Route an incoming message to the appropriate jorb.
@@ -176,6 +178,9 @@ class Switchboard:
             content: Message content
             timestamp: ISO 8601 timestamp
             open_jorbs: List of open jorbs with their messages
+            is_human_intervention: True if this is Sean's direct message (outgoing)
+                                   When True, routing still identifies the jorb but
+                                   the message is handled differently by AgentRunner.
 
         Returns:
             RoutingDecision with jorb_id (or None) and metadata
@@ -184,15 +189,17 @@ class Switchboard:
         fast_match = self._try_fast_contact_match(sender, open_jorbs)
         if fast_match:
             logger.info(
-                "Fast contact match: message from %s routed to %s",
+                "Fast contact match: message from %s routed to %s%s",
                 sender,
                 fast_match,
+                " (human intervention)" if is_human_intervention else "",
             )
             return RoutingDecision(
                 jorb_id=fast_match,
-                confidence="high",
+                confidence="high",  # Sean knows what he's doing
                 reasoning=f"Sender {sender} is a known contact for this jorb",
                 tokens_used=0,
+                is_human_intervention=is_human_intervention,
             )
 
         # No fast match - use LLM for routing
@@ -203,6 +210,7 @@ class Switchboard:
                 confidence="low",
                 reasoning="Switchboard not configured",
                 unknown_sender=True,
+                is_human_intervention=is_human_intervention,
             )
 
         context = self.build_context(
@@ -246,14 +254,20 @@ class Switchboard:
             routing = result.get("routing", {})
             signals = result.get("signals", {})
 
+            # For human intervention, if we find a jorb match, confidence is high
+            confidence = routing.get("confidence", "low")
+            if is_human_intervention and routing.get("jorb_id"):
+                confidence = "high"  # Sean knows what he's doing
+
             decision = RoutingDecision(
                 jorb_id=routing.get("jorb_id"),
-                confidence=routing.get("confidence", "low"),
+                confidence=confidence,
                 reasoning=routing.get("reasoning", ""),
                 might_be_new_jorb=signals.get("might_be_new_jorb", False),
                 is_spam=signals.get("is_spam", False),
                 is_urgent=signals.get("is_urgent", False),
                 unknown_sender=signals.get("unknown_sender", False),
+                is_human_intervention=is_human_intervention,
                 tokens_used=tokens_used,
             )
 
@@ -273,6 +287,7 @@ class Switchboard:
                 confidence="low",
                 reasoning=f"Routing failed: {e}",
                 unknown_sender=True,
+                is_human_intervention=is_human_intervention,
             )
 
     def _try_fast_contact_match(
