@@ -201,8 +201,9 @@ async def generate_sean_md_action(
                 prefix = f"[SEAN.md Part {i}/{message_count}]\n\n"
                 chunk = prefix + chunk
 
-            # Use bot.send() which sends to the configured chat_id (Sean)
-            result = bot.send(chunk)
+            # Use bot.send_notification() which sends to the configured chat_id (Sean)
+            # Use empty parse_mode since SEAN.md is plain text with markdown-like formatting
+            result = await bot.send_notification(chunk, parse_mode="")
 
             if not result.success:
                 raise ValueError(
