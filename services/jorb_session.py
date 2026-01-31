@@ -93,13 +93,22 @@ def _load_jorb_session_template() -> str:
 
 def _format_message_for_history(msg: JorbMessage) -> dict[str, Any]:
     """Format a message for the conversation history."""
-    return {
+    result = {
         "timestamp": msg.timestamp,
         "direction": msg.direction,
         "channel": msg.channel,
         "sender": msg.sender_name or msg.sender,
         "content": msg.content,
     }
+    # Mark sean_direct messages specially for learning
+    if msg.sender == "sean_direct":
+        result["is_sean_direct"] = True
+    return result
+
+
+def _is_sean_direct_message(msg: JorbMessage) -> bool:
+    """Check if a message is a direct message from Sean (human intervention)."""
+    return msg.sender == "sean_direct"
 
 
 def _format_jorb_context(jorb: Jorb) -> dict[str, Any]:
@@ -214,20 +223,43 @@ class JorbSession:
         jorb_context = json.dumps(_format_jorb_context(self._jorb), indent=2)
         prompt = prompt.replace("{{JORB_CONTEXT}}", jorb_context)
 
-        # Replace message history
+        # Replace message history with special labeling for sean_direct messages
+        sean_direct_messages = []
         if self._messages:
             history_lines = []
             for msg in self._messages[-50:]:  # Last 50 messages
                 formatted = _format_message_for_history(msg)
                 direction = "→" if msg.direction == "outbound" else "←"
-                history_lines.append(
-                    f"{direction} [{formatted['timestamp'][:16]}] "
-                    f"{formatted['sender']}: {formatted['content'][:200]}"
-                )
+
+                # Special formatting for sean_direct messages
+                if _is_sean_direct_message(msg):
+                    history_lines.append(
+                        f"★ [GUIDANCE FROM PRINCIPAL - {formatted['timestamp'][:16]}] "
+                        f"Sean: {formatted['content'][:200]}"
+                    )
+                    sean_direct_messages.append(msg)
+                else:
+                    history_lines.append(
+                        f"{direction} [{formatted['timestamp'][:16]}] "
+                        f"{formatted['sender']}: {formatted['content'][:200]}"
+                    )
             message_history = "\n".join(history_lines)
         else:
             message_history = "(No messages yet)"
         prompt = prompt.replace("{{MESSAGE_HISTORY}}", message_history)
+
+        # Add learning instruction if there are sean_direct messages
+        if sean_direct_messages:
+            learning_instruction = (
+                "\n## Learning from Principal's Direct Messages\n"
+                "Messages marked with ★ [GUIDANCE FROM PRINCIPAL] are direct messages "
+                "Sean sent himself (not through you). Study these carefully:\n"
+                "- They show Sean's preferred phrasing and tone\n"
+                "- Adapt your style to match his natural communication\n"
+                "- Note patterns: brevity, word choice, punctuation, formality\n"
+                "- In your response, include learnings about Sean's style if you notice patterns\n"
+            )
+            prompt = prompt.replace("{{POLICY}}", f"{learning_instruction}\n\n{{POLICY}}")
 
         # Replace policy
         policy_text = _format_policy_context(self._policy)
@@ -376,15 +408,91 @@ class JorbSession:
                 action=JorbAction(type="no_action"),
             )
 
+    def _is_catch_up_jorb(self) -> bool:
+        """Check if this is a catch-up jorb for context recovery."""
+        return "Recover context" in self._jorb.original_plan
+
+    def _kickoff_catch_up_jorb(self) -> JorbSessionResponse:
+        """
+        Generate kickoff for a catch-up jorb - asks for context in Sean's style.
+
+        Uses predefined casual messages that vary slightly for natural feel.
+        No LLM call needed - these are simple context-recovery messages.
+
+        Returns:
+            JorbSessionResponse with send_message action to ask for context
+        """
+        import random
+
+        # Casual context-recovery messages in Sean's style
+        # These vary to feel natural but all accomplish the same goal
+        context_messages = [
+            "hey sorry i lost track of this - can you remind me where we left off?",
+            "hey my bad i lost the thread here - what were we working on again?",
+            "sorry brain fart - where did we leave this?",
+            "hey can you catch me up? lost track of where we were",
+            "wait what was this about again? sorry my memory is fried",
+        ]
+
+        # Use personality temperature to add slight variation in message selection
+        # Higher temperature = more likely to pick less common variants
+        temperature = self._personality.model_preferences.temperature
+        if temperature > 0.5:
+            # More random selection
+            message = random.choice(context_messages)
+        else:
+            # Favor the first (most polite) message
+            weights = [0.5, 0.2, 0.1, 0.1, 0.1]
+            message = random.choices(context_messages, weights=weights)[0]
+
+        # Get contact for the action
+        contacts = self._jorb.contacts
+        if not contacts:
+            logger.warning("Catch-up jorb %s has no contacts", self._jorb.id)
+            return JorbSessionResponse(
+                reasoning="Catch-up jorb has no contacts to message",
+                action=JorbAction(type="no_action"),
+            )
+
+        contact = contacts[0]
+
+        logger.info(
+            "Catch-up jorb %s kickoff: asking %s for context",
+            self._jorb.id,
+            contact.identifier,
+        )
+
+        return JorbSessionResponse(
+            reasoning="Catch-up jorb - asking contact to remind me of context",
+            action=JorbAction(
+                type="send_message",
+                channel=contact.channel,
+                recipient=contact.identifier,
+                content=message,
+            ),
+            progress=JorbProgress(
+                note="Asked contact for context recovery",
+                awaiting="context_recovery",
+            ),
+            tokens_used=0,  # No LLM call
+            estimated_cost=0.0,
+        )
+
     async def kickoff(self) -> JorbSessionResponse:
         """
         Generate the initial action for a new jorb.
 
         This is called when a jorb is created with start_immediately=True.
+        For catch-up jorbs (plan contains 'Recover context'), generates a
+        context-recovery message in Sean's casual style instead of using LLM.
 
         Returns:
             JorbSessionResponse with the first action to take
         """
+        # Handle catch-up jorbs specially - no LLM needed
+        if self._is_catch_up_jorb():
+            return self._kickoff_catch_up_jorb()
+
         if not self._api_key or openai is None:
             logger.warning("Jorb session not configured for kickoff")
             return JorbSessionResponse(
@@ -480,20 +588,63 @@ class JorbSession:
 
     def _record_learning(self, learning_text: str) -> None:
         """Record a learning from the jorb session."""
-        # Try to extract subject from jorb contacts
-        subjects = [c.name or c.identifier for c in self._jorb.contacts]
-        subject = subjects[0] if subjects else self._jorb.name
+        # Check if this is a style learning about Sean's communication
+        is_sean_style_learning = any(
+            keyword in learning_text.lower()
+            for keyword in [
+                "sean's style",
+                "sean style",
+                "principal's",
+                "phrasing",
+                "brevity",
+                "tone",
+                "communication style",
+            ]
+        )
 
+        if is_sean_style_learning:
+            self._record_sean_style_learning(learning_text)
+        else:
+            # Regular learning - try to extract subject from jorb contacts
+            subjects = [c.name or c.identifier for c in self._jorb.contacts]
+            subject = subjects[0] if subjects else self._jorb.name
+
+            try:
+                self._progress_log.add_learning(
+                    category="tip",
+                    subject=subject,
+                    insight=learning_text,
+                    jorb_id=self._jorb.id,
+                    confidence="medium",
+                )
+            except Exception as e:
+                logger.warning("Failed to record learning: %s", e)
+
+    def _record_sean_style_learning(self, learning_text: str) -> None:
+        """
+        Record a learning specifically about Sean's communication style.
+
+        These learnings are tagged with subject="Sean's communication style"
+        so they can be easily retrieved and applied to future jorbs.
+
+        Args:
+            learning_text: The style learning to record
+        """
         try:
             self._progress_log.add_learning(
-                category="tip",
-                subject=subject,
+                category="contact_behavior",
+                subject="Sean's communication style",
                 insight=learning_text,
                 jorb_id=self._jorb.id,
-                confidence="medium",
+                confidence="high",  # Higher confidence for direct observation
             )
+            logger.info("Recorded Sean style learning: %s", learning_text[:50])
         except Exception as e:
-            logger.warning("Failed to record learning: %s", e)
+            logger.warning("Failed to record Sean style learning: %s", e)
+
+    def has_sean_direct_messages(self) -> bool:
+        """Check if this session has any sean_direct messages to learn from."""
+        return any(_is_sean_direct_message(msg) for msg in self._messages)
 
 
 def create_jorb_session(

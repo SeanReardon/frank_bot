@@ -1307,8 +1307,8 @@
         "Add new field is_self_sent: bool to event dispatch context",
         "For outgoing messages, check if message exists in jorb_messages table (by timestamp and content similarity)",
         "Matching criteria: timestamp within 5 seconds AND content substring match",
-        "If found in jorb_messages → skip (sent by frank_bot)",
-        "If NOT found → dispatch to handlers with is_human_intervention=True flag",
+        "If found in jorb_messages \u2192 skip (sent by frank_bot)",
+        "If NOT found \u2192 dispatch to handlers with is_human_intervention=True flag",
         "Unit tests verify: frank_bot messages are skipped, Sean's direct messages are processed"
       ],
       "priority": 79,
@@ -1344,7 +1344,7 @@
         "Unit tests verify Sean's messages are stored without triggering LLM response"
       ],
       "priority": 81,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00079, frank_bot-00080. Completes Stream B core logic."
     },
     {
@@ -1379,7 +1379,7 @@
         "Return ProcessingResult with jorb_id and action_taken='catch_up_created'"
       ],
       "priority": 83,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00078, frank_bot-00082. Core Stream C logic."
     },
     {
@@ -1394,7 +1394,7 @@
         "Unit tests verify catch-up kickoff uses correct style and sets awaiting"
       ],
       "priority": 84,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00078, frank_bot-00083. Completes catch-up jorb flow."
     },
     {
@@ -1410,7 +1410,7 @@
         "Unit tests verify unknown senders are flagged, not auto-jorbed"
       ],
       "priority": 85,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00082, frank_bot-00083. Prevents spam from creating jorbs."
     },
     {
@@ -1425,7 +1425,7 @@
         "Unit tests verify sean_direct messages influence session decisions"
       ],
       "priority": 86,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00081. Enhances learning from Stream B."
     },
     {

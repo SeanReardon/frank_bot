@@ -1374,3 +1374,88 @@ Updated Switchboard.route() to accept is_human_intervention parameter. RoutingDe
 - Flag must be preserved through all routing paths (fast match, LLM, error)
 
 ---
+
+## 2026-01-31: frank_bot-00081 - Update AgentRunner to handle Sean's direct messages
+
+### Summary
+Added is_human_intervention field to IncomingEvent dataclass. Implemented _handle_human_intervention method that stores messages with sender='sean_direct' marker, updates jorb progress, and checks for closure words. Added store_human_intervention_message and _check_closure_words helpers.
+
+### Files Changed
+- services/agent_runner.py (added is_human_intervention to IncomingEvent, _handle_human_intervention, store_human_intervention_message, _check_closure_words)
+- tests/test_human_intervention.py (new - 21 tests)
+
+### Learnings
+- Sean's direct messages need sender='sean_direct' marker for identification
+- Closure words like "thanks", "done", "perfect" can auto-complete jorbs
+- Human intervention doesn't trigger LLM response - just records the message
+- is_human_intervention must be preserved through event enrichment
+
+---
+
+## 2026-01-31: frank_bot-00083 - Implement catch-up jorb creation for in-flight tasks
+
+### Summary
+Implemented _create_catch_up_jorb method for automatic jorb creation when trusted senders message with no matching jorb. Creates jorb with "Catch-up:" name prefix, "Recover context" plan marker, sean-voice personality, and kicks off immediately.
+
+### Files Changed
+- services/agent_runner.py (added _create_catch_up_jorb, updated _process_with_switchboard to check trusted sender)
+- tests/test_catch_up_jorb.py (new - 17 tests)
+
+### Learnings
+- Catch-up jorb name uses first 30 chars of message for context
+- Plan contains "Recover context" marker for JorbSession detection
+- Jorb is created as "running" and immediately kicked off
+- Kicks off after storing original message as first inbound
+
+---
+
+## 2026-01-31: frank_bot-00084 - Add catch-up jorb kickoff message in sean-voice style
+
+### Summary
+Updated JorbSession.kickoff() to detect catch-up jorbs via "Recover context" in plan and generate casual context-recovery messages. Messages vary for natural feel ("hey sorry i lost track of this - can you remind me where we left off?"). Sets awaiting='context_recovery'.
+
+### Files Changed
+- services/jorb_session.py (added _is_catch_up_jorb, _kickoff_catch_up_jorb, updated kickoff)
+- tests/test_catch_up_kickoff.py (new - 12 tests)
+
+### Learnings
+- Catch-up kickoff bypasses LLM - uses predefined casual messages
+- Message variation via weighted random selection for natural feel
+- Zero tokens/cost for catch-up kickoff since no LLM call
+- Sets awaiting='context_recovery' to track state
+
+---
+
+## 2026-01-31: frank_bot-00085 - Add unknown sender handling for non-trusted senders
+
+### Summary
+Implemented _flag_for_review method for unknown senders with might_be_new_jorb=True. Sends Telegram notification to Sean and records in progress log. Returns action_taken='flagged_for_review' without creating jorb.
+
+### Files Changed
+- services/agent_runner.py (added _flag_for_review, updated _process_with_switchboard routing logic)
+- tests/test_catch_up_jorb.py (added flag_for_review tests)
+
+### Learnings
+- Unknown senders should NOT auto-create jorbs (spam risk)
+- Telegram notification gives Sean chance to manually create jorb
+- Progress log records flagged messages for audit trail
+- Routing check order: spam -> trusted sender -> unknown sender
+
+---
+
+## 2026-01-31: frank_bot-00086 - Update jorb session to learn from Sean's direct messages
+
+### Summary
+Updated JorbSession to label sean_direct messages as "GUIDANCE FROM PRINCIPAL" in system prompt. Added learning instructions when sean_direct messages present. Updated _record_learning to detect and route Sean style learnings to contact_behavior category with high confidence.
+
+### Files Changed
+- services/jorb_session.py (updated _format_message_for_history, _build_system_prompt, _record_learning, added _record_sean_style_learning, has_sean_direct_messages, _is_sean_direct_message)
+- tests/test_sean_direct_learning.py (new - 14 tests)
+
+### Learnings
+- sean_direct messages marked with star symbol for visibility
+- Learning instruction block added only when sean_direct messages exist
+- Style learnings detected by keywords and routed to Sean's communication style subject
+- High confidence for direct observations from principal
+
+---

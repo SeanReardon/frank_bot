@@ -22,6 +22,7 @@ from config import get_settings
 from services.jorb_storage import (
     Channel,
     Jorb,
+    JorbContact,
     JorbMessage,
     JorbStorage,
     JorbWithMessages,
@@ -127,6 +128,7 @@ class IncomingEvent:
     content: str
     timestamp: str  # ISO 8601
     message_count: int = 1
+    is_human_intervention: bool = False  # True when Sean sent this directly (not frank_bot)
 
 
 @dataclass
@@ -581,6 +583,67 @@ class AgentRunner:
 
         return msg_id
 
+    async def store_human_intervention_message(
+        self,
+        jorb_id: str,
+        event: IncomingEvent,
+    ) -> str:
+        """
+        Store a human intervention message (Sean's direct message) in a jorb's history.
+
+        This marks the message with sender='sean_direct' to indicate Sean sent it
+        directly rather than through frank_bot. These messages are recorded but
+        do NOT trigger LLM responses.
+
+        Args:
+            jorb_id: The jorb ID
+            event: The incoming event from Sean's direct message
+
+        Returns:
+            The message ID
+        """
+        message = JorbMessage(
+            id="",  # Will be generated
+            jorb_id=jorb_id,
+            timestamp=event.timestamp,
+            direction="outbound",  # Sean's message TO the contact
+            channel=event.channel,
+            sender="sean_direct",  # Special marker for human intervention
+            sender_name="Sean",
+            recipient=event.sender,  # The original sender becomes recipient
+            content=event.content,
+        )
+        msg_id = await self._storage.add_message(jorb_id, message)
+
+        # Increment outbound message counter (Sean sent it)
+        await self._storage.increment_metrics(jorb_id, messages_out=1)
+
+        logger.info(
+            "Stored human intervention message for jorb %s: %s",
+            jorb_id,
+            event.content[:50],
+        )
+
+        return msg_id
+
+    def _check_closure_words(self, content: str) -> bool:
+        """
+        Check if message content suggests closure (task completion).
+
+        Args:
+            content: The message content to check
+
+        Returns:
+            True if content suggests closure
+        """
+        closure_words = {
+            "thanks", "thank you", "done", "perfect", "great", "awesome",
+            "got it", "all set", "sounds good", "works for me", "appreciate it",
+            "thx", "ty", "cheers", "sorted", "all good",
+        }
+        content_lower = content.lower()
+        return any(word in content_lower for word in closure_words)
+
     async def update_jorb_status(
         self,
         jorb_id: str,
@@ -852,6 +915,7 @@ class AgentRunner:
                     content=event.content,
                     timestamp=event.timestamp,
                     message_count=event.message_count,
+                    is_human_intervention=event.is_human_intervention,
                 )
         except Exception as e:
             logger.warning("Contact lookup failed for %s: %s", event.sender, e)
@@ -923,6 +987,7 @@ class AgentRunner:
                 content=enriched_event.content,
                 timestamp=enriched_event.timestamp,
                 open_jorbs=open_jorbs,
+                is_human_intervention=enriched_event.is_human_intervention,
             )
 
             logger.info(
@@ -948,8 +1013,15 @@ class AgentRunner:
                     )
 
                 if routing.might_be_new_jorb:
-                    logger.info("Message might warrant new jorb, flagging for review")
-                    # Could trigger notification to user here
+                    # Check if this is a trusted sender who might have an in-flight task
+                    is_trusted = await self.is_trusted_sender(enriched_event.sender)
+
+                    if is_trusted:
+                        # Create catch-up jorb for in-flight task
+                        return await self._create_catch_up_jorb(enriched_event)
+                    else:
+                        # Unknown sender - flag for review instead of auto-jorbing
+                        return await self._flag_for_review(enriched_event)
 
                 return ProcessingResult(
                     jorb_id=None,
@@ -973,16 +1045,24 @@ class AgentRunner:
                     error="Routed jorb not found",
                 )
 
-            # Step 6: Store the inbound message
+            # Step 6: Handle human intervention (Sean's direct messages)
+            if enriched_event.is_human_intervention:
+                return await self._handle_human_intervention(
+                    routing.jorb_id,
+                    matched_jorb,
+                    enriched_event,
+                )
+
+            # Step 7: Store the inbound message (for regular messages)
             await self.store_inbound_message(routing.jorb_id, enriched_event)
 
-            # Step 7: Create jorb session with personality
+            # Step 8: Create jorb session with personality
             jorb_session = create_jorb_session(
                 matched_jorb,
                 policy=self._policy.to_context_dict(),
             )
 
-            # Step 8: Process with jorb session
+            # Step 9: Process with jorb session
             session_response = await jorb_session.process_message(
                 channel=enriched_event.channel,
                 sender=enriched_event.sender,
@@ -1010,7 +1090,7 @@ class AgentRunner:
                     estimated_cost=total_cost,
                 )
 
-            # Step 9: Execute the action
+            # Step 10: Execute the action
             message_sent = False
             action = session_response.action
 
@@ -1036,7 +1116,7 @@ class AgentRunner:
                     status="complete",
                 )
 
-            # Step 10: Update progress if provided
+            # Step 11: Update progress if provided
             if session_response.progress:
                 progress = session_response.progress
                 await self.update_jorb_status(
@@ -1129,6 +1209,229 @@ class AgentRunner:
                 action.channel,
             )
             return False
+
+    async def _handle_human_intervention(
+        self,
+        jorb_id: str,
+        matched_jorb: JorbWithMessages,
+        event: IncomingEvent,
+    ) -> ProcessingResult:
+        """
+        Handle human intervention - when Sean sends a direct message.
+
+        When Sean sends a message directly (not through frank_bot), we:
+        1. Store the message with sender='sean_direct' marker
+        2. Do NOT call the jorb session for LLM response
+        3. Update progress_summary with intervention note
+        4. Check if message suggests closure and potentially update status
+
+        Args:
+            jorb_id: The jorb ID this message relates to
+            matched_jorb: The matched jorb with messages
+            event: The incoming event (Sean's direct message)
+
+        Returns:
+            ProcessingResult with action_taken='human_intervention_recorded'
+        """
+        logger.info(
+            "Human intervention detected for jorb %s: %s",
+            jorb_id,
+            event.content[:50],
+        )
+
+        # Step 1: Store the message with sean_direct marker
+        await self.store_human_intervention_message(jorb_id, event)
+
+        # Step 2: Create progress note
+        content_preview = event.content[:50]
+        if len(event.content) > 50:
+            content_preview += "..."
+        progress_note = f"Sean intervened directly: {content_preview}"
+
+        # Step 3: Check if message suggests closure
+        suggests_closure = self._check_closure_words(event.content)
+
+        if suggests_closure:
+            logger.info(
+                "Sean's message suggests closure for jorb %s, marking as complete",
+                jorb_id,
+            )
+            await self.update_jorb_status(
+                jorb_id=jorb_id,
+                status="complete",
+                progress_summary=progress_note,
+            )
+        else:
+            # Just update progress summary
+            await self.update_jorb_status(
+                jorb_id=jorb_id,
+                progress_summary=progress_note,
+            )
+
+        # Step 4: Record in progress log
+        progress_log = get_progress_log()
+        progress_log.add_entry(
+            entry_type="task_progress",
+            summary=progress_note,
+            jorb_id=jorb_id,
+            jorb_name=matched_jorb.jorb.name,
+            details={
+                "intervention_type": "sean_direct",
+                "suggests_closure": suggests_closure,
+            },
+        )
+
+        return ProcessingResult(
+            jorb_id=jorb_id,
+            action_taken="human_intervention_recorded",
+            success=True,
+            message_sent=False,  # Sean already sent it, we just recorded it
+        )
+
+    async def _create_catch_up_jorb(
+        self,
+        event: IncomingEvent,
+    ) -> ProcessingResult:
+        """
+        Create a catch-up jorb for an in-flight task from a trusted sender.
+
+        When a trusted sender sends a message that doesn't match any existing jorb,
+        we create a catch-up jorb to recover context for the in-flight task.
+
+        Args:
+            event: The incoming event from the trusted sender
+
+        Returns:
+            ProcessingResult with the new jorb_id and action_taken='catch_up_created'
+        """
+        logger.info(
+            "Creating catch-up jorb for trusted sender %s: %s",
+            event.sender,
+            event.content[:50],
+        )
+
+        # Build jorb name from first 30 chars of message
+        content_preview = event.content[:30]
+        if len(event.content) > 30:
+            content_preview = content_preview.rsplit(" ", 1)[0]  # Don't cut mid-word
+            if not content_preview:
+                content_preview = event.content[:30]
+        jorb_name = f"Catch-up: {content_preview}"
+
+        # Build plan that indicates this is a context recovery
+        plan = f"Recover context for in-flight task. Original message: {event.content}"
+
+        # Create the contact
+        contact = JorbContact(
+            identifier=event.sender,
+            channel=event.channel,
+            name=event.sender_name,
+        )
+
+        # Create the catch-up jorb with sean-voice personality
+        jorb = await self._storage.create_jorb(
+            name=jorb_name,
+            plan=plan,
+            contacts=[contact],
+            personality="sean-voice",
+        )
+
+        # Update status to running
+        await self._storage.update_jorb(jorb.id, status="running")
+
+        # Store the incoming message as first inbound message
+        await self.store_inbound_message(jorb.id, event)
+
+        # Record in progress log
+        progress_log = get_progress_log()
+        progress_log.add_entry(
+            entry_type="task_progress",
+            summary=f"Created catch-up jorb for in-flight task: {content_preview}",
+            jorb_id=jorb.id,
+            jorb_name=jorb_name,
+            details={
+                "sender": event.sender,
+                "channel": event.channel,
+                "original_message": event.content,
+            },
+        )
+
+        logger.info(
+            "Created catch-up jorb %s: %s",
+            jorb.id,
+            jorb_name,
+        )
+
+        # Kick off the jorb with special first_action to ask for context
+        # This will be handled by task 00084
+        result = await self.kickoff_jorb(jorb)
+
+        return ProcessingResult(
+            jorb_id=jorb.id,
+            action_taken="catch_up_created",
+            success=True,
+            message_sent=result.message_sent,
+        )
+
+    async def _flag_for_review(
+        self,
+        event: IncomingEvent,
+    ) -> ProcessingResult:
+        """
+        Flag a message from an unknown sender for human review.
+
+        When an unknown sender sends a message that might warrant a jorb,
+        we don't auto-create (could be spam or wrong number). Instead,
+        we flag for Sean to review and possibly create a jorb manually.
+
+        Args:
+            event: The incoming event from the unknown sender
+
+        Returns:
+            ProcessingResult with action_taken='flagged_for_review'
+        """
+        logger.info(
+            "Flagging message from unknown sender %s for review: %s",
+            event.sender,
+            event.content[:50],
+        )
+
+        # Try to send Telegram notification to Sean
+        try:
+            from services.telegram_bot import TelegramBot
+            telegram_bot = TelegramBot()
+
+            content_preview = event.content[:100]
+            if len(event.content) > 100:
+                content_preview += "..."
+
+            notification = (
+                f"Unknown sender {event.sender} sent:\n"
+                f"{content_preview}\n\n"
+                f"Create jorb?"
+            )
+            await telegram_bot.send_notification(notification)
+        except Exception as e:
+            logger.warning("Failed to send review notification: %s", e)
+
+        # Record in progress log
+        progress_log = get_progress_log()
+        progress_log.add_entry(
+            entry_type="task_progress",
+            summary=f"Flagged unknown sender for review: {event.sender}",
+            details={
+                "sender": event.sender,
+                "channel": event.channel,
+                "content_preview": event.content[:100],
+            },
+        )
+
+        return ProcessingResult(
+            jorb_id=None,
+            action_taken="flagged_for_review",
+            success=True,
+            message_sent=False,
+        )
 
     async def _process_legacy(
         self,
