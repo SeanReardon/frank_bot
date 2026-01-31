@@ -1209,3 +1209,86 @@ Created comprehensive integration test suite covering jorb lifecycle, pause/appr
 - MessageBuffer debounce times need adjustment for test reliability
 
 ---
+
+## 2026-01-31: frank_bot-00074 - Create Telegram message history fetcher for style analysis
+
+### Summary
+Added get_all_messages() method to TelegramClientService that fetches all messages from a chat with optional date and direction filters. Uses iter_messages with offset_date parameter. Handles pagination internally.
+
+### Files Changed
+- services/telegram_client.py (added get_all_messages method, DirectionFilter type)
+- tests/test_telegram_client_service.py (added 5 tests for new method)
+
+### Learnings
+- Telethon's iter_messages offset_date fetches messages BEFORE that date
+- direction_filter parameter uses Literal["all", "outgoing", "incoming"]
+- Mock User needs spec=User for isinstance checks to work correctly
+
+---
+
+## 2026-01-31: frank_bot-00075 - Implement style analysis function for Sean's voice patterns
+
+### Summary
+Created StyleAnalyzer class with analyze_patterns() that extracts communication patterns across 9 categories: hedging, disagreement, pausing, resuming, revision, acknowledgment, action_requests, follow_ups, and tone_markers. Also added fetch_authentic_messages() method.
+
+### Files Changed
+- services/style_analyzer.py (new - StyleAnalyzer class with pattern extraction)
+- tests/test_style_analyzer.py (new - 17 tests)
+
+### Learnings
+- Regular expressions work well for pattern detection with case-insensitive matching
+- Limiting to 5 examples per pattern prevents document bloat
+- Context extraction (surrounding text) provides valuable usage examples
+
+---
+
+## 2026-01-31: frank_bot-00076 - Create SEAN.md generator from style analysis results
+
+### Summary
+Added generate_sean_md() method to StyleAnalyzer that produces structured Markdown documentation. Includes executive summary, pattern sections with examples, anti-patterns (no emojis, no markdown, no verbose confirmations), sample transformations, and implementation guidelines.
+
+### Files Changed
+- services/style_analyzer.py (added generate_sean_md method)
+- tests/test_style_analyzer.py (added 9 tests for generator)
+
+### Learnings
+- Anti-patterns section is critical for AI systems - explicitly stating what NOT to do
+- Sample transformations provide concrete "Instead of X, write Y" guidance
+- Implementation guidelines should be numbered for easy reference
+
+---
+
+## 2026-01-31: frank_bot-00078 - Create sean-voice personality file
+
+### Summary
+Created sean-voice.json personality file with traits matching SEAN.md patterns. Communication style is casual/very_concise with emoji_usage="never". Includes 9 example responses demonstrating brief, informal style.
+
+### Files Changed
+- personalities/sean-voice.json (new)
+- tests/test_sean_voice_personality.py (new - 9 tests)
+
+### Learnings
+- Temperature 0.8 provides natural variation while staying in character
+- Examples are more valuable than verbose guidelines for LLM behavior shaping
+- policyOverrides can adjust maxMessagesPerHour per personality
+
+---
+
+## 2026-01-31: frank_bot-00082 - Add trusted sender detection for catch-up jorb creation
+
+### Summary
+Added get_all_contacts_from_jorbs() to JorbStorage and is_trusted_sender() to AgentRunner. Contacts are normalized across phone numbers, usernames, and emails for consistent matching.
+
+### Files Changed
+- services/jorb_storage.py (added get_all_contacts_from_jorbs, _normalize_identifier)
+- services/agent_runner.py (added is_trusted_sender method)
+- tests/test_jorb_storage.py (added 14 tests for contact extraction and normalization)
+- tests/test_trusted_sender.py (new - 7 tests)
+
+### Learnings
+- Phone normalization to last 10 digits handles +1, spaces, dashes
+- Username normalization strips @ prefix and lowercases
+- Email normalization just lowercases (@ and . preserved)
+- Trusted sender check enables catch-up jorb creation for known contacts only
+
+---

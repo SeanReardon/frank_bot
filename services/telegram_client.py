@@ -15,6 +15,8 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Literal
 
 from telethon import TelegramClient, events
 from telethon.errors import (
@@ -28,6 +30,8 @@ from telethon.errors import (
 from telethon.tl.types import Channel, Chat, User
 
 from typing import Callable, Coroutine, Any
+
+DirectionFilter = Literal["all", "outgoing", "incoming"]
 
 from config import get_settings
 from services.stats import stats
@@ -534,6 +538,97 @@ class TelegramClientService:
             logger.exception("Error getting messages from %s", chat_id)
             raise
 
+    async def get_all_messages(
+        self,
+        chat_id: str | int,
+        before_date: datetime | None = None,
+        direction_filter: DirectionFilter = "all",
+    ) -> list[TelegramMessage]:
+        """
+        Retrieve all messages from a chat, with optional date and direction filters.
+
+        This method fetches messages iteratively, handling pagination internally,
+        and returns a complete list. Use with caution on chats with large history.
+
+        Args:
+            chat_id: Username, phone, or numeric chat ID.
+            before_date: Only include messages before this timestamp.
+                         If None, fetches all messages.
+            direction_filter: Filter by message direction:
+                - "all": Include all messages (default)
+                - "outgoing": Only include outgoing messages (out=True)
+                - "incoming": Only include incoming messages (out=False)
+
+        Returns:
+            List of TelegramMessage objects, ordered newest to oldest.
+        """
+        client = await self._ensure_connected()
+        tg_stats = stats.get_service_stats("telegram")
+        start = time.time()
+
+        try:
+            messages = []
+            # iter_messages offset_date uses datetime, fetching messages BEFORE that date
+            async for message in client.iter_messages(
+                chat_id,
+                offset_date=before_date,
+            ):
+                # Apply direction filter
+                if direction_filter == "outgoing" and not message.out:
+                    continue
+                if direction_filter == "incoming" and message.out:
+                    continue
+
+                sender_name = None
+                sender_id = None
+                is_contact = False
+                is_mutual_contact = False
+                if message.sender:
+                    sender_id = message.sender.id
+                    if isinstance(message.sender, User):
+                        sender_name = message.sender.first_name
+                        if message.sender.last_name:
+                            sender_name += f" {message.sender.last_name}"
+                        is_contact = message.sender.contact or False
+                        is_mutual_contact = message.sender.mutual_contact or False
+                    else:
+                        sender_name = getattr(message.sender, "title", str(sender_id))
+
+                msg = TelegramMessage(
+                    id=message.id,
+                    text=message.text,
+                    date=message.date.isoformat() if message.date else None,
+                    sender_id=sender_id,
+                    sender_name=sender_name,
+                    is_outgoing=message.out,
+                    is_contact=is_contact,
+                    is_mutual_contact=is_mutual_contact,
+                )
+                messages.append(msg)
+
+            elapsed_ms = (time.time() - start) * 1000
+            tg_stats.record_request(elapsed_ms, success=True)
+            logger.info(
+                "Fetched %d messages from %s (before_date=%s, direction=%s)",
+                len(messages),
+                chat_id,
+                before_date,
+                direction_filter,
+            )
+            return messages
+
+        except Exception as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            error_msg = str(exc)
+            tg_stats.record_request(elapsed_ms, success=False, error=error_msg)
+            stats.record_error(
+                "telegram",
+                error_msg,
+                {"method": "get_all_messages", "chat_id": str(chat_id)},
+            )
+            logger.exception("Error getting all messages from %s", chat_id)
+            raise
+
     async def is_mutual_contact(self, chat_id: str | int) -> bool:
         """
         Check if a chat/user is a mutual contact.
@@ -857,4 +952,5 @@ __all__ = [
     "TelegramMessage",
     "TelegramDialog",
     "TelegramAuthResult",
+    "DirectionFilter",
 ]

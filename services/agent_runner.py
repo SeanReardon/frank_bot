@@ -287,6 +287,39 @@ class AgentRunner:
         """Check if the agent runner has required configuration."""
         return bool(self._api_key)
 
+    async def is_trusted_sender(self, sender: str) -> bool:
+        """
+        Check if a sender is trusted (has previously been associated with any jorb).
+
+        A sender is trusted if their identifier matches any jorb contact (normalized).
+        This is used for catch-up jorb creation - only trusted senders can auto-create jorbs.
+
+        Args:
+            sender: The sender identifier to check (phone, username, email)
+
+        Returns:
+            True if the sender has been a contact on any jorb, False otherwise
+        """
+        # Get all contacts from all jorbs
+        known_contacts = await self._storage.get_all_contacts_from_jorbs()
+
+        if not known_contacts:
+            return False
+
+        # Normalize the sender for comparison
+        normalized_sender = JorbStorage._normalize_identifier(sender)
+
+        # Check if sender is in known contacts
+        is_trusted = normalized_sender in known_contacts
+
+        logger.debug(
+            "Trusted sender check: %s (normalized: %s) -> %s",
+            sender,
+            normalized_sender,
+            is_trusted,
+        )
+        return is_trusted
+
     def build_context(
         self,
         event: IncomingEvent | None,

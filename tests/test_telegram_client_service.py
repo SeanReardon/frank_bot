@@ -7,11 +7,13 @@ Tests verify session path construction and service configuration.
 from __future__ import annotations
 
 import os
-from unittest.mock import patch, MagicMock
+from datetime import datetime, timezone
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
-from services.telegram_client import _get_session_path, TelegramClientService
+from services.telegram_client import _get_session_path, TelegramClientService, TelegramMessage
+from telethon.tl.types import User
 
 
 class TestGetSessionPath:
@@ -99,3 +101,173 @@ class TestTelegramClientServiceSessionPath:
         with patch("services.telegram_client.get_settings", return_value=mock_settings):
             service = TelegramClientService()
             assert service.is_configured is False
+
+
+class TestGetAllMessages:
+    """Tests for get_all_messages method."""
+
+    @pytest.fixture
+    def mock_settings(self) -> MagicMock:
+        """Create mock settings."""
+        settings = MagicMock()
+        settings.telegram_api_id = 12345
+        settings.telegram_api_hash = "test_hash"
+        settings.telegram_phone = "+15551234567"
+        settings.telegram_session_name = "frank_bot"
+        return settings
+
+    @pytest.fixture
+    def mock_user(self) -> MagicMock:
+        """Create mock Telegram User."""
+        user = MagicMock(spec=User)
+        user.id = 123456
+        user.first_name = "Test"
+        user.last_name = "User"
+        user.contact = True
+        user.mutual_contact = True
+        return user
+
+    @pytest.fixture
+    def sample_messages(self, mock_user: MagicMock) -> list[MagicMock]:
+        """Create sample Telegram messages."""
+        messages = []
+        for i, (is_out, text) in enumerate([
+            (True, "Hey, how's it going?"),
+            (False, "Good thanks! You?"),
+            (True, "All good here"),
+            (False, "Great to hear"),
+            (True, "Yep"),
+        ]):
+            msg = MagicMock()
+            msg.id = i + 1
+            msg.text = text
+            msg.date = datetime(2025, 12, 15, 10, i, 0, tzinfo=timezone.utc)
+            msg.out = is_out
+            msg.sender = mock_user
+            messages.append(msg)
+        return messages
+
+    @pytest.mark.asyncio
+    async def test_get_all_messages_returns_all(
+        self, mock_settings: MagicMock, sample_messages: list[MagicMock]
+    ) -> None:
+        """get_all_messages returns all messages when direction_filter is 'all'."""
+        async def mock_iter_messages(*args, **kwargs):
+            for msg in sample_messages:
+                yield msg
+
+        with patch("services.telegram_client.get_settings", return_value=mock_settings):
+            service = TelegramClientService()
+            mock_client = AsyncMock()
+            mock_client.iter_messages = mock_iter_messages
+
+            with patch.object(service, "_ensure_connected", return_value=mock_client):
+                result = await service.get_all_messages("@testuser")
+
+        assert len(result) == 5
+        assert all(isinstance(m, TelegramMessage) for m in result)
+
+    @pytest.mark.asyncio
+    async def test_get_all_messages_outgoing_filter(
+        self, mock_settings: MagicMock, sample_messages: list[MagicMock]
+    ) -> None:
+        """get_all_messages with direction_filter='outgoing' returns only outgoing."""
+        async def mock_iter_messages(*args, **kwargs):
+            for msg in sample_messages:
+                yield msg
+
+        with patch("services.telegram_client.get_settings", return_value=mock_settings):
+            service = TelegramClientService()
+            mock_client = AsyncMock()
+            mock_client.iter_messages = mock_iter_messages
+
+            with patch.object(service, "_ensure_connected", return_value=mock_client):
+                result = await service.get_all_messages(
+                    "@testuser", direction_filter="outgoing"
+                )
+
+        assert len(result) == 3
+        assert all(m.is_outgoing for m in result)
+        assert [m.text for m in result] == [
+            "Hey, how's it going?",
+            "All good here",
+            "Yep",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_get_all_messages_incoming_filter(
+        self, mock_settings: MagicMock, sample_messages: list[MagicMock]
+    ) -> None:
+        """get_all_messages with direction_filter='incoming' returns only incoming."""
+        async def mock_iter_messages(*args, **kwargs):
+            for msg in sample_messages:
+                yield msg
+
+        with patch("services.telegram_client.get_settings", return_value=mock_settings):
+            service = TelegramClientService()
+            mock_client = AsyncMock()
+            mock_client.iter_messages = mock_iter_messages
+
+            with patch.object(service, "_ensure_connected", return_value=mock_client):
+                result = await service.get_all_messages(
+                    "@testuser", direction_filter="incoming"
+                )
+
+        assert len(result) == 2
+        assert all(not m.is_outgoing for m in result)
+
+    @pytest.mark.asyncio
+    async def test_get_all_messages_before_date(
+        self, mock_settings: MagicMock, sample_messages: list[MagicMock]
+    ) -> None:
+        """get_all_messages passes before_date to iter_messages as offset_date."""
+        before_date = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        captured_kwargs = {}
+
+        async def mock_iter_messages(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            for msg in sample_messages:
+                yield msg
+
+        with patch("services.telegram_client.get_settings", return_value=mock_settings):
+            service = TelegramClientService()
+            mock_client = AsyncMock()
+            mock_client.iter_messages = mock_iter_messages
+
+            with patch.object(service, "_ensure_connected", return_value=mock_client):
+                await service.get_all_messages("@testuser", before_date=before_date)
+
+        assert captured_kwargs.get("offset_date") == before_date
+
+    @pytest.mark.asyncio
+    async def test_get_all_messages_extracts_metadata(
+        self, mock_settings: MagicMock, mock_user: MagicMock
+    ) -> None:
+        """get_all_messages extracts full metadata from messages."""
+        msg = MagicMock()
+        msg.id = 42
+        msg.text = "Test message"
+        msg.date = datetime(2025, 12, 15, 10, 30, 0, tzinfo=timezone.utc)
+        msg.out = True
+        msg.sender = mock_user
+
+        async def mock_iter_messages(*args, **kwargs):
+            yield msg
+
+        with patch("services.telegram_client.get_settings", return_value=mock_settings):
+            service = TelegramClientService()
+            mock_client = AsyncMock()
+            mock_client.iter_messages = mock_iter_messages
+
+            with patch.object(service, "_ensure_connected", return_value=mock_client):
+                result = await service.get_all_messages("@testuser")
+
+        assert len(result) == 1
+        m = result[0]
+        assert m.id == 42
+        assert m.text == "Test message"
+        assert m.sender_id == 123456
+        assert m.sender_name == "Test User"
+        assert m.is_outgoing is True
+        assert m.is_contact is True
+        assert m.is_mutual_contact is True

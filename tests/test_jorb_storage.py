@@ -357,3 +357,157 @@ class TestJorbContact:
         assert contact.identifier == "@magic"
         assert contact.channel == "telegram"
         assert contact.name == "Magic Concierge"
+
+
+class TestGetAllContactsFromJorbs:
+    """Tests for get_all_contacts_from_jorbs method."""
+
+    async def test_returns_empty_set_when_no_jorbs(self, storage):
+        """Returns empty set when no jorbs exist."""
+        contacts = await storage.get_all_contacts_from_jorbs()
+        assert contacts == set()
+
+    async def test_returns_contacts_from_single_jorb(self, storage):
+        """Returns contacts from a single jorb."""
+        await storage.create_jorb(
+            name="Test Jorb",
+            plan="Test plan",
+            contacts=[
+                JorbContact(identifier="@magic", channel="telegram"),
+                JorbContact(identifier="+15551234567", channel="sms"),
+            ],
+        )
+
+        contacts = await storage.get_all_contacts_from_jorbs()
+
+        assert len(contacts) == 2
+        assert "magic" in contacts  # Normalized (@ stripped, lowercased)
+        assert "5551234567" in contacts  # Normalized (last 10 digits)
+
+    async def test_returns_unique_contacts_across_multiple_jorbs(self, storage):
+        """Returns unique contacts across multiple jorbs."""
+        await storage.create_jorb(
+            name="Jorb 1",
+            plan="Plan 1",
+            contacts=[
+                JorbContact(identifier="@magic", channel="telegram"),
+            ],
+        )
+        await storage.create_jorb(
+            name="Jorb 2",
+            plan="Plan 2",
+            contacts=[
+                JorbContact(identifier="@magic", channel="telegram"),  # Duplicate
+                JorbContact(identifier="+15559876543", channel="sms"),
+            ],
+        )
+
+        contacts = await storage.get_all_contacts_from_jorbs()
+
+        assert len(contacts) == 2  # Deduped
+        assert "magic" in contacts
+        assert "5559876543" in contacts
+
+    async def test_normalizes_phone_numbers(self, storage):
+        """Normalizes phone numbers to last 10 digits."""
+        await storage.create_jorb(
+            name="Test",
+            plan="Plan",
+            contacts=[
+                JorbContact(identifier="+1 555 123 4567", channel="sms"),
+            ],
+        )
+
+        contacts = await storage.get_all_contacts_from_jorbs()
+
+        assert "5551234567" in contacts
+
+    async def test_normalizes_usernames(self, storage):
+        """Normalizes usernames by stripping @ and lowercasing."""
+        await storage.create_jorb(
+            name="Test",
+            plan="Plan",
+            contacts=[
+                JorbContact(identifier="@MagicBot", channel="telegram"),
+            ],
+        )
+
+        contacts = await storage.get_all_contacts_from_jorbs()
+
+        assert "magicbot" in contacts
+
+    async def test_normalizes_emails(self, storage):
+        """Normalizes emails by lowercasing."""
+        await storage.create_jorb(
+            name="Test",
+            plan="Plan",
+            contacts=[
+                JorbContact(identifier="Sean@Example.COM", channel="email"),
+            ],
+        )
+
+        contacts = await storage.get_all_contacts_from_jorbs()
+
+        assert "sean@example.com" in contacts
+
+    async def test_includes_contacts_from_all_statuses(self, storage):
+        """Includes contacts from jorbs of any status."""
+        jorb1 = await storage.create_jorb(
+            name="Running",
+            plan="Plan",
+            contacts=[JorbContact(identifier="@contact1", channel="telegram")],
+        )
+        jorb2 = await storage.create_jorb(
+            name="Complete",
+            plan="Plan",
+            contacts=[JorbContact(identifier="@contact2", channel="telegram")],
+        )
+
+        # Update statuses
+        await storage.update_jorb(jorb1.id, status="running")
+        await storage.update_jorb(jorb2.id, status="complete")
+
+        contacts = await storage.get_all_contacts_from_jorbs()
+
+        assert len(contacts) == 2
+        assert "contact1" in contacts
+        assert "contact2" in contacts
+
+
+class TestNormalizeIdentifier:
+    """Tests for _normalize_identifier static method."""
+
+    def test_normalizes_phone_with_country_code(self):
+        """Normalizes phone with +1 country code."""
+        result = JorbStorage._normalize_identifier("+15551234567")
+        assert result == "5551234567"
+
+    def test_normalizes_phone_with_spaces(self):
+        """Normalizes phone with spaces and dashes."""
+        result = JorbStorage._normalize_identifier("+1 555-123-4567")
+        assert result == "5551234567"
+
+    def test_normalizes_phone_11_digits(self):
+        """Normalizes 11-digit phone to last 10."""
+        result = JorbStorage._normalize_identifier("15551234567")
+        assert result == "5551234567"
+
+    def test_normalizes_username_with_at(self):
+        """Normalizes username with @ prefix."""
+        result = JorbStorage._normalize_identifier("@MagicBot")
+        assert result == "magicbot"
+
+    def test_normalizes_email(self):
+        """Normalizes email to lowercase."""
+        result = JorbStorage._normalize_identifier("Sean@Example.COM")
+        assert result == "sean@example.com"
+
+    def test_normalizes_plain_string(self):
+        """Normalizes plain string to lowercase."""
+        result = JorbStorage._normalize_identifier("SomeContact")
+        assert result == "somecontact"
+
+    def test_strips_whitespace(self):
+        """Strips leading/trailing whitespace."""
+        result = JorbStorage._normalize_identifier("  @magic  ")
+        assert result == "magic"

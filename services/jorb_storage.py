@@ -843,6 +843,76 @@ class JorbStorage:
             )
             await conn.commit()
 
+    async def get_all_contacts_from_jorbs(self) -> set[str]:
+        """
+        Get all unique contact identifiers across all jorbs (any status).
+
+        This is used for trusted sender detection - if a sender has previously
+        been associated with any jorb, they are considered a known contact.
+
+        Returns:
+            Set of normalized contact identifiers (phone numbers, usernames, emails)
+        """
+        await self._ensure_initialized()
+
+        contacts: set[str] = set()
+
+        async with aiosqlite.connect(self._db_path) as conn:
+            cursor = await conn.execute("SELECT contacts_json FROM jorbs")
+            rows = await cursor.fetchall()
+
+            for row in rows:
+                contacts_json = row[0]
+                if contacts_json:
+                    try:
+                        contact_list = json.loads(contacts_json)
+                        for contact in contact_list:
+                            identifier = contact.get("identifier", "")
+                            if identifier:
+                                # Normalize the identifier
+                                normalized = self._normalize_identifier(identifier)
+                                contacts.add(normalized)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+        logger.debug("Found %d unique contacts across all jorbs", len(contacts))
+        return contacts
+
+    @staticmethod
+    def _normalize_identifier(identifier: str) -> str:
+        """
+        Normalize a contact identifier for comparison.
+
+        Handles:
+        - Phone numbers: strips +1, normalizes to 10-digit
+        - Usernames: lowercases, strips @ prefix
+        - Emails: lowercases
+
+        Args:
+            identifier: The raw contact identifier
+
+        Returns:
+            Normalized identifier string
+        """
+        identifier = identifier.strip()
+
+        # Check if it looks like a phone number
+        digits = "".join(c for c in identifier if c.isdigit())
+        if len(digits) >= 10:
+            # Phone number - normalize to last 10 digits
+            return digits[-10:]
+
+        # Check if it looks like a username (starts with @)
+        if identifier.startswith("@"):
+            return identifier[1:].lower()
+
+        # Check if it looks like an email
+        if "@" in identifier and "." in identifier:
+            return identifier.lower()
+
+        # Default: just lowercase
+        return identifier.lower()
+
     async def get_aggregate_metrics(
         self,
         status_filter: Literal["open", "closed", "all"] = "all",

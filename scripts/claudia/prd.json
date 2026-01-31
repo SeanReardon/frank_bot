@@ -1225,7 +1225,7 @@
         "Unit tests verify message fetching with date and direction filters"
       ],
       "priority": 74,
-      "passes": false,
+      "passes": true,
       "notes": "Foundation for Stream A (SEAN.md generation). Required by frank_bot-00075."
     },
     {
@@ -1243,7 +1243,7 @@
         "Unit tests verify pattern extraction with sample messages"
       ],
       "priority": 75,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00074. Core analysis logic for Stream A."
     },
     {
@@ -1261,7 +1261,7 @@
         "Unit tests verify output structure and required sections"
       ],
       "priority": 76,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00075. Generates the SEAN.md style guide document."
     },
     {
@@ -1296,7 +1296,7 @@
         "Personality loads successfully via PersonalityLoader"
       ],
       "priority": 78,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00076 conceptually (needs to match SEAN.md patterns). Used by Stream C."
     },
     {
@@ -1359,7 +1359,7 @@
         "Unit tests verify trusted sender detection with various identifier formats"
       ],
       "priority": 82,
-      "passes": false,
+      "passes": true,
       "notes": "Stream C foundation. Required by frank_bot-00083."
     },
     {
