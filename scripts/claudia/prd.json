@@ -1211,6 +1211,288 @@
       "priority": 73,
       "passes": true,
       "notes": "Foundation task, can be done early. Defines jorb data structure."
+    },
+    {
+      "id": "frank_bot-00074",
+      "title": "Create Telegram message history fetcher for style analysis",
+      "acceptanceCriteria": [
+        "Add get_all_messages(chat_id, before_date, direction_filter) method to TelegramClientService",
+        "Method uses Telethon iter_messages with offset_date parameter to fetch all messages",
+        "direction_filter parameter allows fetching only outgoing messages (out=True)",
+        "before_date filters to messages before a specific timestamp (default: 2026-01-01)",
+        "Method handles pagination internally and returns complete list",
+        "Returns list of TelegramMessage objects with full metadata",
+        "Unit tests verify message fetching with date and direction filters"
+      ],
+      "priority": 74,
+      "passes": false,
+      "notes": "Foundation for Stream A (SEAN.md generation). Required by frank_bot-00075."
+    },
+    {
+      "id": "frank_bot-00075",
+      "title": "Implement style analysis function for Sean's voice patterns",
+      "acceptanceCriteria": [
+        "Create services/style_analyzer.py with StyleAnalyzer class",
+        "fetch_authentic_messages(chat_id) fetches outgoing messages before 2026-01-01 via TelegramClientService",
+        "analyze_patterns(messages) analyzes messages across categories: hedging, disagreement, pausing, resuming, revision, acknowledgment, action_requests, follow_ups, tone_markers",
+        "Each category extracts patterns with example quotes from actual messages",
+        "Hedging patterns: uncertainty expressions ('I suppose', 'maybe', 'Like a week...')",
+        "Acknowledgment patterns: how Sean confirms ('Yep', 'Mk', 'thank you!')",
+        "Tone markers: punctuation patterns, capitalization habits, typo tolerance",
+        "Returns StyleAnalysisResult dataclass with all pattern categories",
+        "Unit tests verify pattern extraction with sample messages"
+      ],
+      "priority": 75,
+      "passes": false,
+      "notes": "Depends on frank_bot-00074. Core analysis logic for Stream A."
+    },
+    {
+      "id": "frank_bot-00076",
+      "title": "Create SEAN.md generator from style analysis results",
+      "acceptanceCriteria": [
+        "Add generate_sean_md(analysis_result) function to StyleAnalyzer",
+        "Output is structured Markdown with ~5 pages of content",
+        "Includes executive summary of Sean's communication style",
+        "Detailed sections for each pattern category with extracted examples",
+        "Anti-patterns section documenting what NOT to do (no emojis, no markdown, no verbose confirmations)",
+        "Sample transformations section: 'Instead of X, write Y' examples",
+        "Written in declarative, prescriptive language in neutral third person",
+        "Returns complete Markdown string ready for file write",
+        "Unit tests verify output structure and required sections"
+      ],
+      "priority": 76,
+      "passes": false,
+      "notes": "Depends on frank_bot-00075. Generates the SEAN.md style guide document."
+    },
+    {
+      "id": "frank_bot-00077",
+      "title": "Add action to generate and send SEAN.md via Telegram",
+      "acceptanceCriteria": [
+        "Create actions/style_capture.py with generate_sean_md_action(arguments)",
+        "Action fetches Magic conversation history (chat_id: @MagicConciergeBot)",
+        "Action runs style analysis and generates SEAN.md content",
+        "Action sends generated content to @SeanReardon via Telegram",
+        "If content exceeds Telegram message limit, splits into multiple messages",
+        "Returns JSON with success status, message_count, and preview of content",
+        "GET /actions/style/generate route added to server/routes.py",
+        "Route protected by existing API key authentication"
+      ],
+      "priority": 77,
+      "passes": false,
+      "notes": "Depends on frank_bot-00076. Delivery mechanism for SEAN.md to Sean."
+    },
+    {
+      "id": "frank_bot-00078",
+      "title": "Create sean-voice personality file",
+      "acceptanceCriteria": [
+        "Create personalities/sean-voice.json following existing personality schema",
+        "Set id: 'sean-voice', name: 'Sean's Voice'",
+        "Communication style: informal, typos_ok, no emojis, no markdown",
+        "Verbosity: very_concise (prefer short responses like 'Yep', 'Mk')",
+        "Preamble references SEAN.md patterns document",
+        "Guidelines include: avoid verbose confirmations, allow natural typos, use casual punctuation",
+        "Examples section includes transformations from formal to Sean-style",
+        "Model preferences: temperature 0.8 for more natural variation",
+        "Personality loads successfully via PersonalityLoader"
+      ],
+      "priority": 78,
+      "passes": false,
+      "notes": "Depends on frank_bot-00076 conceptually (needs to match SEAN.md patterns). Used by Stream C."
+    },
+    {
+      "id": "frank_bot-00079",
+      "title": "Modify Telegram listener to process outgoing messages",
+      "acceptanceCriteria": [
+        "Update _dispatch_to_handlers in telegram_client.py to NOT skip outgoing messages (remove if event.out: return)",
+        "Add new field is_self_sent: bool to event dispatch context",
+        "For outgoing messages, check if message exists in jorb_messages table (by timestamp and content similarity)",
+        "Matching criteria: timestamp within 5 seconds AND content substring match",
+        "If found in jorb_messages → skip (sent by frank_bot)",
+        "If NOT found → dispatch to handlers with is_human_intervention=True flag",
+        "Unit tests verify: frank_bot messages are skipped, Sean's direct messages are processed"
+      ],
+      "priority": 79,
+      "passes": false,
+      "notes": "Stream B foundation. Requires access to jorb_messages table for deduplication."
+    },
+    {
+      "id": "frank_bot-00080",
+      "title": "Update switchboard to handle human intervention flag",
+      "acceptanceCriteria": [
+        "Add is_human_intervention: bool parameter to Switchboard.route() method",
+        "When is_human_intervention=True, routing still identifies the jorb but with special handling",
+        "RoutingDecision includes new field: is_human_intervention: bool = False",
+        "If message matches a jorb AND is_human_intervention, set confidence='high' (Sean knows what he's doing)",
+        "Update switchboard system prompt to explain human intervention semantics",
+        "Unit tests verify routing with and without is_human_intervention flag"
+      ],
+      "priority": 80,
+      "passes": false,
+      "notes": "Depends on frank_bot-00079. Extends switchboard for Stream B."
+    },
+    {
+      "id": "frank_bot-00081",
+      "title": "Update AgentRunner to handle Sean's direct messages",
+      "acceptanceCriteria": [
+        "Add is_human_intervention field to IncomingEvent dataclass",
+        "In process_incoming_message, when is_human_intervention=True and jorb_id matched:",
+        "Store message with direction='outbound' and sender='sean_direct' marker",
+        "Do NOT call jorb session for LLM response (Sean already said something)",
+        "Update jorb progress_summary: 'Sean intervened directly: [message preview]'",
+        "If message content suggests closure ('thanks', 'done', 'perfect'), consider updating status",
+        "Add new action_taken value: 'human_intervention_recorded'",
+        "Unit tests verify Sean's messages are stored without triggering LLM response"
+      ],
+      "priority": 81,
+      "passes": false,
+      "notes": "Depends on frank_bot-00079, frank_bot-00080. Completes Stream B core logic."
+    },
+    {
+      "id": "frank_bot-00082",
+      "title": "Add trusted sender detection for catch-up jorb creation",
+      "acceptanceCriteria": [
+        "Add get_all_contacts_from_jorbs() method to JorbStorage",
+        "Returns set of all unique contact identifiers across all jorbs (any status)",
+        "Add is_trusted_sender(sender) method to AgentRunner using JorbStorage contacts",
+        "Sender is trusted if their identifier matches any jorb contact (normalized comparison)",
+        "Normalization handles: @username variations, phone number formats, email case",
+        "Unit tests verify trusted sender detection with various identifier formats"
+      ],
+      "priority": 82,
+      "passes": false,
+      "notes": "Stream C foundation. Required by frank_bot-00083."
+    },
+    {
+      "id": "frank_bot-00083",
+      "title": "Implement catch-up jorb creation for in-flight tasks",
+      "acceptanceCriteria": [
+        "In AgentRunner.process_incoming_message, after routing returns jorb_id=None:",
+        "Check if sender is_trusted_sender AND routing.might_be_new_jorb=True",
+        "If both true, create catch-up jorb automatically:",
+        "Jorb name: 'Catch-up: [first 30 chars of message content]'",
+        "Jorb status: 'running'",
+        "Jorb plan: 'Recover context for in-flight task. Original message: [content]'",
+        "Jorb personality: 'sean-voice'",
+        "Jorb contacts: sender's identifier",
+        "Store the incoming message as first inbound message",
+        "Kick off jorb with special first_action: ask for context",
+        "Return ProcessingResult with jorb_id and action_taken='catch_up_created'"
+      ],
+      "priority": 83,
+      "passes": false,
+      "notes": "Depends on frank_bot-00078, frank_bot-00082. Core Stream C logic."
+    },
+    {
+      "id": "frank_bot-00084",
+      "title": "Add catch-up jorb kickoff message in sean-voice style",
+      "acceptanceCriteria": [
+        "Update JorbSession.kickoff() to detect catch-up jorbs (plan contains 'Recover context')",
+        "For catch-up jorbs, override first message to ask for context in Sean's style",
+        "Example message: 'Hey sorry I've lost track of this - can you remind me where we left off?'",
+        "Message varies slightly using personality temperature for natural feel",
+        "After sending, set jorb awaiting to 'context_recovery'",
+        "Unit tests verify catch-up kickoff uses correct style and sets awaiting"
+      ],
+      "priority": 84,
+      "passes": false,
+      "notes": "Depends on frank_bot-00078, frank_bot-00083. Completes catch-up jorb flow."
+    },
+    {
+      "id": "frank_bot-00085",
+      "title": "Add unknown sender handling for non-trusted senders",
+      "acceptanceCriteria": [
+        "In AgentRunner, if routing.jorb_id=None AND routing.might_be_new_jorb=True AND sender NOT trusted:",
+        "Do NOT create catch-up jorb (could be spam or wrong number)",
+        "Flag message for human review instead of auto-jorbing",
+        "Send Telegram notification to Sean: 'Unknown sender [identifier] sent: [preview]. Create jorb?'",
+        "Return ProcessingResult with action_taken='flagged_for_review'",
+        "Add GET /jorbs/pending-reviews route that lists flagged messages",
+        "Unit tests verify unknown senders are flagged, not auto-jorbed"
+      ],
+      "priority": 85,
+      "passes": false,
+      "notes": "Depends on frank_bot-00082, frank_bot-00083. Prevents spam from creating jorbs."
+    },
+    {
+      "id": "frank_bot-00086",
+      "title": "Update jorb session to learn from Sean's direct messages",
+      "acceptanceCriteria": [
+        "JorbSession receives list of recent messages including sean_direct ones",
+        "When building context, sean_direct messages are labeled as 'guidance from principal'",
+        "Jorb session prompt instructs: 'Learn from Sean's direct messages - they show preferred phrasing'",
+        "Add progress.learnings extraction when Sean's style differs from frank_bot's",
+        "Record learnings via ProgressLog with subject='Sean's communication style'",
+        "Unit tests verify sean_direct messages influence session decisions"
+      ],
+      "priority": 86,
+      "passes": false,
+      "notes": "Depends on frank_bot-00081. Enhances learning from Stream B."
+    },
+    {
+      "id": "frank_bot-00087",
+      "title": "Add CLI script for SEAN.md generation",
+      "acceptanceCriteria": [
+        "Create scripts/generate_sean_md.py as standalone CLI script",
+        "Script can be run: poetry run python scripts/generate_sean_md.py",
+        "Accepts optional --chat-id argument (defaults to @MagicConciergeBot)",
+        "Accepts optional --before-date argument (defaults to 2026-01-01)",
+        "Accepts optional --output argument (defaults to ./SEAN.md)",
+        "Displays progress: 'Fetching messages... Found X messages... Analyzing... Done!'",
+        "Writes SEAN.md to specified output path",
+        "Optionally sends to @SeanReardon with --send flag",
+        "Handles errors gracefully with clear messages"
+      ],
+      "priority": 87,
+      "passes": false,
+      "notes": "Depends on frank_bot-00076. Provides manual trigger for SEAN.md generation."
+    },
+    {
+      "id": "frank_bot-00088",
+      "title": "Add integration tests for Sean voice capture flow",
+      "acceptanceCriteria": [
+        "Test: Style analyzer fetches messages before cutoff date only",
+        "Test: Style analyzer extracts hedging patterns from sample messages",
+        "Test: SEAN.md generator produces all required sections",
+        "Test: sean-voice personality loads and formats correctly",
+        "Test: Jorbs using sean-voice produce informal, concise messages",
+        "Tests use mocked Telegram messages for consistent testing",
+        "All tests pass in CI"
+      ],
+      "priority": 88,
+      "passes": false,
+      "notes": "Depends on frank_bot-00074 through frank_bot-00078. Validates Stream A."
+    },
+    {
+      "id": "frank_bot-00089",
+      "title": "Add integration tests for human intervention flow",
+      "acceptanceCriteria": [
+        "Test: Telegram listener detects outgoing messages not in jorb_messages",
+        "Test: Sean's direct messages route with is_human_intervention=True",
+        "Test: Sean's messages are stored without triggering LLM response",
+        "Test: Jorb progress is updated with intervention note",
+        "Test: Jorb session learns from sean_direct messages",
+        "Tests use mocked Telegram client and jorb storage",
+        "All tests pass in CI"
+      ],
+      "priority": 89,
+      "passes": false,
+      "notes": "Depends on frank_bot-00079 through frank_bot-00081, frank_bot-00086. Validates Stream B."
+    },
+    {
+      "id": "frank_bot-00090",
+      "title": "Add integration tests for catch-up jorb flow",
+      "acceptanceCriteria": [
+        "Test: Trusted sender with unmatched message creates catch-up jorb",
+        "Test: Catch-up jorb uses sean-voice personality",
+        "Test: Catch-up kickoff message asks for context in Sean's style",
+        "Test: Unknown sender with unmatched message is flagged, not jorbed",
+        "Test: Magic's response to catch-up updates jorb plan with context",
+        "Tests use mocked OpenAI, Telegram, and jorb storage",
+        "All tests pass in CI"
+      ],
+      "priority": 90,
+      "passes": false,
+      "notes": "Depends on frank_bot-00082 through frank_bot-00085. Validates Stream C."
     }
   ]
 }
