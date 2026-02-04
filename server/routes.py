@@ -50,6 +50,7 @@ from actions.telegram import (
 )
 from actions.telegram_bot import get_telegram_bot_status, test_telegram_bot
 from actions.style_capture import generate_sean_md_action
+from actions.system_status import get_system_status_action
 from server.sms_webhook import sms_webhook_handler
 from server.stytch_middleware import require_stytch_session
 from config import Settings
@@ -342,6 +343,13 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(generate_sean_md_action)
         return await responder(payload)
 
+    # System status endpoint (public - for web dashboard)
+    async def system_status_handler(request: Request):
+        stats.get_endpoint_stats("systemStatus").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_system_status_action)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -417,6 +425,8 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/jorbs/{id}/cancel", jorbs_cancel_handler, methods=["GET"]),
         # Style capture endpoint (SEAN.md generation)
         Route("/actions/style/generate", style_generate_handler, methods=["GET"]),
+        # System status endpoint (orchestration machinery health)
+        Route("/system/status", system_status_handler, methods=["GET"]),
     ]
 
     return routes

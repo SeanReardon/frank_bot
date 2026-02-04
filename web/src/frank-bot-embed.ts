@@ -19,6 +19,7 @@ import './components/jorbs-card.js';
 import './components/jorb-thread-view.js';
 import './components/jorbs-stats-card.js';
 import './components/jorbs-brief-view.js';
+import './components/system-status-card.js';
 
 // Jorbs view state type
 type JorbsViewState = 'list' | 'thread' | 'brief';
@@ -387,6 +388,8 @@ export class FrankBotDashboard extends LitElement {
 
     return html`
       <div class="dashboard">
+        <system-status-card></system-status-card>
+
         <telegram-card></telegram-card>
 
         <telegram-bot-card></telegram-bot-card>

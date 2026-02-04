@@ -609,3 +609,44 @@ export async function getJorbsBrief(options: GetJorbsBriefOptions = {}): Promise
   const path = `/jorbs/brief${queryString ? `?${queryString}` : ''}`;
   return request<JorbBriefResponse>(path);
 }
+
+// System Status types and functions
+
+export interface SystemComponentStatus {
+  configured: boolean;
+  model?: string;
+  description: string;
+  initialized?: boolean;
+  telegram_configured?: boolean;
+  agent_configured?: boolean;
+  pending_messages?: number;
+  debounce_telegram_seconds?: number;
+  debounce_sms_seconds?: number;
+}
+
+export interface SystemJorbsStatus {
+  total_open: number;
+  by_status: {
+    planning: number;
+    running: number;
+    paused: number;
+  };
+  needs_attention: number;
+}
+
+export interface SystemStatusResponse {
+  message: string;
+  healthy: boolean;
+  switchboard: SystemComponentStatus;
+  agent_runner: SystemComponentStatus;
+  telegram_router: SystemComponentStatus;
+  message_buffer: SystemComponentStatus;
+  jorbs: SystemJorbsStatus;
+}
+
+/**
+ * Get system orchestration status.
+ */
+export async function getSystemStatus(): Promise<SystemStatusResponse> {
+  return request<SystemStatusResponse>('/system/status');
+}

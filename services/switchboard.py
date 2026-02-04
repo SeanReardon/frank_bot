@@ -22,7 +22,7 @@ from services.jorb_storage import Jorb, JorbWithMessages
 logger = logging.getLogger(__name__)
 
 # The model used for switchboard routing (can be lighter/faster than main model)
-SWITCHBOARD_MODEL = os.getenv("SWITCHBOARD_MODEL", "gpt-4o-mini")
+SWITCHBOARD_MODEL = os.getenv("SWITCHBOARD_MODEL", "gpt-5.2")
 
 # Try to import openai
 try:
