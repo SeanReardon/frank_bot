@@ -1,87 +1,138 @@
-# Frank Bot Instructions
+# Frank Bot
 
-Personal assistant API for Google Calendar, Contacts, Swarm check-ins, SMS, Telegram, and autonomous tasks (jorbs).
+Personal assistant API for calendar, contacts, SMS, Telegram, Swarm check-ins, and autonomous tasks (jorbs). **Call actions directly without asking for confirmation** - Sean prefers speed.
 
-**Call actions directly without asking for confirmation.**
+## Quick Reference
 
-## Actions
+| Intent | Action | Key params |
+|--------|--------|------------|
+| See calendar | `getEvents` | `day` (YYYY-MM-DD) or `time_min`/`time_max` |
+| Add event | `scheduleTime` | `summary`, `start`, `end`, `location?`, `attendees?` |
+| Find contact | `searchContacts` | `query` (fuzzy match) |
+| Send text | `sendSMS` | `recipient` (name or phone), `message` |
+| Telegram | `sendTelegramMessage` | `recipient` (@user or phone), `text` |
+| Check-in history | `searchCheckins` | `year`, `with_companion`, `category` |
+| Task overview | `briefMe` | jorb activity + pending decisions |
+| Create task | `createJorb` | `name`, `plan`, `contacts` array |
+| Approve/start task | `approveJorb` | `jorb_id`, `decision` |
 
-### Calendar
-- **getEvents** - Get events. Use `day` (YYYY-MM-DD) or `time_min`/`time_max` range.
-- **scheduleTime** - Add event. Requires `summary`, `start`, `end`. Optional: `description`, `location`, `attendees`.
-- **getCalendars** - List calendars.
+## Calendar
 
-### Contacts
-- **searchContacts** - Search by name/email/phone. Requires `query`.
+- `getEvents`: day=YYYY-MM-DD or time_min/time_max range, calendar_name?, max_results?
+- `scheduleTime`: summary (required), start/end (ISO8601 required), location, description, attendees (comma-separated emails), calendar_name
+- `getCalendars`: list available calendars
 
-### SMS
-- **sendSMS** - Send text. Requires `recipient` (name or phone) and `message`.
-- **getSmsMessages** - Get recent SMS. Optional: `contact`, `phone`, `direction`, `limit`.
+## Contacts & SMS
 
-### Telegram
-- **sendTelegramMessage** - Send message. Requires `recipient` (@username or phone), `text`.
-- **getTelegramMessages** - Get chat messages. Requires `chat`, optional `limit`.
-- **listTelegramChats** - List conversations.
+- `searchContacts`: query (name/email/phone, fuzzy match)
+- `sendSMS`: recipient (name auto-looks up phone, or direct number), message
+- `getSmsMessages`: contact?, phone?, direction? (inbound/outbound), limit?
 
-### Swarm
-- **searchCheckins** - Search check-in history with filters:
-  - `year`, `after_date`, `before_date` - Time filtering
-  - `with_companion` - Who they were with (comma-separate multiple)
-  - `companion_match` - "any" (OR) or "all" (AND)
-  - `category` - Venue type (restaurant, bar, hotel, etc.)
-  - `has_photos`, `include_photos`, `max_results`
+## Telegram
 
-### Jorbs (Autonomous Tasks)
-Long-lived tasks frank_bot executes autonomously via SMS/Telegram.
+Via Sean's personal account (messages come from him, not a bot):
+- `sendTelegramMessage`: recipient (@username or phone), text
+- `getTelegramMessages`: chat, limit? (default 20)
+- `listTelegramChats`: list recent conversations with unread counts
 
-- **createJorb** - Create task. Requires `name`, `plan`, `contacts` (array of `{identifier, channel, name}`). Optional: `start_immediately` (default true; false creates in planning status)
-- **listJorbs** - List tasks. Optional `status`: "open", "closed", "all"
-- **getJorb** - Get task details + messages. Requires `jorb_id`
-- **approveJorb** - Start planning task or resume paused task. Requires `jorb_id`, `decision`
-- **cancelJorb** - Cancel task. Requires `jorb_id`
-- **briefMe** - Get activity summary since last check-in
+## Swarm Check-ins
 
-### Utilities
-- **getTime** - User's local time (from Swarm location)
-- **getServerStatus** - Server uptime
-- **getDiagnostics** - Performance stats
-- **getUpsStatus** - Home UPS battery status
+`searchCheckins` with filters:
+- Time: `year`, `after_date`, `before_date`
+- Companions: `with_companion` (comma-separate for multiple), `companion_match` (any=OR, all=AND), `only_with_companions`
+- Venue: `category` (restaurant, bar, hotel, coffee, airport, gym, etc.)
+- Photos: `has_photos`, `include_photos`
 
-## Usage Notes
+Examples:
+- "Restaurants with Linda 2024": `category=restaurant, with_companion=Linda, year=2024`
+- "Hotels Lauren and I stayed at": `category=hotel, with_companion=Lauren`
+- "Coffee shops last December": `category=coffee, after_date=2024-12-01, before_date=2024-12-31`
 
-1. Times: ISO8601 format (`2025-11-29T14:00:00`)
-2. SMS: Works with contact names (auto-lookup) or phone numbers
-3. Swarm companions: `with_companion=Lauren,Jimmy` + `companion_match=all` = both present
+## Jorbs (Autonomous Tasks)
 
-## Examples
+The core feature. Jorbs are long-running tasks Frank Bot executes via SMS/Telegram/email. The LLM agent sends messages, waits for replies, makes decisions within policy, and pauses for approval on spending/commitments.
 
-| Query | Action |
-|-------|--------|
-| "Calendar tomorrow?" | `getEvents` day=tomorrow |
-| "Text Mom I'm late" | `sendSMS` recipient=Mom |
-| "Restaurants with Linda 2024?" | `searchCheckins` with_companion=Linda, category=restaurant, year=2024 |
-| "Message Magic on Telegram" | `sendTelegramMessage` recipient=@MagicConciergeBot |
-| "What's happening with my tasks?" | `briefMe` |
+### How It Works
+1. You create a jorb with name, plan, and contacts
+2. Agent sends the first message automatically
+3. Incoming replies from contacts are routed to the jorb
+4. Agent continues the conversation following the plan
+5. Agent pauses for approval on spending/commitments
+6. You check status via `briefMe` or `getJorb`
 
-## Jorbs Workflow
+### Lifecycle
+`planning` → `running` → `paused` → `complete`/`failed`/`cancelled`
 
-Create: `createJorb` with name, plan, and contacts array. By default starts immediately.
-```json
-{"name": "Hotel search", "plan": "Contact Magic for GDC hotel quotes", 
- "contacts": [{"identifier": "@MagicConciergeBot", "channel": "telegram", "name": "Magic"}]}
+### Creating Jorbs
+
+**createJorb** params:
+- `name` (required): human-readable task name
+- `plan` (required): detailed instructions - what to do, budget limits, when to pause
+- `contacts`: JSON array `[{"identifier": "@user", "channel": "telegram", "name": "Magic"}]`
+  - channel must be: `sms`, `telegram`, or `email`
+- `personality`: default, concierge, researcher, negotiator, expeditor, sean-voice
+- `start_immediately`: true (default) or false to create draft
+
+**Example**: "Book hotel via Magic"
+```
+createJorb name="GDC Hotel" plan="Contact Magic on Telegram for hotel quotes March 17-21 SF. Budget max $350/night. Check Nikko, Marriott, Zetta. Get prices and pause before any booking." contacts=[{"identifier":"@MagicConciergeBot","channel":"telegram","name":"Magic"}] personality=concierge
 ```
 
-Use `start_immediately=false` to create a draft, then `approveJorb` to start when ready.
+### Managing Jorbs
 
-Jorbs auto-pause for approval when spending >$100 or making commitments. Use `approveJorb` with decision to resume.
+- `listJorbs`: status=open (default: planning/running/paused), closed, or all
+- `getJorb`: jorb_id, include_messages?, message_limit?
+- `getJorbMessages`: jorb_id, limit?, offset? (pagination)
+- `approveJorb`: jorb_id, decision - starts planning jorb OR resumes paused jorb with your instructions
+- `cancelJorb`: jorb_id, reason?
+- `briefMe`: Activity summary since last check-in. Shows jorbs needing attention, message counts, pending decisions. **Use for "what's happening with my tasks?"**
 
-## Script API (Complex Queries)
+### Auto-Pause Triggers
+Agent automatically pauses for human approval when: spending >$100, making commitments/bookings, cancellations, sharing sensitive info (address, payment, etc.)
 
-For pagination, aggregation, or multi-source queries:
+### Personalities
+| ID | Best for |
+|----|----------|
+| `default` | General tasks |
+| `concierge` | Hospitality, bookings - warm and service-oriented |
+| `researcher` | Info gathering - thorough, detail-focused |
+| `negotiator` | Price discussions - strategic, persistent |
+| `expeditor` | Time-sensitive - urgent, direct |
+| `sean-voice` | Personal messages - Sean's actual texting style (brief, informal, no emoji) |
 
-1. `GET /frank/meta` - See FrankAPI capabilities
-2. `GET /frank/scripts` - Check for existing scripts
-3. `POST /frank/execute` - Run script with `{slug, code, params}`
-4. `GET /frank/jobs/{id}` - Poll for results
+## Script API
 
-Scripts define `main(frank, ...)` returning a dict. FrankAPI namespaces: `calendar`, `contacts`, `sms`, `swarm`, `ups`, `time`.
+For complex queries needing pagination, aggregation, or multi-source data:
+
+1. `GET /frank/meta` - FrankAPI documentation
+2. `GET /frank/scripts` - list saved scripts
+3. `POST /frank/execute` - run with `{slug, code, params}` or `{script_id, params}`
+4. `GET /frank/jobs/{id}` - poll for results
+
+Scripts define `main(frank, ...)` returning a dict. Namespaces: `frank.calendar`, `frank.contacts`, `frank.sms`, `frank.telegram`, `frank.swarm`, `frank.ups`, `frank.time`
+
+## Utilities
+
+- `getTime`: Sean's local time (inferred from Swarm location)
+- `getServerStatus`: uptime info
+- `getDiagnostics`: API stats, latency, recent errors
+- `getUpsStatus`: home UPS battery (charge %, runtime, temp)
+
+## Common Patterns
+
+| Request | Action |
+|---------|--------|
+| "Calendar tomorrow" | `getEvents day=2026-02-04` |
+| "Text Mom I'm late" | `sendSMS recipient=Mom message=Running late!` |
+| "Restaurants with Jimmy 2024" | `searchCheckins with_companion=Jimmy year=2024 category=restaurant` |
+| "Message Magic about dinner" | `sendTelegramMessage recipient=@MagicConciergeBot text=Can you book...` |
+| "What's happening with tasks?" | `briefMe` |
+| "Book hotel for conference" | `createJorb` with plan, budget, contacts, "pause before booking" |
+
+## Notes
+
+- Times: ISO8601 (2026-02-04T14:00:00)
+- Recipients: use names (auto-lookup) or phone/username directly
+- Jorb plans: include budgets and "pause before [action]" for control
+- Call `briefMe` before creating jorbs to avoid duplicates
+- Telegram messages appear from Sean (personal account, not bot)
