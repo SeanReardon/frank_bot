@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Frank Bot API (ChatGPT)",
-    "description": "Personal assistant for Google Calendar, Contacts, and Swarm location history.",
+    "description": "Personal assistant API for calendar, contacts, SMS, Telegram, Swarm, jorbs, and Android phone control.",
     "version": "0.5.0"
   },
   "servers": [
@@ -1206,7 +1206,7 @@
       "get": {
         "operationId": "androidPhoneDoTask",
         "summary": "Execute goal-based task on Android phone",
-        "description": "Universal endpoint for Android phone automation. Describe what you want to accomplish in natural language, and the LLM will navigate the phone to achieve it.\n\n**IMPORTANT**: Automation STOPS before irreversible actions (payments, purchases, bookings) - returning details for human review.\n\n**Capabilities**:\n- **Thermostat**: Read status, set temperature range via Google Home\n- **Smart Home**: Control lights, locks, plugs, devices via Google Home\n- **Ride Services**: Check Uber/Lyft prices, request rides (stops before payment)\n- **Food Delivery**: Browse DoorDash/UberEats, build orders (stops before checkout)\n- **Browser**: Search Google, navigate websites\n- **Maps**: Get directions, check traffic\n- **Any App**: Navigate and interact with installed apps\n\n**Examples**:\n- goal=\"Check the thermostat temperature and humidity\"\n- goal=\"Set thermostat to 65-70 degrees\"\n- goal=\"Open Uber and check ride prices to SFO airport\"\n- goal=\"Turn off the living room lights\"\n- goal=\"Search DoorDash for nearby pizza places\"\n\n**Cost**: $0.03-0.15 per task (10-30 seconds)",
+        "description": "Universal Android phone automation. Describe your goal in natural language. Capabilities: thermostat, smart home, Uber/Lyft, DoorDash, browser, any app. STOPS before payments/purchases. Cost: $0.03-0.15, takes 10-30s.",
         "parameters": [
           {
             "in": "query",
@@ -1268,93 +1268,6 @@
   },
   "components": {
     "schemas": {
-      "CalendarEvent": {
-        "type": "object",
-        "description": "Google Calendar event.",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "summary": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "location": {
-            "type": "string"
-          },
-          "htmlLink": {
-            "type": "string",
-            "format": "uri"
-          },
-          "start": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "end": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "attendees": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          }
-        },
-        "additionalProperties": true
-      },
-      "ListCalendarEventsResponse": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "calendar": {
-            "$ref": "#/components/schemas/CalendarDescriptor"
-          },
-          "time_window": {
-            "$ref": "#/components/schemas/TimeWindow"
-          },
-          "count": {
-            "type": "integer"
-          },
-          "events": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CalendarEvent"
-            }
-          }
-        },
-        "required": [
-          "message",
-          "calendar",
-          "time_window",
-          "count",
-          "events"
-        ]
-      },
-      "CreateCalendarEventResponse": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "calendar": {
-            "$ref": "#/components/schemas/CalendarDescriptor"
-          },
-          "event": {
-            "$ref": "#/components/schemas/CalendarEvent"
-          }
-        },
-        "required": [
-          "message",
-          "calendar",
-          "event"
-        ]
-      },
       "ListCalendarsResponse": {
         "type": "object",
         "properties": {
@@ -1375,140 +1288,6 @@
           "message",
           "count",
           "calendars"
-        ]
-      },
-      "SearchContactsResponse": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "query": {
-            "type": "string"
-          },
-          "count": {
-            "type": "integer"
-          },
-          "contacts": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ContactResult"
-            }
-          }
-        },
-        "required": [
-          "message",
-          "query",
-          "count",
-          "contacts"
-        ]
-      },
-      "SendSMSResponse": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string",
-            "description": "Human-readable summary of the action."
-          },
-          "success": {
-            "type": "boolean"
-          },
-          "recipient": {
-            "type": "string",
-            "description": "Contact name or phone number."
-          },
-          "to_number": {
-            "type": "string",
-            "description": "The phone number the SMS was sent to."
-          },
-          "from_number": {
-            "type": "string",
-            "description": "The Telnyx phone number used to send."
-          },
-          "message_id": {
-            "type": "string",
-            "description": "Telnyx message ID for tracking."
-          },
-          "text_preview": {
-            "type": "string",
-            "description": "Preview of the message text sent."
-          }
-        },
-        "required": [
-          "message",
-          "success",
-          "recipient",
-          "to_number",
-          "from_number"
-        ]
-      },
-      "GetSmsMessagesResponse": {
-        "type": "object",
-        "properties": {
-          "count": {
-            "type": "integer",
-            "description": "Number of messages returned."
-          },
-          "messages": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SmsMessageEntry"
-            },
-            "description": "List of SMS messages."
-          }
-        },
-        "required": [
-          "count",
-          "messages"
-        ]
-      },
-      "SwarmMyCheckinsResponse": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "count": {
-            "type": "integer"
-          },
-          "checkins": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SwarmCheckinEntry"
-            }
-          },
-          "filters": {
-            "$ref": "#/components/schemas/SwarmCheckinsFilters"
-          }
-        },
-        "required": [
-          "message",
-          "count",
-          "checkins"
-        ]
-      },
-      "CurrentTimeResponse": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "iso_time": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "timezone": {
-            "type": "string"
-          },
-          "offset_minutes": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "message",
-          "iso_time",
-          "timezone",
-          "offset_minutes"
         ]
       },
       "UpsStatusResponse": {
@@ -1534,6 +1313,241 @@
           "runtime",
           "charge_percent",
           "temperature_f"
+        ]
+      },
+      "TelegramChat": {
+        "type": "object",
+        "description": "A Telegram conversation/dialog.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Telegram chat ID."
+          },
+          "name": {
+            "type": "string",
+            "description": "Chat name or contact name."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "group",
+              "supergroup",
+              "channel",
+              "unknown"
+            ],
+            "description": "Type of chat."
+          },
+          "unread_count": {
+            "type": "integer",
+            "description": "Number of unread messages."
+          },
+          "last_message_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the last message was sent."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "unread_count"
+        ]
+      },
+      "CalendarSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "primary": {
+            "type": "boolean"
+          },
+          "accessRole": {
+            "type": "string"
+          }
+        }
+      },
+      "TelegramMessagesResponse": {
+        "type": "object",
+        "description": "Response containing messages from a Telegram chat.",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "chat": {
+            "type": "string",
+            "description": "Chat identifier that was queried."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of messages returned."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TelegramMessage"
+            }
+          }
+        },
+        "required": [
+          "success",
+          "chat",
+          "count",
+          "messages"
+        ]
+      },
+      "PendingDecision": {
+        "type": "object",
+        "description": "A jorb awaiting approval.",
+        "properties": {
+          "jorb_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "paused_reason": {
+            "type": "string"
+          },
+          "needs_approval_for": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Available actions (approve, cancel)."
+          }
+        },
+        "required": [
+          "jorb_id",
+          "name",
+          "options"
+        ]
+      },
+      "CalendarDescriptor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "JorbActivitySummary": {
+        "type": "object",
+        "description": "Activity summary for a single jorb.",
+        "properties": {
+          "jorb_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "message_count": {
+            "type": "integer",
+            "description": "Messages since last briefing."
+          },
+          "recent_messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "timestamp": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Truncated message content."
+                }
+              }
+            }
+          },
+          "awaiting": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jorb_id",
+          "name",
+          "status",
+          "message_count"
+        ]
+      },
+      "CreateJorbResponse": {
+        "type": "object",
+        "properties": {
+          "jorb_id": {
+            "type": "string",
+            "description": "Created jorb ID."
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planning",
+              "running",
+              "paused"
+            ]
+          },
+          "plan": {
+            "type": "string"
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JorbContact"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kickoff": {
+            "type": "object",
+            "description": "Result of kickoff attempt if start_immediately was true.",
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "action_taken": {
+                "type": "string"
+              },
+              "message_sent": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "jorb_id",
+          "name",
+          "status",
+          "plan",
+          "contacts",
+          "created_at"
         ]
       },
       "DiagnosticsResponse": {
@@ -1603,13 +1617,176 @@
           "interactions"
         ]
       },
-      "ErrorResponse": {
+      "CalendarEvent": {
+        "type": "object",
+        "description": "Google Calendar event.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "htmlLink": {
+            "type": "string",
+            "format": "uri"
+          },
+          "start": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "end": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "attendees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "AndroidPhoneDoTaskResponse": {
+        "type": "object",
+        "description": "Result of goal-based Android phone automation.",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Whether the task completed successfully."
+          },
+          "result": {
+            "type": "string",
+            "description": "Description of what was accomplished."
+          },
+          "extracted_data": {
+            "type": "object",
+            "description": "Any data extracted from the phone (varies by task)."
+          },
+          "steps_taken": {
+            "type": "integer",
+            "description": "Number of automation steps executed."
+          },
+          "tokens_used": {
+            "type": "integer",
+            "description": "Total LLM tokens consumed."
+          },
+          "estimated_cost": {
+            "type": "number",
+            "description": "Estimated cost in USD."
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if task failed."
+          }
+        },
+        "required": [
+          "success",
+          "steps_taken",
+          "tokens_used"
+        ]
+      },
+      "GetSmsMessagesResponse": {
         "type": "object",
         "properties": {
-          "detail": {
-            "type": "string"
+          "count": {
+            "type": "integer",
+            "description": "Number of messages returned."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SmsMessageEntry"
+            },
+            "description": "List of SMS messages."
           }
-        }
+        },
+        "required": [
+          "count",
+          "messages"
+        ]
+      },
+      "ListCalendarEventsResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "calendar": {
+            "$ref": "#/components/schemas/CalendarDescriptor"
+          },
+          "time_window": {
+            "$ref": "#/components/schemas/TimeWindow"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CalendarEvent"
+            }
+          }
+        },
+        "required": [
+          "message",
+          "calendar",
+          "time_window",
+          "count",
+          "events"
+        ]
+      },
+      "SmsMessageEntry": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp."
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "contact": {
+            "type": "string",
+            "description": "Contact name if known."
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number."
+          },
+          "preview": {
+            "type": "string",
+            "description": "First 100 characters of message."
+          },
+          "hasAttachments": {
+            "type": "boolean",
+            "description": "True if message has MMS attachments."
+          },
+          "jorbId": {
+            "type": "string",
+            "description": "Job ID if processed."
+          }
+        },
+        "required": [
+          "timestamp",
+          "direction",
+          "phone",
+          "preview",
+          "hasAttachments"
+        ]
       },
       "TelegramSendResponse": {
         "type": "object",
@@ -1641,252 +1818,65 @@
           "recipient"
         ]
       },
-      "TelegramMessage": {
+      "AndroidPhoneHealthResponse": {
         "type": "object",
-        "description": "A Telegram message from a conversation.",
+        "description": "Android phone health check result.",
         "properties": {
-          "id": {
-            "type": "integer",
-            "description": "Telegram message ID."
-          },
-          "text": {
-            "type": "string",
-            "description": "Message text content (null for media-only messages)."
-          },
-          "date": {
-            "type": "string",
-            "format": "date-time",
-            "description": "When the message was sent."
-          },
-          "sender_id": {
-            "type": "integer",
-            "description": "Telegram user ID of the sender."
-          },
-          "sender_name": {
-            "type": "string",
-            "description": "Display name of the sender."
-          },
-          "is_outgoing": {
+          "connected": {
             "type": "boolean",
-            "description": "True if you sent this message."
-          }
-        },
-        "required": [
-          "id",
-          "date",
-          "is_outgoing"
-        ]
-      },
-      "TelegramMessagesResponse": {
-        "type": "object",
-        "description": "Response containing messages from a Telegram chat.",
-        "properties": {
-          "success": {
-            "type": "boolean"
+            "description": "Whether the device is reachable."
           },
-          "chat": {
+          "device_model": {
             "type": "string",
-            "description": "Chat identifier that was queried."
+            "description": "Device model name (e.g., 'Pixel 9 Pro')."
           },
-          "count": {
+          "android_version": {
+            "type": "string",
+            "description": "Android OS version (e.g., '15')."
+          },
+          "battery_level": {
             "type": "integer",
-            "description": "Number of messages returned."
+            "description": "Battery percentage (0-100)."
           },
-          "messages": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TelegramMessage"
-            }
+          "wifi_ssid": {
+            "type": "string",
+            "description": "Current WiFi network name."
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if device not reachable."
           }
         },
         "required": [
-          "success",
-          "chat",
-          "count",
-          "messages"
+          "connected"
         ]
       },
-      "TelegramChat": {
-        "type": "object",
-        "description": "A Telegram conversation/dialog.",
-        "properties": {
-          "id": {
-            "type": "integer",
-            "description": "Telegram chat ID."
-          },
-          "name": {
-            "type": "string",
-            "description": "Chat name or contact name."
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "user",
-              "group",
-              "supergroup",
-              "channel",
-              "unknown"
-            ],
-            "description": "Type of chat."
-          },
-          "unread_count": {
-            "type": "integer",
-            "description": "Number of unread messages."
-          },
-          "last_message_date": {
-            "type": "string",
-            "format": "date-time",
-            "description": "When the last message was sent."
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "type",
-          "unread_count"
-        ]
-      },
-      "TelegramChatsResponse": {
-        "type": "object",
-        "description": "Response containing list of Telegram conversations.",
-        "properties": {
-          "success": {
-            "type": "boolean"
-          },
-          "count": {
-            "type": "integer",
-            "description": "Number of chats returned."
-          },
-          "chats": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TelegramChat"
-            }
-          }
-        },
-        "required": [
-          "success",
-          "count",
-          "chats"
-        ]
-      },
-      "JorbMessage": {
-        "type": "object",
-        "description": "A message in a jorb's conversation history.",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Message ID."
-          },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time",
-            "description": "ISO 8601 timestamp."
-          },
-          "direction": {
-            "type": "string",
-            "enum": [
-              "inbound",
-              "outbound"
-            ],
-            "description": "Message direction."
-          },
-          "channel": {
-            "type": "string",
-            "enum": [
-              "sms",
-              "telegram",
-              "email"
-            ],
-            "description": "Communication channel."
-          },
-          "sender": {
-            "type": "string",
-            "description": "Sender identifier."
-          },
-          "sender_name": {
-            "type": "string",
-            "description": "Sender display name."
-          },
-          "recipient": {
-            "type": "string",
-            "description": "Recipient identifier."
-          },
-          "content": {
-            "type": "string",
-            "description": "Message content."
-          },
-          "agent_reasoning": {
-            "type": "string",
-            "description": "Agent's reasoning for outbound messages."
-          }
-        },
-        "required": [
-          "id",
-          "timestamp",
-          "direction",
-          "channel",
-          "content"
-        ]
-      },
-      "ListJorbsResponse": {
-        "type": "object",
-        "properties": {
-          "count": {
-            "type": "integer",
-            "description": "Number of jorbs returned."
-          },
-          "status_filter": {
-            "type": "string",
-            "description": "The status filter that was applied."
-          },
-          "jorbs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JorbSummary"
-            }
-          }
-        },
-        "required": [
-          "count",
-          "status_filter",
-          "jorbs"
-        ]
-      },
-      "CreateJorbResponse": {
+      "ApproveJorbResponse": {
         "type": "object",
         "properties": {
           "jorb_id": {
-            "type": "string",
-            "description": "Created jorb ID."
+            "type": "string"
           },
           "name": {
             "type": "string"
           },
           "status": {
-            "type": "string",
-            "enum": [
-              "planning",
-              "running",
-              "paused"
-            ]
-          },
-          "plan": {
             "type": "string"
           },
-          "contacts": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JorbContact"
-            }
+          "progress_summary": {
+            "type": "string"
           },
-          "created_at": {
+          "decision": {
+            "type": "string",
+            "description": "The approval decision provided."
+          },
+          "updated_at": {
             "type": "string",
             "format": "date-time"
           },
-          "kickoff": {
+          "agent_result": {
             "type": "object",
-            "description": "Result of kickoff attempt if start_immediately was true.",
+            "description": "Result of agent processing the approval.",
             "properties": {
               "success": {
                 "type": "boolean"
@@ -1907,10 +1897,266 @@
           "jorb_id",
           "name",
           "status",
-          "plan",
-          "contacts",
-          "created_at"
+          "decision",
+          "updated_at"
         ]
+      },
+      "CreateCalendarEventResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "calendar": {
+            "$ref": "#/components/schemas/CalendarDescriptor"
+          },
+          "event": {
+            "$ref": "#/components/schemas/CalendarEvent"
+          }
+        },
+        "required": [
+          "message",
+          "calendar",
+          "event"
+        ]
+      },
+      "SwarmPhoto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Photo URL for rendering."
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          }
+        }
+      },
+      "BriefMeResponse": {
+        "type": "object",
+        "description": "Jorb activity briefing summary.",
+        "properties": {
+          "briefing_time": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Current briefing timestamp."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Activity measured from this time."
+          },
+          "last_briefing": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Previous briefing timestamp."
+          },
+          "needs_attention": {
+            "type": "integer",
+            "description": "Count of paused jorbs requiring approval."
+          },
+          "activity_summary": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JorbActivitySummary"
+            },
+            "description": "Activity per jorb."
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Notable events (completions, message counts, etc.)."
+          },
+          "pending_decisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PendingDecision"
+            },
+            "description": "Jorbs awaiting approval."
+          },
+          "total_open_jorbs": {
+            "type": "integer",
+            "description": "Total active/paused jorbs."
+          },
+          "recently_completed": {
+            "type": "integer",
+            "description": "Jorbs completed since last briefing."
+          }
+        },
+        "required": [
+          "briefing_time",
+          "needs_attention",
+          "activity_summary",
+          "highlights",
+          "pending_decisions",
+          "total_open_jorbs",
+          "recently_completed"
+        ]
+      },
+      "CancelJorbResponse": {
+        "type": "object",
+        "properties": {
+          "jorb_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "progress_summary": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Cancellation reason if provided."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "jorb_id",
+          "name",
+          "status",
+          "updated_at"
+        ]
+      },
+      "TimeWindow": {
+        "type": "object",
+        "properties": {
+          "time_min": {
+            "type": "string"
+          },
+          "time_max": {
+            "type": "string"
+          },
+          "time_zone": {
+            "type": "string"
+          }
+        }
+      },
+      "CurrentTimeResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "iso_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "offset_minutes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "message",
+          "iso_time",
+          "timezone",
+          "offset_minutes"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string"
+          }
+        }
+      },
+      "ContactResult": {
+        "type": "object",
+        "properties": {
+          "resource_name": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "phones": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SwarmCheckinsFilters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer"
+          },
+          "after_date": {
+            "type": "string"
+          },
+          "before_date": {
+            "type": "string"
+          },
+          "with_companion": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "only_with_companions": {
+            "type": "boolean"
+          },
+          "category": {
+            "type": "string"
+          },
+          "has_photos": {
+            "type": "boolean"
+          },
+          "include_photos": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SwarmVenue": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "canonical_url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
       },
       "GetJorbResponse": {
         "type": "object",
@@ -2017,220 +2263,399 @@
           "messages"
         ]
       },
-      "ApproveJorbResponse": {
+      "SwarmCheckinEntry": {
         "type": "object",
         "properties": {
-          "jorb_id": {
+          "iso_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "minutes_since": {
+            "type": "integer"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "venue": {
+            "$ref": "#/components/schemas/SwarmVenue"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "shout": {
             "type": "string"
+          },
+          "companions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SwarmCompanion"
+            }
+          },
+          "photo_count": {
+            "type": "integer"
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SwarmPhoto"
+            }
+          }
+        }
+      },
+      "JorbSummary": {
+        "type": "object",
+        "description": "Summary of a jorb for list view.",
+        "properties": {
+          "jorb_id": {
+            "type": "string",
+            "description": "Unique jorb identifier."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Human-readable name."
           },
           "status": {
-            "type": "string"
-          },
-          "progress_summary": {
-            "type": "string"
-          },
-          "decision": {
             "type": "string",
-            "description": "The approval decision provided."
+            "enum": [
+              "planning",
+              "running",
+              "paused",
+              "complete",
+              "failed",
+              "cancelled"
+            ],
+            "description": "Current status."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time"
           },
-          "agent_result": {
-            "type": "object",
-            "description": "Result of agent processing the approval.",
-            "properties": {
-              "success": {
-                "type": "boolean"
-              },
-              "action_taken": {
-                "type": "string"
-              },
-              "message_sent": {
-                "type": "boolean"
-              },
-              "error": {
-                "type": "string"
-              }
+          "progress": {
+            "type": "string",
+            "description": "Progress summary."
+          },
+          "awaiting": {
+            "type": "string",
+            "description": "What the jorb is waiting for."
+          },
+          "paused_reason": {
+            "type": "string",
+            "description": "Why the jorb is paused."
+          }
+        },
+        "required": [
+          "jorb_id",
+          "name",
+          "status",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "TelegramChatsResponse": {
+        "type": "object",
+        "description": "Response containing list of Telegram conversations.",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of chats returned."
+          },
+          "chats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TelegramChat"
             }
           }
         },
         "required": [
-          "jorb_id",
-          "name",
-          "status",
-          "decision",
-          "updated_at"
+          "success",
+          "count",
+          "chats"
         ]
       },
-      "CancelJorbResponse": {
+      "SwarmCompanion": {
         "type": "object",
         "properties": {
-          "jorb_id": {
+          "id": {
             "type": "string"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          }
+        }
+      },
+      "ListJorbsResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "Number of jorbs returned."
+          },
+          "status_filter": {
+            "type": "string",
+            "description": "The status filter that was applied."
+          },
+          "jorbs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JorbSummary"
+            }
+          }
+        },
+        "required": [
+          "count",
+          "status_filter",
+          "jorbs"
+        ]
+      },
+      "SwarmMyCheckinsResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "checkins": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SwarmCheckinEntry"
+            }
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SwarmCheckinsFilters"
+          }
+        },
+        "required": [
+          "message",
+          "count",
+          "checkins"
+        ]
+      },
+      "SendSMSResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Human-readable summary of the action."
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "recipient": {
+            "type": "string",
+            "description": "Contact name or phone number."
+          },
+          "to_number": {
+            "type": "string",
+            "description": "The phone number the SMS was sent to."
+          },
+          "from_number": {
+            "type": "string",
+            "description": "The Telnyx phone number used to send."
+          },
+          "message_id": {
+            "type": "string",
+            "description": "Telnyx message ID for tracking."
+          },
+          "text_preview": {
+            "type": "string",
+            "description": "Preview of the message text sent."
+          }
+        },
+        "required": [
+          "message",
+          "success",
+          "recipient",
+          "to_number",
+          "from_number"
+        ]
+      },
+      "TelegramMessage": {
+        "type": "object",
+        "description": "A Telegram message from a conversation.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Telegram message ID."
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text content (null for media-only messages)."
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the message was sent."
+          },
+          "sender_id": {
+            "type": "integer",
+            "description": "Telegram user ID of the sender."
+          },
+          "sender_name": {
+            "type": "string",
+            "description": "Display name of the sender."
+          },
+          "is_outgoing": {
+            "type": "boolean",
+            "description": "True if you sent this message."
+          }
+        },
+        "required": [
+          "id",
+          "date",
+          "is_outgoing"
+        ]
+      },
+      "JorbContact": {
+        "type": "object",
+        "description": "A contact associated with a jorb.",
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Phone number, username, or email address."
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "telegram",
+              "email"
+            ],
+            "description": "Communication channel."
           },
           "name": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "progress_summary": {
-            "type": "string"
-          },
-          "reason": {
             "type": "string",
-            "description": "Cancellation reason if provided."
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
+            "description": "Optional display name."
           }
         },
         "required": [
-          "jorb_id",
-          "name",
-          "status",
-          "updated_at"
+          "identifier",
+          "channel"
         ]
       },
-      "BriefMeResponse": {
+      "UpsRuntime": {
         "type": "object",
-        "description": "Jorb activity briefing summary.",
         "properties": {
-          "briefing_time": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Current briefing timestamp."
-          },
-          "since": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Activity measured from this time."
-          },
-          "last_briefing": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Previous briefing timestamp."
-          },
-          "needs_attention": {
+          "hours": {
             "type": "integer",
-            "description": "Count of paused jorbs requiring approval."
+            "minimum": 0
           },
-          "activity_summary": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JorbActivitySummary"
-            },
-            "description": "Activity per jorb."
-          },
-          "highlights": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Notable events (completions, message counts, etc.)."
-          },
-          "pending_decisions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PendingDecision"
-            },
-            "description": "Jorbs awaiting approval."
-          },
-          "total_open_jorbs": {
+          "mins": {
             "type": "integer",
-            "description": "Total active/paused jorbs."
+            "minimum": 0,
+            "maximum": 59
           },
-          "recently_completed": {
-            "type": "integer",
-            "description": "Jorbs completed since last briefing."
+          "human": {
+            "type": "string",
+            "description": "Human-readable runtime, e.g. '1h 22m'."
           }
         },
         "required": [
-          "briefing_time",
-          "needs_attention",
-          "activity_summary",
-          "highlights",
-          "pending_decisions",
-          "total_open_jorbs",
-          "recently_completed"
+          "hours",
+          "mins",
+          "human"
         ]
       },
-      "AndroidPhoneHealthResponse": {
+      "SearchContactsResponse": {
         "type": "object",
-        "description": "Android phone health check result.",
         "properties": {
-          "connected": {
-            "type": "boolean",
-            "description": "Whether the device is reachable."
+          "message": {
+            "type": "string"
           },
-          "device_model": {
-            "type": "string",
-            "description": "Device model name (e.g., 'Pixel 9 Pro')."
+          "query": {
+            "type": "string"
           },
-          "android_version": {
-            "type": "string",
-            "description": "Android OS version (e.g., '15')."
+          "count": {
+            "type": "integer"
           },
-          "battery_level": {
-            "type": "integer",
-            "description": "Battery percentage (0-100)."
-          },
-          "wifi_ssid": {
-            "type": "string",
-            "description": "Current WiFi network name."
-          },
-          "error": {
-            "type": "string",
-            "description": "Error message if device not reachable."
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContactResult"
+            }
           }
         },
         "required": [
-          "connected"
+          "message",
+          "query",
+          "count",
+          "contacts"
         ]
       },
-      "AndroidPhoneDoTaskResponse": {
+      "JorbMessage": {
         "type": "object",
-        "description": "Result of goal-based Android phone automation.",
+        "description": "A message in a jorb's conversation history.",
         "properties": {
-          "success": {
-            "type": "boolean",
-            "description": "Whether the task completed successfully."
-          },
-          "result": {
+          "id": {
             "type": "string",
-            "description": "Description of what was accomplished."
+            "description": "Message ID."
           },
-          "extracted_data": {
-            "type": "object",
-            "description": "Any data extracted from the phone (varies by task)."
-          },
-          "steps_taken": {
-            "type": "integer",
-            "description": "Number of automation steps executed."
-          },
-          "tokens_used": {
-            "type": "integer",
-            "description": "Total LLM tokens consumed."
-          },
-          "estimated_cost": {
-            "type": "number",
-            "description": "Estimated cost in USD."
-          },
-          "error": {
+          "timestamp": {
             "type": "string",
-            "description": "Error message if task failed."
+            "format": "date-time",
+            "description": "ISO 8601 timestamp."
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ],
+            "description": "Message direction."
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "telegram",
+              "email"
+            ],
+            "description": "Communication channel."
+          },
+          "sender": {
+            "type": "string",
+            "description": "Sender identifier."
+          },
+          "sender_name": {
+            "type": "string",
+            "description": "Sender display name."
+          },
+          "recipient": {
+            "type": "string",
+            "description": "Recipient identifier."
+          },
+          "content": {
+            "type": "string",
+            "description": "Message content."
+          },
+          "agent_reasoning": {
+            "type": "string",
+            "description": "Agent's reasoning for outbound messages."
           }
         },
         "required": [
-          "success",
-          "steps_taken",
-          "tokens_used"
+          "id",
+          "timestamp",
+          "direction",
+          "channel",
+          "content"
         ]
       }
     },

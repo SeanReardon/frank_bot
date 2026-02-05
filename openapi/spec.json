@@ -1656,7 +1656,7 @@
       "get": {
         "operationId": "androidPhoneDoTask",
         "summary": "Execute goal-based task on Android phone",
-        "description": "Universal endpoint for Android phone automation. Describe what you want to accomplish in natural language, and the LLM will navigate the phone to achieve it.\n\n**IMPORTANT**: Automation STOPS before irreversible actions (payments, purchases, bookings) - returning details for human review.\n\n**Capabilities**:\n- **Thermostat**: Read status, set temperature range via Google Home\n- **Smart Home**: Control lights, locks, plugs, devices via Google Home\n- **Ride Services**: Check Uber/Lyft prices, request rides (stops before payment)\n- **Food Delivery**: Browse DoorDash/UberEats, build orders (stops before checkout)\n- **Browser**: Search Google, navigate websites\n- **Maps**: Get directions, check traffic\n- **Any App**: Navigate and interact with installed apps\n\n**Examples**:\n- goal=\"Check the thermostat temperature and humidity\"\n- goal=\"Set thermostat to 65-70 degrees\"\n- goal=\"Open Uber and check ride prices to SFO airport\"\n- goal=\"Turn off the living room lights\"\n- goal=\"Search DoorDash for nearby pizza places\"\n\n**Cost**: $0.03-0.15 per task (10-30 seconds)",
+        "description": "Universal Android phone automation. Describe your goal in natural language. Capabilities: thermostat, smart home, Uber/Lyft, DoorDash, browser, any app. STOPS before payments/purchases. Cost: $0.03-0.15, takes 10-30s.",
         "parameters": [
           {
             "in": "query",
