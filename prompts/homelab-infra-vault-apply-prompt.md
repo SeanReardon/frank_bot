@@ -23,15 +23,23 @@ Apply the Vault terraform changes for frank_bot to create/update these secrets:
    cd terraform/vault
    ```
 
-3. **Verify the terraform.tfvars has the new variables** (should already be there from the commit):
+3. **Add the new variables to terraform.tfvars** (this file is gitignored, so add manually):
+   ```bash
+   cat >> terraform.tfvars << 'EOF'
+
+# Android phone automation (ADB over TCP)
+android_adb_host = "10.0.0.95"
+android_adb_port = "5555"
+
+# Actions API key (for X-API-Key header authentication)
+actions_api_key = "f04ad182983a4361f95119cd8508034d2a604b623d45c0083c93eb736f2a9b78"
+EOF
+   ```
+   
+   Verify they were added:
    ```bash
    grep -E "android_|actions_api" terraform.tfvars
    ```
-   
-   Expected output should include:
-   - `android_adb_host = "10.0.0.95"`
-   - `android_adb_port = "5555"`
-   - `actions_api_key = "f04ad182983a4361f95119cd8508034d2a604b623d45c0083c93eb736f2a9b78"`
 
 4. **Ensure Vault environment is configured**:
    ```bash
