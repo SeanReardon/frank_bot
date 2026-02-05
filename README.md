@@ -285,7 +285,7 @@ Frank Bot can control an Android phone via ADB over the network, enabling LLM-in
 
 3. **For LLM-in-the-loop automation**, also configure:
    ```
-   ANDROID_LLM_MODEL=gpt-4o      # Vision-capable model
+   ANDROID_LLM_MODEL=gpt-5.2     # Vision-capable model
    ANDROID_LLM_API_KEY=sk-...    # Optional, uses OPENAI_API_KEY if not set
    ```
 
@@ -295,7 +295,7 @@ Frank Bot can control an Android phone via ADB over the network, enabling LLM-in
 | --- | --- | --- |
 | `ANDROID_ADB_HOST` | `10.0.0.95` | Android device IP address |
 | `ANDROID_ADB_PORT` | `5555` | ADB TCP port |
-| `ANDROID_LLM_MODEL` | `gpt-4o` | Vision-capable LLM for automation |
+| `ANDROID_LLM_MODEL` | `gpt-5.2` | Vision-capable LLM for automation |
 | `ANDROID_LLM_API_KEY` | _unset_ | API key for LLM (falls back to OPENAI_API_KEY) |
 | `ANDROID_MAINTENANCE_CRON` | `0 3 1 * *` | Monthly maintenance schedule |
 | `ANDROID_HEALTH_CHECK_CRON` | `0 4 * * 0` | Weekly health check schedule |

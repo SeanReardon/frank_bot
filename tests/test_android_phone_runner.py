@@ -85,12 +85,12 @@ class TestAndroidPhoneRunnerInit:
         """Initializes with default settings."""
         with patch("services.android_phone_runner.get_settings") as mock_settings:
             mock_settings.return_value = MagicMock(
-                android_llm_model="gpt-4o",
+                android_llm_model="gpt-5.2",
                 android_llm_api_key="test-key",
                 openai_api_key=None,
             )
             runner = AndroidPhoneRunner()
-            assert runner.model == "gpt-4o"
+            assert runner.model == "gpt-5.2"
             assert runner.is_configured is True
 
     def test_custom_initialization(self) -> None:
@@ -110,7 +110,7 @@ class TestAndroidPhoneRunnerInit:
         """Reports not configured when API key missing."""
         with patch("services.android_phone_runner.get_settings") as mock_settings:
             mock_settings.return_value = MagicMock(
-                android_llm_model="gpt-4o",
+                android_llm_model="gpt-5.2",
                 android_llm_api_key=None,
                 openai_api_key=None,
             )
@@ -282,7 +282,7 @@ class TestRunTask:
         """Returns error result when runner not configured."""
         with patch("services.android_phone_runner.get_settings") as mock_settings:
             mock_settings.return_value = MagicMock(
-                android_llm_model="gpt-4o",
+                android_llm_model="gpt-5.2",
                 android_llm_api_key=None,
                 openai_api_key=None,
             )

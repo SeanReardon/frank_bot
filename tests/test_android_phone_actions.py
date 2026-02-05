@@ -555,7 +555,7 @@ class TestThermostatSetRangeAction:
 
         mock_runner = MagicMock()
         mock_runner.is_configured = True
-        mock_runner.model = "gpt-4o"
+        mock_runner.model = "gpt-5.2"
         mock_runner.run_task = AsyncMock(return_value=RunResult(
             success=True,
             steps_taken=5,
@@ -593,7 +593,7 @@ class TestThermostatSetRangeAction:
 
         mock_runner = MagicMock()
         mock_runner.is_configured = True
-        mock_runner.model = "gpt-4o"
+        mock_runner.model = "gpt-5.2"
         mock_runner.run_task = AsyncMock(return_value=RunResult(
             success=False,
             steps_taken=10,
@@ -654,7 +654,7 @@ class TestThermostatGetStatusAction:
 
         mock_runner = MagicMock()
         mock_runner.is_configured = True
-        mock_runner.model = "gpt-4o"
+        mock_runner.model = "gpt-5.2"
         mock_runner.run_task = AsyncMock(return_value=RunResult(
             success=True,
             steps_taken=3,
@@ -707,7 +707,7 @@ class TestThermostatGetStatusAction:
 
         mock_runner = MagicMock()
         mock_runner.is_configured = True
-        mock_runner.model = "gpt-4o"
+        mock_runner.model = "gpt-5.2"
         mock_runner.run_task = AsyncMock(return_value=RunResult(
             success=True,
             steps_taken=3,
@@ -748,7 +748,7 @@ class TestThermostatGetStatusAction:
 
         mock_runner = MagicMock()
         mock_runner.is_configured = True
-        mock_runner.model = "gpt-4o"
+        mock_runner.model = "gpt-5.2"
         mock_runner.run_task = AsyncMock(return_value=RunResult(
             success=False,
             steps_taken=2,
@@ -827,7 +827,7 @@ class TestThermostatGetStatusAction:
 
         mock_runner = MagicMock()
         mock_runner.is_configured = True
-        mock_runner.model = "gpt-4o"
+        mock_runner.model = "gpt-5.2"
         mock_runner.run_task = AsyncMock(return_value=RunResult(
             success=True,
             steps_taken=2,
