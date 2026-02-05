@@ -1716,3 +1716,91 @@ Implemented JSON lines audit logging for Android phone actions with daily rotati
 - JSON lines format enables easy grep/jq processing
 
 ---
+
+## 2026-02-05: frank_bot-00099 - Create AndroidMaintenanceService for device upkeep
+
+### Summary
+Created services/android_maintenance.py with AndroidMaintenanceService class providing device maintenance operations: check_app_updates, install_app_updates, check_security_patch, clear_caches, get_storage_info, reboot_device, get_battery_health, and test_app_launch. All methods are async and use AndroidClient.
+
+### Files Changed
+- services/android_maintenance.py (new - AndroidMaintenanceService with 8 maintenance methods)
+- tests/test_android_maintenance.py (new - 21 unit tests)
+
+### Learnings
+- Play Store app update requires LLM automation for UI navigation
+- Security patch level accessible via getprop ro.build.version.security_patch
+- Storage info parsed from df /data command output
+- Reboot requires explicit confirmation to prevent accidents
+- Cache clearing may require device owner permissions
+
+---
+
+## 2026-02-05: frank_bot-00100 - Add maintenance routes and actions for Android phone
+
+### Summary
+Added maintenance action handlers (update_apps, check_security, reboot, get_storage, clear_cache, battery_health) to actions/android_phone.py and corresponding routes to server/routes.py. All routes protected by API key and rate limiting.
+
+### Files Changed
+- actions/android_phone.py (added 6 maintenance action functions)
+- server/routes.py (added imports, handlers, and routes for maintenance endpoints)
+- tests/test_maintenance_actions.py (new - 10 integration tests)
+
+### Learnings
+- Maintenance actions wrap AndroidMaintenanceService for HTTP exposure
+- Reboot action accepts truthy strings (true, yes, 1) for confirm parameter
+- Clear cache uses configurable threshold (default 90%)
+- Battery health excludes raw_info dict from response for cleaner output
+
+---
+
+## 2026-02-05: frank_bot-00101 - Create maintenance prompt templates
+
+### Summary
+Created three prompt templates for LLM-driven maintenance tasks: maintenance-updateApps.md (Play Store update workflow), maintenance-checkStorage.md (Settings storage navigation), and maintenance-clearCache.md (app cache clearing workflow).
+
+### Files Changed
+- prompts/androidPhone/maintenance-updateApps.md (new - Play Store update workflow)
+- prompts/androidPhone/maintenance-checkStorage.md (new - Settings storage navigation)
+- prompts/androidPhone/maintenance-clearCache.md (new - cache clearing workflow)
+
+### Learnings
+- Play Store UI varies by version; templates must be adaptable
+- Clear cache vs clear data distinction critical - templates emphasize this
+- Storage screens differ between stock Android and manufacturer skins
+- Success criteria should return structured JSON with actionable data
+
+---
+
+## 2026-02-05: frank_bot-00102 - Add scheduled maintenance jorb for monthly device upkeep
+
+### Summary
+Extended BackgroundLoopService with _maintenance_loop for scheduled Android maintenance. Monthly maintenance runs on 1st of month at configured time (ANDROID_MAINTENANCE_CRON), executing security check, app update check, storage check, and cache clearing. Results sent via Telegram.
+
+### Files Changed
+- services/background_loop.py (added maintenance loop, cron parsing, monthly and weekly check methods)
+- tests/test_background_loop_maintenance.py (new - 15 integration tests)
+
+### Learnings
+- Cron parsing handles simple 5-field format (minute hour day month weekday)
+- Month key prevents duplicate runs within same month
+- Device connection checked first; maintenance skipped if offline (with retry notice)
+- Telegram notification includes all results and any errors encountered
+
+---
+
+## 2026-02-05: frank_bot-00103 - Add weekly health check jorb for Android phone
+
+### Summary
+Added weekly health check to BackgroundLoopService running on Sunday at configured time (ANDROID_HEALTH_CHECK_CRON). Checks device connection, battery health, WiFi connectivity, and app launch. Only sends Telegram notification if issues detected; successful checks logged silently.
+
+### Files Changed
+- services/background_loop.py (added _check_weekly_health_check and _run_weekly_health_check methods)
+- tests/test_background_loop_maintenance.py (added health check tests)
+
+### Learnings
+- Silent success pattern: only notify when problems found (reduces alert fatigue)
+- Week key using ISO week number prevents duplicate runs
+- Battery health status "2" means "Good" in Android dumpsys
+- Suggested actions in notification help user resolve issues
+
+---

@@ -813,6 +813,227 @@ async def android_phone_audit_action(
     }
 
 
+async def update_apps_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Check for and install app updates via Play Store.
+
+    This action launches the Play Store and provides instructions for
+    completing the update process via LLM automation.
+
+    Returns:
+        success: Whether the operation initiated successfully
+        requires_llm_automation: True if LLM automation is needed to complete
+        workflow: Steps to complete the update process
+    """
+    from services.android_maintenance import get_android_maintenance_service
+
+    maintenance = get_android_maintenance_service()
+
+    # First check for updates
+    check_result = await maintenance.check_app_updates()
+
+    if not check_result.success:
+        return {
+            "success": False,
+            "error": check_result.error,
+            "message": check_result.message,
+        }
+
+    # Then initiate updates
+    update_result = await maintenance.install_app_updates()
+
+    return {
+        "success": update_result.success,
+        "message": update_result.message,
+        "requires_llm_automation": update_result.details.get("requires_llm_automation", True)
+        if update_result.details
+        else True,
+        "workflow": update_result.details.get("workflow", []) if update_result.details else [],
+        "hint": "Use LLM automation with maintenance-updateApps prompt to complete this task",
+    }
+
+
+async def check_security_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Check the device's current security patch level.
+
+    Returns:
+        success: Whether the check completed successfully
+        security_patch: Current security patch date (e.g., "2025-01-05")
+        android_version: Android OS version
+        build_date: Device build date
+    """
+    from services.android_maintenance import get_android_maintenance_service
+
+    maintenance = get_android_maintenance_service()
+    result = await maintenance.check_security_patch()
+
+    if not result.success:
+        return {
+            "success": False,
+            "error": result.error,
+            "message": result.message,
+        }
+
+    return {
+        "success": True,
+        "message": result.message,
+        "security_patch": result.details.get("security_patch") if result.details else None,
+        "android_version": result.details.get("android_version") if result.details else None,
+        "build_date": result.details.get("build_date") if result.details else None,
+        "note": result.details.get("note") if result.details else None,
+    }
+
+
+async def reboot_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Reboot the Android device.
+
+    This action requires explicit confirmation to prevent accidental reboots.
+
+    Args:
+        confirm: Must be "true" to actually perform the reboot
+
+    Returns:
+        success: Whether the reboot was initiated
+        message: Status message
+    """
+    from services.android_maintenance import get_android_maintenance_service
+
+    args = arguments or {}
+    confirm_str = str(args.get("confirm", "")).lower()
+    confirm = confirm_str in ("true", "1", "yes")
+
+    maintenance = get_android_maintenance_service()
+    result = await maintenance.reboot_device(confirm=confirm)
+
+    response: dict[str, Any] = {
+        "success": result.success,
+        "message": result.message,
+    }
+
+    if result.error:
+        response["error"] = result.error
+
+    if result.details:
+        response.update(result.details)
+
+    return response
+
+
+async def get_storage_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Get device storage information.
+
+    Returns:
+        success: Whether the check completed successfully
+        used_percent: Percentage of storage used
+        free_percent: Percentage of storage free
+        total_formatted: Total storage in human-readable format
+        used_formatted: Used storage in human-readable format
+        free_formatted: Free storage in human-readable format
+    """
+    from services.android_maintenance import get_android_maintenance_service
+
+    maintenance = get_android_maintenance_service()
+    result = await maintenance.get_storage_info()
+
+    if not result.success:
+        return {
+            "success": False,
+            "error": result.error,
+            "message": result.message,
+        }
+
+    return {
+        "success": True,
+        "message": result.message,
+        **(result.details or {}),
+    }
+
+
+async def clear_cache_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Clear app caches if storage is low.
+
+    Args:
+        threshold: Storage used percentage threshold (default 90)
+
+    Returns:
+        success: Whether the operation completed
+        action_taken: Whether caches were actually cleared
+        storage_used_percent: Current storage usage before clearing
+    """
+    from services.android_maintenance import get_android_maintenance_service
+
+    args = arguments or {}
+    threshold = float(args.get("threshold", 90.0))
+
+    maintenance = get_android_maintenance_service()
+    result = await maintenance.clear_caches(threshold_percent=threshold)
+
+    if not result.success:
+        return {
+            "success": False,
+            "error": result.error,
+            "message": result.message,
+        }
+
+    return {
+        "success": True,
+        "message": result.message,
+        **(result.details or {}),
+    }
+
+
+async def battery_health_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Get detailed battery health information.
+
+    Returns:
+        success: Whether the check completed successfully
+        level_percent: Current battery level
+        health: Battery health status
+        temperature: Battery temperature
+        plugged: Whether device is plugged in
+    """
+    from services.android_maintenance import get_android_maintenance_service
+
+    maintenance = get_android_maintenance_service()
+    result = await maintenance.get_battery_health()
+
+    if not result.success:
+        return {
+            "success": False,
+            "error": result.error,
+            "message": result.message,
+        }
+
+    details = result.details or {}
+    # Don't include raw_info in the response to keep it concise
+    return {
+        "success": True,
+        "message": result.message,
+        "level_percent": details.get("level_percent"),
+        "status": details.get("status"),
+        "health": details.get("health"),
+        "temperature": details.get("temperature"),
+        "plugged": details.get("plugged"),
+    }
+
+
 __all__ = [
     "get_screen_action",
     "android_phone_health_action",
@@ -829,4 +1050,10 @@ __all__ = [
     "thermostat_set_range_action",
     "thermostat_get_status_action",
     "android_phone_audit_action",
+    "update_apps_action",
+    "check_security_action",
+    "reboot_action",
+    "get_storage_action",
+    "clear_cache_action",
+    "battery_health_action",
 ]

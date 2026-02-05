@@ -1649,7 +1649,7 @@
         "Unit tests verify each maintenance operation"
       ],
       "priority": 99,
-      "passes": false,
+      "passes": true,
       "notes": "Foundation for maintenance features. Blocking for frank_bot-00100, frank_bot-00101."
     },
     {
@@ -1667,7 +1667,7 @@
         "Integration tests verify maintenance action flows"
       ],
       "priority": 100,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00099. Exposes maintenance functionality via HTTP."
     },
     {
@@ -1684,7 +1684,7 @@
         "Templates integrated with AndroidMaintenanceService methods"
       ],
       "priority": 101,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00099. Prompt templates for LLM-driven maintenance tasks."
     },
     {
@@ -1701,7 +1701,7 @@
         "Integration test verifies scheduled execution"
       ],
       "priority": 102,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00099, frank_bot-00100, frank_bot-00068 (background loop). Monthly maintenance automation."
     },
     {
@@ -1718,7 +1718,7 @@
         "Integration test verifies health check execution and notification logic"
       ],
       "priority": 103,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00098, frank_bot-00068 (background loop). Weekly health monitoring."
     },
     {

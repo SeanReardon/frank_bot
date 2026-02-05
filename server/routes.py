@@ -67,6 +67,12 @@ from actions.android_phone import (
     thermostat_set_range_action,
     thermostat_get_status_action,
     android_phone_audit_action,
+    update_apps_action,
+    check_security_action,
+    reboot_action,
+    get_storage_action,
+    clear_cache_action,
+    battery_health_action,
 )
 from actions.claudia import (
     list_claudia_repos_action,
@@ -658,6 +664,55 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(android_phone_audit_action)
         return await responder(payload)
 
+    # Android phone maintenance endpoints (protected by API key)
+    async def android_phone_maintenance_update_apps_handler(request: Request):
+        await _require_api_key(request)
+        await _check_android_rate_limit(request, is_long_running=True)
+        stats.get_endpoint_stats("androidPhoneMaintenanceUpdateApps").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(update_apps_action)
+        return await responder(payload)
+
+    async def android_phone_maintenance_check_security_handler(request: Request):
+        await _require_api_key(request)
+        await _check_android_rate_limit(request)
+        stats.get_endpoint_stats("androidPhoneMaintenanceCheckSecurity").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(check_security_action)
+        return await responder(payload)
+
+    async def android_phone_maintenance_reboot_handler(request: Request):
+        await _require_api_key(request)
+        await _check_android_rate_limit(request)
+        stats.get_endpoint_stats("androidPhoneMaintenanceReboot").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(reboot_action)
+        return await responder(payload)
+
+    async def android_phone_maintenance_storage_handler(request: Request):
+        await _require_api_key(request)
+        await _check_android_rate_limit(request)
+        stats.get_endpoint_stats("androidPhoneMaintenanceStorage").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_storage_action)
+        return await responder(payload)
+
+    async def android_phone_maintenance_clear_cache_handler(request: Request):
+        await _require_api_key(request)
+        await _check_android_rate_limit(request)
+        stats.get_endpoint_stats("androidPhoneMaintenanceClearCache").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(clear_cache_action)
+        return await responder(payload)
+
+    async def android_phone_maintenance_battery_handler(request: Request):
+        await _require_api_key(request)
+        await _check_android_rate_limit(request)
+        stats.get_endpoint_stats("androidPhoneMaintenanceBattery").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(battery_health_action)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -768,6 +823,13 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/androidPhone/thermostat/getStatus", android_phone_thermostat_get_status_handler, methods=["GET"]),
         # Android phone audit endpoint
         Route("/actions/androidPhone/audit", android_phone_audit_handler, methods=["GET"]),
+        # Android phone maintenance endpoints
+        Route("/actions/androidPhone/maintenance/updateApps", android_phone_maintenance_update_apps_handler, methods=["GET"]),
+        Route("/actions/androidPhone/maintenance/checkSecurity", android_phone_maintenance_check_security_handler, methods=["GET"]),
+        Route("/actions/androidPhone/maintenance/reboot", android_phone_maintenance_reboot_handler, methods=["GET"]),
+        Route("/actions/androidPhone/maintenance/storage", android_phone_maintenance_storage_handler, methods=["GET"]),
+        Route("/actions/androidPhone/maintenance/clearCache", android_phone_maintenance_clear_cache_handler, methods=["GET"]),
+        Route("/actions/androidPhone/maintenance/battery", android_phone_maintenance_battery_handler, methods=["GET"]),
     ]
 
     return routes
