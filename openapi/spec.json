@@ -247,12 +247,21 @@
         "security": [{"ActionsApiKey": []}]
       }
     },
-    "/actions/diagnostics": {
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Quick health check",
+        "description": "Returns OK if server is running. Fast, no auth required. Use getDiagnostics for detailed subsystem status.",
+        "responses": {"200": {"description": "Health status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthResponse"}}}}},
+        "security": []
+      }
+    },
+    "/diagnostics": {
       "get": {
         "operationId": "getDiagnostics",
-        "summary": "Get API diagnostics",
-        "description": "Health check, error counts, recent endpoint stats.",
-        "responses": {"200": {"description": "Diagnostics", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiagnosticsResponse"}}}}},
+        "summary": "Comprehensive system diagnostics",
+        "description": "Detailed status of ALL subsystems: Android phone (connected?), Jorbs (active counts), Scripts (task stats), Claudia (connectivity), background services. Call this to understand full system state.",
+        "responses": {"200": {"description": "Full diagnostics", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiagnosticsResponse"}}}}},
         "security": [{"ActionsApiKey": []}]
       }
     }
@@ -470,12 +479,35 @@
           "execution": {"type": "object"}
         }
       },
-      "DiagnosticsResponse": {
+      "HealthResponse": {
         "type": "object",
         "properties": {
-          "status": {"type": "string"},
+          "status": {"type": "string", "enum": ["ok"]},
           "uptime": {"type": "string"},
-          "endpoints": {"type": "object"}
+          "build": {"type": "string"}
+        },
+        "required": ["status", "uptime"]
+      },
+      "DiagnosticsResponse": {
+        "type": "object",
+        "description": "Comprehensive system diagnostics covering all subsystems.",
+        "properties": {
+          "message": {"type": "string", "description": "Human-readable summary"},
+          "server": {"type": "object", "description": "Uptime, API call counts"},
+          "subsystems": {
+            "type": "object",
+            "description": "Status of each major subsystem",
+            "properties": {
+              "android_phone": {"type": "object", "description": "connected/disconnected, device info"},
+              "jorbs": {"type": "object", "description": "Task counts by status"},
+              "scripts": {"type": "object", "description": "Recent task execution stats"},
+              "claudia": {"type": "object", "description": "Service connectivity, repo count"},
+              "background_loop": {"type": "object", "description": "Scheduler status"}
+            }
+          },
+          "services": {"type": "object", "description": "Google, Swarm API stats"},
+          "platform": {"type": "object", "description": "CPU, memory, network"},
+          "recent_errors": {"type": "array", "items": {"type": "object"}}
         }
       }
     },

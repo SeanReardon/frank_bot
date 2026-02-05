@@ -15,7 +15,7 @@ from actions.calendar import (
     get_events_action,
 )
 from actions.contacts import search_contacts_action
-from actions.diagnostics import get_diagnostics_action
+from actions.diagnostics import get_diagnostics_action, health_action
 from actions.sms import send_sms_action
 from actions.swarm import search_checkins_action
 from actions.system import (
@@ -35,6 +35,7 @@ __all__ = [
     "search_checkins_action",
     "get_time_action",
     "get_server_status_action",
+    "health_action",
     "get_diagnostics_action",
     "get_ups_status_action",
 ]

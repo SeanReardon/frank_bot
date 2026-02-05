@@ -22,6 +22,7 @@ from actions import (
     get_server_status_action,
     get_time_action,
     get_ups_status_action,
+    health_action,
     hello_world_action,
     search_checkins_action,
     search_contacts_action,
@@ -228,6 +229,11 @@ def build_action_routes(settings: Settings) -> list[Route]:
         payload = dict(request.query_params)
         responder = _build_responder(get_server_status_action)
         return await responder(payload)
+
+    async def health_handler(request: Request):
+        stats.get_endpoint_stats("health").record_call()
+        responder = _build_responder(health_action)
+        return await responder({})
 
     async def get_diagnostics_handler(request: Request):
         await _require_api_key(request)
@@ -813,11 +819,8 @@ def build_action_routes(settings: Settings) -> list[Route]:
         ),
         Route("/actions/me/time", get_time_handler, methods=["GET"]),
         Route("/actions/server/status", get_server_status_handler, methods=["GET"]),
-        Route(
-            "/actions/server/diagnostics",
-            get_diagnostics_handler,
-            methods=["GET"],
-        ),
+        Route("/health", health_handler, methods=["GET"]),
+        Route("/diagnostics", get_diagnostics_handler, methods=["GET"]),
         Route("/actions/ups/status", get_ups_status_handler, methods=["GET"]),
         # Telegram endpoints
         Route("/actions/messages/telegram/send", telegram_send_handler, methods=["GET"]),
