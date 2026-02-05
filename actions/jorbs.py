@@ -744,7 +744,86 @@ async def brief_me_action(
     }
 
 
+async def api_learn_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Learn how to use the Jorbs system.
+
+    Call this FIRST to understand how jorbs (autonomous tasks) work.
+    Returns comprehensive documentation about creating, managing, and
+    monitoring long-running tasks that Frank executes autonomously.
+    """
+    return {
+        "overview": (
+            "Jorbs are long-running autonomous tasks Frank executes via "
+            "SMS, Telegram, or email. Frank sends messages, waits for "
+            "replies, and pauses for approval on spending or commitments."
+        ),
+        "lifecycle": {
+            "planning": "Initial state after creation",
+            "running": "Frank is actively working on the task",
+            "paused": "Waiting for approval (spending, booking, etc.)",
+            "complete": "Task finished successfully",
+            "failed": "Task encountered an unrecoverable error",
+            "cancelled": "You cancelled the task",
+        },
+        "create_jorb": {
+            "description": "Start a new autonomous task",
+            "required_params": {
+                "name": "Human-readable task name",
+                "plan": "Instructions with budget and pause rules",
+            },
+            "optional_params": {
+                "contacts": "Array of people to contact",
+                "personality": "LLM personality (default, concierge)",
+                "start_immediately": "Begin right away (default: true)",
+            },
+            "contacts_format": [
+                {"identifier": "@user", "channel": "telegram", "name": "Jo"},
+                {"identifier": "+15551234567", "channel": "sms"},
+                {"identifier": "email@example.com", "channel": "email"},
+            ],
+        },
+        "personalities": {
+            "default": "Balanced, helpful assistant",
+            "concierge": "Luxury service, formal tone",
+            "researcher": "Thorough, detail-oriented",
+            "negotiator": "Deal-focused, persistent",
+            "expeditor": "Fast, action-oriented",
+            "sean-voice": "Sean's personal communication style",
+        },
+        "auto_pause_rules": [
+            "Spending over $100 requires approval",
+            "Making reservations or bookings",
+            "Cancelling existing appointments",
+            "Sharing sensitive information",
+            "Any significant commitment",
+        ],
+        "plan_tips": [
+            "Include clear budget limits: 'budget up to $200'",
+            "Specify pause points: 'pause before booking anything'",
+            "Define success criteria: 'done when reservation confirmed'",
+            "List fallback options if first choice unavailable",
+        ],
+        "operations": {
+            "jorbCreate": "Start a new task with name, plan, contacts",
+            "jorbGet": "Get full details including messages, checkpoints",
+            "jorbsBrief": "Quick overview of all activity + pending decisions",
+            "jorbApprove": "Approve/reject a paused task's pending action",
+            "jorbCancel": "Stop a task (with optional reason)",
+        },
+        "example_plan": (
+            "Book dinner for 4 at a nice Italian restaurant in Dallas "
+            "for Saturday 7pm. Budget $50-80/person. Try Carbone first, "
+            "then Lucia, then Filament. Pause before confirming any "
+            "reservation. Text me the options you find."
+        ),
+    }
+
+
 __all__ = [
+    "api_learn_action",
     "create_jorb_action",
     "list_jorbs_action",
     "get_jorb_action",

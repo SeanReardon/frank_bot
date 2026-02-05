@@ -28,6 +28,7 @@ from actions import (
     send_sms_action,
 )
 from actions.jorbs import (
+    api_learn_action as jorbs_api_learn_action,
     approve_jorb_action,
     brief_me_action,
     cancel_jorb_action,
@@ -80,6 +81,7 @@ from actions.android_phone import (
     api_learn_action,
 )
 from actions.claudia import (
+    api_learn_action as claudia_api_learn_action,
     list_claudia_repos_action,
     create_claudia_chat_action,
     list_claudia_chats_action,
@@ -350,6 +352,11 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     # Jorb endpoints - read-only endpoints are public for web dashboard
     # Write operations (approve, cancel) require Stytch session
+    async def jorbs_api_learn_handler(request: Request):
+        stats.get_endpoint_stats("jorbsApiLearn").record_call()
+        responder = _build_responder(jorbs_api_learn_action)
+        return await responder({})
+
     async def jorbs_list_handler(request: Request):
         stats.get_endpoint_stats("jorbsList").record_call()
         payload = dict(request.query_params)
@@ -425,6 +432,12 @@ def build_action_routes(settings: Settings) -> list[Route]:
         return await responder(payload)
 
     # Claudia integration endpoints (protected by API key)
+    async def claudia_api_learn_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaApiLearn").record_call()
+        responder = _build_responder(claudia_api_learn_action)
+        return await responder({})
+
     async def claudia_repos_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("claudiaRepos").record_call()
@@ -825,6 +838,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         # SMS messages endpoint for web dashboard (no API key required)
         Route("/sms/messages", sms_messages_web_handler, methods=["GET"]),
         # Jorb endpoints
+        Route("/actions/jorbs/api/learn", jorbs_api_learn_handler, methods=["GET"]),
         Route("/actions/jorbs/list", jorbs_list_handler, methods=["GET"]),
         Route("/actions/jorbs/create", jorbs_create_handler, methods=["GET"]),
         Route("/actions/jorbs/brief", jorbs_brief_handler, methods=["GET"]),
@@ -838,6 +852,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         # System status endpoint (orchestration machinery health)
         Route("/system/status", system_status_handler, methods=["GET"]),
         # Claudia integration endpoints
+        Route("/actions/claudia/api/learn", claudia_api_learn_handler, methods=["GET"]),
         Route("/actions/claudia/repos", claudia_repos_handler, methods=["GET"]),
         Route("/actions/claudia/chat/create", claudia_chat_create_handler, methods=["GET"]),
         Route("/actions/claudia/repos/{repo_id}/chats", claudia_chats_list_handler, methods=["GET"]),

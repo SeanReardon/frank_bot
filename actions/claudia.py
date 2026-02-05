@@ -625,7 +625,72 @@ async def get_claudia_queue_action(
     }
 
 
+async def api_learn_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Learn how to use Claudia (AI coding assistant).
+
+    Call this FIRST to understand how to have coding conversations with
+    Claudia about repositories and execute prompts.
+    """
+    # Get available repos dynamically
+    try:
+        client = _get_client()
+        repos = client.list_repos()
+        repo_list = [
+            {"name": r.name, "full_name": r.full_name, "id": r.id}
+            for r in repos[:10]
+        ]
+    except Exception:
+        repo_list = []
+
+    return {
+        "overview": (
+            "Claudia is an AI coding assistant that can discuss features, "
+            "review code, and implement changes across your repositories. "
+            "Use chats for design discussions, then create prompts for "
+            "actual code changes."
+        ),
+        "workflow": [
+            "1. claudiaReposList - See available repositories",
+            "2. claudiaChatCreate - Start a conversation about a feature",
+            "3. claudiaChatMessage - Discuss and refine the approach",
+            "4. claudiaChatEnd - Finish the conversation",
+            "5. claudiaPromptExecute - Execute the resulting prompt",
+        ],
+        "chat_workflow": {
+            "create": "Start with repo_name and title, optionally message",
+            "discuss": "Send messages to refine the feature/fix",
+            "end": "Claudia generates a prompt from the conversation",
+            "queue": "Chats queue up; check position with claudiaQueueGet",
+        },
+        "prompt_workflow": {
+            "list": "See prompts created from chats",
+            "execute": "Queue a prompt for Claude to implement",
+            "status": "Check execution status and results",
+        },
+        "operations": {
+            "claudiaReposList": "List all Claudia-managed repositories",
+            "claudiaChatCreate": "Start chat (repo_name, title, message?)",
+            "claudiaChatGet": "Get chat with all messages (repo_id, chat_id)",
+            "claudiaChatMessage": "Send message (repo_id, chat_id, message)",
+            "claudiaChatEnd": "End chat, generate prompt (repo_id, chat_id)",
+            "claudiaPromptExecute": "Execute prompt (repo_id, prompt_id)",
+            "claudiaExecutionGet": "Get execution result (execution_id)",
+        },
+        "available_repos": repo_list,
+        "tips": [
+            "Start with a clear feature description in the chat title",
+            "Discuss edge cases and constraints before ending chat",
+            "Check queue position - repos process one task at a time",
+            "Executions include git diffs and cost tracking",
+        ],
+    }
+
+
 __all__ = [
+    "api_learn_action",
     "list_claudia_repos_action",
     "create_claudia_chat_action",
     "list_claudia_chats_action",

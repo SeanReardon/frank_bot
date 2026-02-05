@@ -1,51 +1,52 @@
 """
-Starlette routes for Frank Bot meta module (script execution API).
+Starlette routes for Frank Bot script API.
 
-These endpoints provide script management and execution capabilities:
-- GET /frank/meta - API documentation
-- GET /frank/scripts - List saved scripts
-- GET /frank/scripts/{id} - Get script code
-- POST /frank/execute - Execute a script
-- GET /frank/jobs - List job executions
-- GET /frank/jobs/{id} - Get job details
+Clean API structure:
+- frankScriptApiLearn - Learn FrankAPI capabilities
+- frankScript{List,Create,Get,Update,Delete} - CRUD on scripts
+- frankScriptTask{Start,Status,List,Cancel} - Async execution
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any
 
-from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
+from actions.scripts import (
+    api_learn_action,
+    script_list_action,
+    script_create_action,
+    script_get_action,
+    script_update_action,
+    script_delete_action,
+    task_start_action,
+    task_status_action,
+    task_list_action,
+    task_cancel_action,
+)
 from config import Settings
-from meta.executor import execute_new_script, execute_script_async
 from meta.introspection import generate_meta_documentation
-from meta.jobs import Job, JobStatus, get_job, job_to_summary_dict, list_jobs
-from meta.scripts import get_script, list_scripts, script_metadata_to_dict
-from server.stytch_middleware import StytchSessionValidator, _load_stytch_credentials
+from server.stytch_middleware import (
+    StytchSessionValidator,
+    _load_stytch_credentials,
+)
 
 
 def build_meta_routes(settings: Settings) -> list[Route]:
     """
-    Return a list of Starlette Routes for the meta API.
+    Return a list of Starlette Routes for the script API.
     """
 
     async def _require_auth(request: Request) -> JSONResponse | None:
-        """
-        Check authentication - accepts either API key OR Stytch session.
-        Returns error response if neither is valid, None if authenticated.
-        """
-        # Check API key first (for ChatGPT/programmatic access)
+        """Check authentication - accepts API key OR Stytch session."""
         if settings.actions_api_key:
             provided = request.headers.get("x-api-key")
             if provided == settings.actions_api_key:
-                return None  # API key valid
+                return None
 
-        # Check Stytch session (for web dashboard access)
-        # Load credentials from Vault or env vars
         project_id, secret = _load_stytch_credentials()
         if project_id and secret:
             session_token = request.cookies.get("stytch_session_token")
@@ -53,156 +54,105 @@ def build_meta_routes(settings: Settings) -> list[Route]:
                 validator = StytchSessionValidator(project_id, secret)
                 session_data = await validator.validate_session(session_token)
                 if session_data:
-                    return None  # Stytch session valid
+                    return None
 
-        # Neither auth method succeeded
         if not settings.actions_api_key and not project_id:
-            return None  # No auth configured, allow access
+            return None
 
         return JSONResponse(
-            {"detail": "Unauthorized - provide X-API-Key header or valid session"},
+            {"detail": "Unauthorized - provide X-API-Key or session"},
             status_code=401,
         )
 
-    async def _read_json_body(request: Request) -> tuple[dict[str, Any] | None, JSONResponse | None]:
-        """Read and parse JSON body from request. Returns (payload, error)."""
+    async def _build_responder(action_func, request: Request, use_body: bool = False):
+        """Build a response from an action function."""
+        auth_error = await _require_auth(request)
+        if auth_error:
+            return auth_error
+
         try:
-            body = await request.body()
+            if use_body:
+                body = await request.body()
+                payload = json.loads(body.decode()) if body else {}
+            else:
+                payload = dict(request.query_params)
+                # Add path params
+                payload.update(request.path_params)
+
+            result = await action_func(payload)
+            return JSONResponse(result)
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=400)
         except Exception as exc:
-            return None, JSONResponse({"detail": str(exc)}, status_code=400)
+            return JSONResponse({"detail": str(exc)}, status_code=500)
 
-        if not body:
-            return {}, None
-        try:
-            return json.loads(body.decode()), None
-        except json.JSONDecodeError:
-            return None, JSONResponse({"detail": "Invalid JSON payload"}, status_code=400)
+    # frankScriptApiLearn - Learn FrankAPI capabilities
+    async def api_learn_handler(request: Request):
+        return await _build_responder(api_learn_action, request)
 
-    # GET /frank/meta - Return API documentation
-    async def get_meta_handler(request: Request):
+    # frankScriptList - List all scripts
+    async def script_list_handler(request: Request):
+        return await _build_responder(script_list_action, request)
+
+    # frankScriptCreate - Create a new script (POST)
+    async def script_create_handler(request: Request):
+        action = script_create_action
+        return await _build_responder(action, request, use_body=True)
+
+    # frankScriptGet - Get script code
+    async def script_get_handler(request: Request):
+        return await _build_responder(script_get_action, request)
+
+    # frankScriptUpdate - Update script (POST)
+    async def script_update_handler(request: Request):
+        action = script_update_action
+        return await _build_responder(action, request, use_body=True)
+
+    # frankScriptDelete - Delete script
+    async def script_delete_handler(request: Request):
+        return await _build_responder(script_delete_action, request)
+
+    # frankScriptTaskStart - Start execution (POST)
+    async def task_start_handler(request: Request):
+        action = task_start_action
+        return await _build_responder(action, request, use_body=True)
+
+    # frankScriptTaskStatus - Get task status
+    async def task_status_handler(request: Request):
+        return await _build_responder(task_status_action, request)
+
+    # frankScriptTaskList - List tasks
+    async def task_list_handler(request: Request):
+        return await _build_responder(task_list_action, request)
+
+    # frankScriptTaskCancel - Cancel task
+    async def task_cancel_handler(request: Request):
+        return await _build_responder(task_cancel_action, request)
+
+    # Legacy markdown docs endpoint (for backwards compat)
+    async def meta_docs_handler(request: Request):
         auth_error = await _require_auth(request)
         if auth_error:
             return auth_error
         documentation = generate_meta_documentation()
         return PlainTextResponse(documentation, media_type="text/markdown")
 
-    # GET /frank/scripts - List all scripts
-    async def list_scripts_handler(request: Request):
-        auth_error = await _require_auth(request)
-        if auth_error:
-            return auth_error
-        scripts = list_scripts()
-        return JSONResponse({
-            "count": len(scripts),
-            "scripts": [script_metadata_to_dict(s) for s in scripts],
-        })
-
-    # GET /frank/scripts/{id} - Get a specific script's code
-    async def get_script_handler(request: Request):
-        auth_error = await _require_auth(request)
-        if auth_error:
-            return auth_error
-        script_id = request.path_params["script_id"]
-        code = get_script(script_id)
-        if code is None:
-            return JSONResponse(
-                {"detail": f"Script not found: {script_id}"},
-                status_code=404,
-            )
-        return PlainTextResponse(code, media_type="text/x-python")
-
-    # POST /frank/execute - Execute a script
-    async def execute_handler(request: Request):
-        auth_error = await _require_auth(request)
-        if auth_error:
-            return auth_error
-
-        payload, parse_error = await _read_json_body(request)
-        if parse_error:
-            return parse_error
-
-        # Either script_id (for existing) or slug+code (for new script)
-        script_id = payload.get("script_id")
-        slug = payload.get("slug")
-        code = payload.get("code")
-        params = payload.get("params", {})
-
-        if script_id:
-            # Execute existing script
-            try:
-                job = execute_script_async(
-                    script_id=script_id,
-                    params=params,
-                )
-            except ValueError as exc:
-                return JSONResponse({"detail": str(exc)}, status_code=404)
-        elif slug and code:
-            # Save and execute new script
-            job = execute_new_script(
-                slug=slug,
-                code=code,
-                params=params,
-            )
-        else:
-            return JSONResponse(
-                {"detail": "Must provide either 'script_id' or both 'slug' and 'code'"},
-                status_code=400,
-            )
-
-        return JSONResponse({
-            "job_id": job.job_id,
-            "script_id": job.script_id,
-            "status": job.status.value,
-            "started_at": job.started_at,
-        })
-
-    # GET /frank/jobs - List all jobs
-    async def list_jobs_handler(request: Request):
-        auth_error = await _require_auth(request)
-        if auth_error:
-            return auth_error
-
-        # Optional status filter
-        status_filter = request.query_params.get("status")
-
-        if status_filter:
-            try:
-                status = JobStatus(status_filter)
-                jobs = list_jobs(status=status)
-            except ValueError:
-                return JSONResponse(
-                    {"detail": f"Invalid status: {status_filter}. Valid values: pending, running, completed, failed, timeout"},
-                    status_code=400,
-                )
-        else:
-            jobs = list_jobs()
-
-        return JSONResponse({
-            "count": len(jobs),
-            "jobs": [job_to_summary_dict(j) for j in jobs],
-        })
-
-    # GET /frank/jobs/{id} - Get a specific job
-    async def get_job_handler(request: Request):
-        auth_error = await _require_auth(request)
-        if auth_error:
-            return auth_error
-        job_id = request.path_params["job_id"]
-        job = get_job(job_id)
-        if job is None:
-            return JSONResponse(
-                {"detail": f"Job not found: {job_id}"},
-                status_code=404,
-            )
-        return JSONResponse(job.to_dict())
-
+    # Build routes
+    api = "/frank/script"
+    task = f"{api}/task"
     routes = [
-        Route("/frank/meta", get_meta_handler, methods=["GET"]),
-        Route("/frank/scripts", list_scripts_handler, methods=["GET"]),
-        Route("/frank/scripts/{script_id:path}", get_script_handler, methods=["GET"]),
-        Route("/frank/execute", execute_handler, methods=["POST"]),
-        Route("/frank/jobs", list_jobs_handler, methods=["GET"]),
-        Route("/frank/jobs/{job_id:path}", get_job_handler, methods=["GET"]),
+        Route(f"{api}/api/learn", api_learn_handler, methods=["GET"]),
+        Route(f"{api}/list", script_list_handler, methods=["GET"]),
+        Route(f"{api}/create", script_create_handler, methods=["POST"]),
+        Route(f"{api}/get", script_get_handler, methods=["GET"]),
+        Route(f"{api}/update", script_update_handler, methods=["POST"]),
+        Route(f"{api}/delete", script_delete_handler, methods=["GET"]),
+        Route(f"{task}/start", task_start_handler, methods=["POST"]),
+        Route(f"{task}/status", task_status_handler, methods=["GET"]),
+        Route(f"{task}/list", task_list_handler, methods=["GET"]),
+        Route(f"{task}/cancel", task_cancel_handler, methods=["GET"]),
+        # Legacy endpoint for markdown docs
+        Route("/frank/meta", meta_docs_handler, methods=["GET"]),
     ]
 
     return routes
