@@ -211,14 +211,14 @@ export async function testTelegramConnection(): Promise<TelegramTestResponse> {
  * Get list of meta scripts.
  */
 export async function getScripts(): Promise<ScriptsResponse> {
-  return request<ScriptsResponse>('/frank/scripts');
+  return request<ScriptsResponse>('/frank/script/list');
 }
 
 /**
  * Get a script's source code by ID.
  */
 export async function getScriptCode(scriptId: string): Promise<string> {
-  const response = await fetch(`${apiBase}/frank/scripts/${encodeURIComponent(scriptId)}`, {
+  const response = await fetch(`${apiBase}/frank/script/get?id=${encodeURIComponent(scriptId)}`, {
     credentials: 'include',
   });
 
@@ -239,14 +239,14 @@ export async function getScriptCode(scriptId: string): Promise<string> {
  */
 export async function getJobs(status?: string): Promise<JobsResponse> {
   const params = status ? `?status=${encodeURIComponent(status)}` : '';
-  return request<JobsResponse>(`/frank/jobs${params}`);
+  return request<JobsResponse>(`/frank/script/task/list${params}`);
 }
 
 /**
  * Get a specific job by ID.
  */
 export async function getJob(jobId: string): Promise<Job> {
-  return request<Job>(`/frank/jobs/${encodeURIComponent(jobId)}`);
+  return request<Job>(`/frank/script/task/status?job_id=${encodeURIComponent(jobId)}`);
 }
 
 // Telegram Bot types and functions
@@ -468,7 +468,7 @@ export async function getJorbs(options: GetJorbsOptions = {}): Promise<JorbsResp
   if (options.status) params.set('status', options.status);
 
   const queryString = params.toString();
-  const path = `/jorbs${queryString ? `?${queryString}` : ''}`;
+  const path = `/actions/jorbs/list${queryString ? `?${queryString}` : ''}`;
   return request<JorbsResponse>(path);
 }
 
@@ -481,7 +481,7 @@ export async function getJorb(jorbId: string, includeMessages = false, messageLi
   if (messageLimit !== 50) params.set('message_limit', String(messageLimit));
 
   const queryString = params.toString();
-  const path = `/jorbs/${encodeURIComponent(jorbId)}${queryString ? `?${queryString}` : ''}`;
+  const path = `/actions/jorbs/${encodeURIComponent(jorbId)}/get${queryString ? `?${queryString}` : ''}`;
   return request<JorbDetailResponse>(path);
 }
 
@@ -494,7 +494,7 @@ export async function getJorbMessages(jorbId: string, options: GetJorbMessagesOp
   if (options.offset !== undefined) params.set('offset', String(options.offset));
 
   const queryString = params.toString();
-  const path = `/jorbs/${encodeURIComponent(jorbId)}/messages${queryString ? `?${queryString}` : ''}`;
+  const path = `/actions/jorbs/${encodeURIComponent(jorbId)}/messages/get${queryString ? `?${queryString}` : ''}`;
   return request<JorbMessagesResponse>(path);
 }
 
@@ -505,7 +505,7 @@ export async function approveJorb(jorbId: string, decision: string): Promise<App
   const params = new URLSearchParams();
   params.set('decision', decision);
 
-  return request<ApproveJorbResponse>(`/jorbs/${encodeURIComponent(jorbId)}/approve?${params.toString()}`);
+  return request<ApproveJorbResponse>(`/actions/jorbs/${encodeURIComponent(jorbId)}/approve?${params.toString()}`);
 }
 
 /**
@@ -516,7 +516,7 @@ export async function cancelJorb(jorbId: string, reason?: string): Promise<Cance
   if (reason) params.set('reason', reason);
 
   const queryString = params.toString();
-  const path = `/jorbs/${encodeURIComponent(jorbId)}/cancel${queryString ? `?${queryString}` : ''}`;
+  const path = `/actions/jorbs/${encodeURIComponent(jorbId)}/cancel${queryString ? `?${queryString}` : ''}`;
   return request<CancelJorbResponse>(path);
 }
 
@@ -545,7 +545,7 @@ export async function getJorbsStats(status?: 'open' | 'closed' | 'all'): Promise
   if (status) params.set('status', status);
 
   const queryString = params.toString();
-  const path = `/jorbs/stats${queryString ? `?${queryString}` : ''}`;
+  const path = `/actions/jorbs/stats${queryString ? `?${queryString}` : ''}`;
   return request<JorbsStatsResponse>(path);
 }
 
@@ -606,7 +606,7 @@ export async function getJorbsBrief(options: GetJorbsBriefOptions = {}): Promise
   if (options.update_timestamp !== undefined) params.set('update_timestamp', String(options.update_timestamp));
 
   const queryString = params.toString();
-  const path = `/jorbs/brief${queryString ? `?${queryString}` : ''}`;
+  const path = `/actions/jorbs/brief${queryString ? `?${queryString}` : ''}`;
   return request<JorbBriefResponse>(path);
 }
 
