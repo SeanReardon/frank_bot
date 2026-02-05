@@ -1608,6 +1608,117 @@
         },
         "security": [{"ActionsApiKey": []}]
       }
+    },
+    "/actions/androidPhone/getScreen": {
+      "get": {
+        "operationId": "androidPhoneGetScreen",
+        "summary": "Get Android phone screen state",
+        "description": "Captures a screenshot and parses UI elements for LLM-in-the-loop automation. Returns base64 screenshot, raw XML, and parsed clickable elements with coordinates. This is the foundation for visual phone automation.",
+        "responses": {
+          "200": {
+            "description": "Screen state captured successfully.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneScreenResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Device connection or capture failed.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/health": {
+      "get": {
+        "operationId": "androidPhoneHealth",
+        "summary": "Health check for Android phone",
+        "description": "Returns device connection status, model, Android version, battery level, and WiFi SSID. Results are cached for 30 seconds. Public endpoint - no API key required.",
+        "responses": {
+          "200": {
+            "description": "Health check result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneHealthResponse"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/actions/androidPhone/thermostat/setRange": {
+      "get": {
+        "operationId": "androidPhoneThermostatSetRange",
+        "summary": "Set thermostat temperature range",
+        "description": "Uses LLM-in-the-loop automation to navigate Google Home app and set thermostat to specified temperature range. This action consumes LLM tokens and may take 10-30 seconds. Estimated cost: $0.05-0.15 per call.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "low_temp",
+            "schema": {"type": "integer"},
+            "required": true,
+            "description": "Target low (heat) temperature in Fahrenheit. Range: 50-90°F."
+          },
+          {
+            "in": "query",
+            "name": "high_temp",
+            "schema": {"type": "integer"},
+            "required": true,
+            "description": "Target high (cool) temperature in Fahrenheit. Range: 50-90°F. Must be greater than low_temp."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Thermostat set operation result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneThermostatSetRangeResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters or operation failed.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/thermostat/getStatus": {
+      "get": {
+        "operationId": "androidPhoneThermostatGetStatus",
+        "summary": "Get thermostat status",
+        "description": "Uses LLM-in-the-loop automation to navigate Google Home app and read current thermostat status. Returns current temperature, setpoints, mode, and humidity. Estimated cost: $0.03-0.08 per call.",
+        "responses": {
+          "200": {
+            "description": "Thermostat status.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneThermostatGetStatusResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Operation failed (e.g., thermostat offline).",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
     }
   },
   "components": {
@@ -2555,6 +2666,91 @@
           }
         },
         "required": ["message", "queue"]
+      },
+      "AndroidPhoneUIElement": {
+        "type": "object",
+        "description": "A parsed UI element from the Android screen.",
+        "properties": {
+          "text": {"type": "string", "description": "Visible text of the element."},
+          "content_desc": {"type": "string", "description": "Accessibility content description."},
+          "resource_id": {"type": "string", "description": "Android resource ID (package prefix stripped)."},
+          "center_x": {"type": "integer", "description": "X coordinate of element center."},
+          "center_y": {"type": "integer", "description": "Y coordinate of element center."},
+          "bounds": {
+            "type": "object",
+            "properties": {
+              "left": {"type": "integer"},
+              "top": {"type": "integer"},
+              "right": {"type": "integer"},
+              "bottom": {"type": "integer"}
+            }
+          },
+          "clickable": {"type": "boolean"},
+          "class_name": {"type": "string", "description": "Android view class name."}
+        }
+      },
+      "AndroidPhoneScreenResponse": {
+        "type": "object",
+        "description": "Android phone screen state for LLM-in-the-loop automation.",
+        "properties": {
+          "screenshot_base64": {"type": "string", "description": "Base64-encoded PNG screenshot."},
+          "xml": {"type": "string", "description": "Raw accessibility XML from uiautomator dump."},
+          "clickable_elements": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/AndroidPhoneUIElement"},
+            "description": "Parsed UI elements with coordinates for interaction."
+          },
+          "element_count": {"type": "integer", "description": "Total number of UI elements on screen."},
+          "message": {"type": "string"}
+        },
+        "required": ["screenshot_base64", "xml", "clickable_elements", "element_count"]
+      },
+      "AndroidPhoneHealthResponse": {
+        "type": "object",
+        "description": "Android phone health check result.",
+        "properties": {
+          "connected": {"type": "boolean", "description": "Whether the device is reachable."},
+          "device_model": {"type": "string", "description": "Device model name (e.g., 'Pixel 9 Pro')."},
+          "android_version": {"type": "string", "description": "Android OS version (e.g., '15')."},
+          "battery_level": {"type": "integer", "description": "Battery percentage (0-100)."},
+          "wifi_ssid": {"type": "string", "description": "Current WiFi network name."},
+          "error": {"type": "string", "description": "Error message if device not reachable."}
+        },
+        "required": ["connected"]
+      },
+      "AndroidPhoneThermostatSetRangeResponse": {
+        "type": "object",
+        "description": "Result of thermostat set range operation.",
+        "properties": {
+          "success": {"type": "boolean", "description": "Whether the operation completed successfully."},
+          "final_low_temp": {"type": "integer", "description": "Confirmed low temperature set (°F)."},
+          "final_high_temp": {"type": "integer", "description": "Confirmed high temperature set (°F)."},
+          "mode": {"type": "string", "description": "Thermostat mode (heat, cool, heat_cool, eco, off)."},
+          "steps_taken": {"type": "integer", "description": "Number of automation steps executed."},
+          "tokens_used": {"type": "integer", "description": "Total LLM tokens consumed."},
+          "estimated_cost": {"type": "number", "description": "Estimated cost in USD."},
+          "message": {"type": "string"},
+          "error": {"type": "string", "description": "Error message if operation failed."}
+        },
+        "required": ["success", "steps_taken", "tokens_used"]
+      },
+      "AndroidPhoneThermostatGetStatusResponse": {
+        "type": "object",
+        "description": "Current thermostat status from Google Home.",
+        "properties": {
+          "success": {"type": "boolean", "description": "Whether the operation completed successfully."},
+          "current_temp": {"type": "integer", "description": "Current ambient temperature (°F)."},
+          "target_low": {"type": "integer", "description": "Heat setpoint (°F)."},
+          "target_high": {"type": "integer", "description": "Cool setpoint (°F)."},
+          "mode": {"type": "string", "description": "Current mode: heat, cool, heat_cool, eco, off."},
+          "humidity": {"type": "integer", "description": "Humidity percentage (null if not available)."},
+          "status": {"type": "string", "description": "Current status: heating, cooling, idle, off."},
+          "steps_taken": {"type": "integer", "description": "Number of automation steps executed."},
+          "tokens_used": {"type": "integer", "description": "Total LLM tokens consumed."},
+          "estimated_cost": {"type": "number", "description": "Estimated cost in USD."},
+          "error": {"type": "string", "description": "Error message if operation failed."}
+        },
+        "required": ["success", "steps_taken", "tokens_used"]
       }
     },
     "securitySchemes": {

@@ -103,6 +103,9 @@ class Settings:
     android_llm_api_key: str | None
     android_maintenance_cron: str
     android_health_check_cron: str
+    # Android phone rate limiting
+    android_rate_limit_minute: int
+    android_rate_limit_hour: int
 
 
 def _load_secrets() -> dict[str, str | None]:
@@ -321,5 +324,7 @@ def get_settings() -> Settings:
         android_llm_api_key=os.getenv("ANDROID_LLM_API_KEY"),
         android_maintenance_cron=os.getenv("ANDROID_MAINTENANCE_CRON", "0 3 1 * *"),
         android_health_check_cron=os.getenv("ANDROID_HEALTH_CHECK_CRON", "0 4 * * 0"),
+        android_rate_limit_minute=int(os.getenv("ANDROID_RATE_LIMIT_MINUTE", "10")),
+        android_rate_limit_hour=int(os.getenv("ANDROID_RATE_LIMIT_HOUR", "100")),
     )
 

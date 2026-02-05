@@ -503,3 +503,234 @@ class TestBuildUserMessage:
         assert "Submit" in message
         assert "540" in message
         assert "Cancel" in message
+
+
+class TestThermostatIntegration:
+    """Integration tests for thermostat workflow through AndroidPhoneRunner."""
+
+    @pytest.mark.asyncio
+    async def test_thermostat_set_range_executes_full_flow(self) -> None:
+        """Verifies setRange flow: screen capture -> LLM call -> action -> completion."""
+        runner = AndroidPhoneRunner(model="test", api_key="test", step_delay=0)
+
+        # Simulate a real flow with multiple steps
+        mock_screen = {
+            "screenshot_base64": "abc123",
+            "xml": "<hierarchy/>",
+            "clickable_elements": [
+                {"text": "Thermostat", "center_x": 540, "center_y": 300, "clickable": True},
+                {"text": "68°F", "center_x": 300, "center_y": 600, "clickable": True},
+            ],
+            "element_count": 2,
+        }
+
+        # LLM will: 1) tap thermostat, 2) tap low temp, 3) set value, 4) done
+        tap_thermostat = PhoneAction(action="tap", params={"x": 540, "y": 300})
+        tap_low = PhoneAction(action="tap", params={"x": 300, "y": 600})
+        swipe_adjust = PhoneAction(action="swipe", params={"direction": "up"})
+        done_action = PhoneAction(
+            action="done",
+            params={"final_low_temp": 68, "final_high_temp": 72},
+            done=True,
+        )
+
+        llm_responses = [
+            (tap_thermostat, 200, 50),
+            (tap_low, 200, 50),
+            (swipe_adjust, 200, 50),
+            (done_action, 200, 100),
+        ]
+        call_idx = [0]
+
+        async def mock_call_llm(*args, **kwargs):
+            result = llm_responses[call_idx[0]]
+            call_idx[0] += 1
+            return result
+
+        with patch.object(runner, "_capture_screen_state", return_value=mock_screen):
+            with patch.object(runner, "_call_llm", side_effect=mock_call_llm):
+                with patch.object(runner, "_execute_action", return_value=(True, None)):
+                    result = await runner.run_task(
+                        "thermostat-setRange",
+                        parameters={"low_temp": 68, "high_temp": 72},
+                        max_steps=20,
+                    )
+
+        assert result.success is True
+        assert result.steps_taken == 4
+        # Total tokens = (200+50)*4 + extra 50 for done action output = 1050
+        # Each step: 200 input + 50 output = 250 * 4 = 1000, plus done action has extra 50 = 1050
+        assert result.total_tokens_used == 1050
+        assert result.extracted_data["final_low_temp"] == 68
+        assert result.extracted_data["final_high_temp"] == 72
+
+    @pytest.mark.asyncio
+    async def test_thermostat_get_status_extracts_all_fields(self) -> None:
+        """Verifies getStatus flow extracts all thermostat status fields."""
+        runner = AndroidPhoneRunner(model="test", api_key="test", step_delay=0)
+
+        mock_screen = {
+            "screenshot_base64": "abc123",
+            "xml": "<hierarchy/>",
+            "clickable_elements": [
+                {"text": "72°F", "center_x": 540, "center_y": 400, "clickable": False},
+                {"text": "Heat & Cool", "center_x": 540, "center_y": 500, "clickable": True},
+            ],
+            "element_count": 2,
+        }
+
+        # Two steps: navigate to thermostat, then read status
+        tap_thermostat = PhoneAction(action="tap", params={"x": 540, "y": 200})
+        done_action = PhoneAction(
+            action="done",
+            params={
+                "current_temp": 72,
+                "target_low": 68,
+                "target_high": 74,
+                "mode": "heat_cool",
+                "humidity": 45,
+                "status": "idle",
+            },
+            done=True,
+        )
+
+        llm_responses = [
+            (tap_thermostat, 300, 100),
+            (done_action, 300, 150),
+        ]
+        call_idx = [0]
+
+        async def mock_call_llm(*args, **kwargs):
+            result = llm_responses[call_idx[0]]
+            call_idx[0] += 1
+            return result
+
+        with patch.object(runner, "_capture_screen_state", return_value=mock_screen):
+            with patch.object(runner, "_call_llm", side_effect=mock_call_llm):
+                with patch.object(runner, "_execute_action", return_value=(True, None)):
+                    result = await runner.run_task(
+                        "thermostat-getStatus",
+                        parameters={},
+                        max_steps=15,
+                    )
+
+        assert result.success is True
+        assert result.steps_taken == 2
+        assert result.extracted_data["current_temp"] == 72
+        assert result.extracted_data["target_low"] == 68
+        assert result.extracted_data["target_high"] == 74
+        assert result.extracted_data["mode"] == "heat_cool"
+        assert result.extracted_data["humidity"] == 45
+        assert result.extracted_data["status"] == "idle"
+
+    @pytest.mark.asyncio
+    async def test_llm_loop_respects_max_steps(self) -> None:
+        """Verifies runner stops at max_steps and reports failure."""
+        runner = AndroidPhoneRunner(model="test", api_key="test", step_delay=0)
+
+        mock_screen = {
+            "screenshot_base64": "abc123",
+            "xml": "<hierarchy/>",
+            "clickable_elements": [],
+            "element_count": 0,
+        }
+
+        # LLM keeps tapping forever (never returns done)
+        tap_action = PhoneAction(action="tap", params={"x": 100, "y": 100})
+
+        with patch.object(runner, "_capture_screen_state", return_value=mock_screen):
+            with patch.object(runner, "_call_llm", return_value=(tap_action, 100, 50)):
+                with patch.object(runner, "_execute_action", return_value=(True, None)):
+                    result = await runner.run_task(
+                        "thermostat-setRange",
+                        parameters={"low_temp": 68, "high_temp": 72},
+                        max_steps=5,
+                    )
+
+        assert result.success is False
+        assert result.steps_taken == 5
+        assert "5 steps" in result.error
+
+    @pytest.mark.asyncio
+    async def test_error_handling_when_device_disconnected_mid_task(self) -> None:
+        """Verifies runner records device disconnection errors in step results."""
+        runner = AndroidPhoneRunner(model="test", api_key="test", step_delay=0)
+
+        mock_screen = {
+            "screenshot_base64": "abc123",
+            "xml": "<hierarchy/>",
+            "clickable_elements": [],
+            "element_count": 0,
+        }
+
+        tap_action = PhoneAction(action="tap", params={"x": 100, "y": 100})
+
+        # First action succeeds, rest fail due to disconnection
+        execute_responses = [(True, None), (False, "device offline: no devices found")]
+        exec_idx = [0]
+
+        async def mock_execute(*args, **kwargs):
+            result = execute_responses[min(exec_idx[0], len(execute_responses) - 1)]
+            exec_idx[0] += 1
+            return result
+
+        with patch.object(runner, "_capture_screen_state", return_value=mock_screen):
+            with patch.object(runner, "_call_llm", return_value=(tap_action, 100, 50)):
+                with patch.object(runner, "_execute_action", side_effect=mock_execute):
+                    result = await runner.run_task(
+                        "thermostat-setRange",
+                        parameters={"low_temp": 68, "high_temp": 72},
+                        max_steps=10,
+                    )
+
+        # Runner doesn't abort on action failure - it keeps trying and records errors
+        assert result.success is False
+        # Verify that step errors were recorded
+        failed_steps = [s for s in result.steps if s.error is not None]
+        assert len(failed_steps) > 0
+        # At least one step should have the device offline error
+        assert any("device offline" in s.error.lower() for s in failed_steps)
+
+    @pytest.mark.asyncio
+    async def test_token_tracking_accumulates_correctly_across_steps(self) -> None:
+        """Verifies token usage accumulates correctly across multiple steps."""
+        runner = AndroidPhoneRunner(model="test", api_key="test", step_delay=0)
+
+        mock_screen = {
+            "screenshot_base64": "abc123",
+            "xml": "<hierarchy/>",
+            "clickable_elements": [],
+            "element_count": 0,
+        }
+
+        # Three steps with specific token counts
+        step1 = PhoneAction(action="tap", params={"x": 100, "y": 100})
+        step2 = PhoneAction(action="swipe", params={"direction": "up"})
+        step3 = PhoneAction(action="done", params={}, done=True)
+
+        # Input/output tokens: (500, 100), (600, 150), (700, 200)
+        llm_responses = [
+            (step1, 500, 100),
+            (step2, 600, 150),
+            (step3, 700, 200),
+        ]
+        call_idx = [0]
+
+        async def mock_call_llm(*args, **kwargs):
+            result = llm_responses[call_idx[0]]
+            call_idx[0] += 1
+            return result
+
+        with patch.object(runner, "_capture_screen_state", return_value=mock_screen):
+            with patch.object(runner, "_call_llm", side_effect=mock_call_llm):
+                with patch.object(runner, "_execute_action", return_value=(True, None)):
+                    result = await runner.run_task("test task", max_steps=10)
+
+        # Total tokens = 500+100 + 600+150 + 700+200 = 2250
+        assert result.total_tokens_used == 2250
+        assert result.steps_taken == 3
+
+        # Cost calculation: (1800 input @ $0.005/1K) + (450 output @ $0.015/1K)
+        # = $0.009 + $0.00675 = $0.01575
+        expected_cost = (1800 * 0.005 / 1000) + (450 * 0.015 / 1000)
+        assert abs(result.total_cost - expected_cost) < 0.0001

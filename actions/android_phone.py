@@ -771,6 +771,48 @@ async def thermostat_get_status_action(
     }
 
 
+async def android_phone_audit_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Get recent Android phone audit log entries.
+
+    Returns the most recent actions logged, optionally filtered by action type.
+
+    Args:
+        limit: Maximum number of entries to return (default 100, max 500)
+        action: Optional filter by action name
+
+    Returns:
+        entries: List of audit log entries (most recent first)
+        stats: Aggregate statistics about actions
+    """
+    from services.android_audit import get_android_audit_logger
+
+    args = arguments or {}
+
+    limit = int(args.get("limit", 100))
+    # Cap at 500 to prevent huge responses
+    limit = min(limit, 500)
+
+    action_filter = args.get("action")
+
+    audit_logger = get_android_audit_logger()
+
+    entries = audit_logger.get_recent_entries(
+        limit=limit,
+        action_filter=action_filter,
+    )
+
+    stats = audit_logger.get_stats()
+
+    return {
+        "entries": entries,
+        "count": len(entries),
+        "stats": stats,
+    }
+
+
 __all__ = [
     "get_screen_action",
     "android_phone_health_action",
@@ -786,4 +828,5 @@ __all__ = [
     "android_phone_find_and_tap_action",
     "thermostat_set_range_action",
     "thermostat_get_status_action",
+    "android_phone_audit_action",
 ]

@@ -1629,3 +1629,90 @@ Implemented the thermostat set range action with input validation, app launch, a
 - Extracted data from LLM "done" action provides final confirmed values
 
 ---
+
+## 2026-02-05: frank_bot-00097 - Implement androidPhone_thermostat_getStatus action
+
+### Summary
+Verified the existing thermostat_get_status_action implementation and added comprehensive integration tests. The action reads thermostat status via LLM-in-the-loop automation through Google Home app, extracting current_temp, target_low, target_high, mode, humidity, and status.
+
+### Files Changed
+- tests/test_android_phone_actions.py (added TestThermostatGetStatusAction class with 6 tests)
+
+### Learnings
+- Action was already implemented in prior task, only needed test coverage
+- Status reading uses fewer max_steps (15) than setting (20) since it's simpler
+- Humidity may be null if not displayed by thermostat
+- Thermostat offline case handled via LLM error response
+
+---
+
+## 2026-02-05: frank_bot-00106 - Write integration tests for Android phone thermostat flow
+
+### Summary
+Created comprehensive integration tests covering the full thermostat workflow including setRange, getStatus, LLM loop behavior, max_steps enforcement, device disconnection handling, and token tracking across steps.
+
+### Files Changed
+- tests/test_android_phone_actions.py (added thermostat action tests)
+- tests/test_android_phone_runner.py (added TestThermostatIntegration class with 5 tests)
+
+### Learnings
+- Token tracking accumulates across all steps (input + output per step)
+- Runner continues trying after action failures but records errors in steps
+- Long-running tasks may hit max_steps without completing if UI navigation is complex
+- Mock responses must match actual RunResult structure with steps list
+
+---
+
+## 2026-02-05: frank_bot-00104 - Update OpenAPI spec with Android phone endpoints
+
+### Summary
+Added complete OpenAPI documentation for Android phone endpoints including getScreen, health, thermostat/setRange, and thermostat/getStatus. Includes detailed response schemas and endpoint descriptions explaining LLM-in-the-loop nature and costs.
+
+### Files Changed
+- openapi/spec.json (added 4 paths and 5 schemas for Android phone)
+
+### Learnings
+- Health endpoint is public (no API key) for monitoring compatibility
+- Response schemas should reflect actual return types including nullable fields
+- Descriptions should mention token costs to set user expectations
+- Long-running endpoints should note expected duration
+
+---
+
+## 2026-02-05: frank_bot-00107 - Add rate limiting for Android phone actions
+
+### Summary
+Implemented token bucket rate limiting for Android phone endpoints with configurable per-minute (10) and per-hour (100) limits. Long-running thermostat tasks are exempt from per-minute limit but still count toward hourly. Returns 429 with Retry-After header when exceeded.
+
+### Files Changed
+- config.py (added android_rate_limit_minute, android_rate_limit_hour)
+- services/rate_limiter.py (new - RateLimiter with token bucket algorithm)
+- server/routes.py (added _check_android_rate_limit helper, applied to all androidPhone routes)
+- tests/test_rate_limiter.py (new - 15 unit tests)
+
+### Learnings
+- Token bucket allows burst while enforcing sustained rate
+- Per-API-key tracking enables fair usage across clients
+- Long-running tasks need exemption from short-term limits but not hourly caps
+- HTTPException headers dict for Retry-After header
+
+---
+
+## 2026-02-05: frank_bot-00108 - Add audit logging for Android phone actions
+
+### Summary
+Implemented JSON lines audit logging for Android phone actions with daily rotation (30-day retention). Logs include timestamp, action, parameters (sanitized), result, tokens_used, and duration_ms. Added GET /actions/androidPhone/audit endpoint for retrieving recent entries.
+
+### Files Changed
+- services/android_audit.py (new - AndroidAuditLogger with TimedRotatingFileHandler)
+- actions/android_phone.py (added android_phone_audit_action)
+- server/routes.py (added audit endpoint route)
+- tests/test_android_audit.py (new - 16 unit tests)
+
+### Learnings
+- TimedRotatingFileHandler with midnight rotation and backupCount provides daily files
+- Screenshot base64 data logged as byte count only, not content
+- API keys truncated to 8 chars + "..." for security
+- JSON lines format enables easy grep/jq processing
+
+---

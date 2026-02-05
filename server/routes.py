@@ -66,6 +66,7 @@ from actions.android_phone import (
     android_phone_find_and_tap_action,
     thermostat_set_range_action,
     thermostat_get_status_action,
+    android_phone_audit_action,
 )
 from actions.claudia import (
     list_claudia_repos_action,
@@ -86,6 +87,7 @@ from server.sms_webhook import sms_webhook_handler
 from server.stytch_middleware import require_stytch_session
 from config import Settings
 from services.stats import stats
+from services.rate_limiter import get_android_rate_limiter
 
 HandlerFn = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -116,6 +118,36 @@ def build_action_routes(settings: Settings) -> list[Route]:
             raise HTTPException(
                 status_code=401,
                 detail="Missing or invalid X-API-Key header",
+            )
+
+    async def _check_android_rate_limit(
+        request: Request,
+        is_long_running: bool = False,
+    ) -> None:
+        """
+        Check rate limit for Android phone endpoints.
+
+        Raises HTTPException 429 if rate limit exceeded.
+        """
+        api_key = request.headers.get("x-api-key")
+        rate_limiter = get_android_rate_limiter()
+
+        allowed, info = rate_limiter.check_rate_limit(
+            api_key=api_key,
+            is_long_running=is_long_running,
+        )
+
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "Rate limit exceeded",
+                    "limit_type": info.get("limit_type", "unknown"),
+                    "retry_after": info["retry_after"],
+                    "minute_remaining": info["minute_remaining"],
+                    "hour_remaining": info["hour_remaining"],
+                },
+                headers={"Retry-After": str(info["retry_after"])},
             )
 
     async def _read_body(request: Request) -> dict[str, Any]:
@@ -504,8 +536,10 @@ def build_action_routes(settings: Settings) -> list[Route]:
         return await responder(payload)
 
     # Android phone control endpoints (new naming convention: androidPhone)
+    # All androidPhone endpoints are rate-limited
     async def android_phone_get_screen_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidPhoneGetScreen").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(get_screen_action)
@@ -520,6 +554,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_status_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidStatus").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(android_phone_status_action)
@@ -527,6 +562,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_screen_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidScreen").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(android_phone_screen_action)
@@ -534,6 +570,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_tap_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidTap").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(android_phone_tap_action)
@@ -541,6 +578,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_type_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidType").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(android_phone_type_action)
@@ -548,6 +586,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_swipe_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidSwipe").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(android_phone_swipe_action)
@@ -555,6 +594,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_key_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidKey").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(android_phone_key_action)
@@ -562,6 +602,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_launch_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidLaunch").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(android_phone_launch_action)
@@ -569,6 +610,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_wake_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidWake").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(android_phone_wake_action)
@@ -576,6 +618,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_screenshot_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidScreenshot").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(android_phone_screenshot_action)
@@ -583,14 +626,17 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_find_tap_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request)
         stats.get_endpoint_stats("androidFindTap").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(android_phone_find_and_tap_action)
         return await responder(payload)
 
     # Android phone thermostat control (LLM-in-the-loop)
+    # Long-running tasks: exempt from per-minute limit, still count toward hourly
     async def android_phone_thermostat_set_range_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request, is_long_running=True)
         stats.get_endpoint_stats("androidPhoneThermostatSetRange").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(thermostat_set_range_action)
@@ -598,9 +644,18 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def android_phone_thermostat_get_status_handler(request: Request):
         await _require_api_key(request)
+        await _check_android_rate_limit(request, is_long_running=True)
         stats.get_endpoint_stats("androidPhoneThermostatGetStatus").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(thermostat_get_status_action)
+        return await responder(payload)
+
+    # Android phone audit endpoint (protected by API key)
+    async def android_phone_audit_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidPhoneAudit").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_phone_audit_action)
         return await responder(payload)
 
     routes = [
@@ -711,6 +766,8 @@ def build_action_routes(settings: Settings) -> list[Route]:
         # Android phone thermostat control
         Route("/actions/androidPhone/thermostat/setRange", android_phone_thermostat_set_range_handler, methods=["GET"]),
         Route("/actions/androidPhone/thermostat/getStatus", android_phone_thermostat_get_status_handler, methods=["GET"]),
+        # Android phone audit endpoint
+        Route("/actions/androidPhone/audit", android_phone_audit_handler, methods=["GET"]),
     ]
 
     return routes

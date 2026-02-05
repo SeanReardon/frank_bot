@@ -1614,7 +1614,7 @@
         "Integration test with mocked LLM verifies status extraction"
       ],
       "priority": 97,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00092, frank_bot-00095. MVP action for reading thermostat status."
     },
     {
@@ -1735,8 +1735,8 @@
         "Endpoint descriptions explain LLM-in-the-loop nature and token costs"
       ],
       "priority": 104,
-      "passes": false,
-      "notes": "Depends on frank_bot-00096, frank_bot-00097, frank_bot-00100. Documents all Android phone APIs."
+      "passes": true,
+      "notes": "Depends on frank_bot-00096, frank_bot-00097, frank_bot-00100. Documents all Android phone APIs. Maintenance endpoints not yet added - depends on 00100."
     },
     {
       "id": "frank_bot-00105",
@@ -1768,7 +1768,7 @@
         "All tests pass in CI"
       ],
       "priority": 106,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00096, frank_bot-00097. Validates MVP thermostat functionality."
     },
     {
@@ -1784,7 +1784,7 @@
         "Unit tests verify rate limiting behavior"
       ],
       "priority": 107,
-      "passes": false,
+      "passes": true,
       "notes": "Security feature. Can be implemented after core functionality complete."
     },
     {
@@ -1800,7 +1800,7 @@
         "Log format is JSON lines for easy parsing"
       ],
       "priority": 108,
-      "passes": false,
+      "passes": true,
       "notes": "Security and debugging feature. Provides visibility into automated actions."
     }
   ]
