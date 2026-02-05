@@ -13,6 +13,7 @@ from functools import lru_cache
 
 from services.vault_client import (
     vault_enabled,
+    get_claudia_credentials,
     get_google_credentials,
     get_openai_credentials,
     get_stytch_credentials,
@@ -92,6 +93,9 @@ class Settings:
     smtp_password: str | None
     digest_email_to: str | None
     digest_time: str
+    # Claudia integration settings
+    claudia_api_url: str | None
+    claudia_api_key: str | None
 
 
 def _load_secrets() -> dict[str, str | None]:
@@ -115,6 +119,8 @@ def _load_secrets() -> dict[str, str | None]:
         "telnyx_api_key": None,
         "telnyx_phone_number": None,
         "openai_api_key": None,
+        "claudia_api_url": None,
+        "claudia_api_key": None,
     }
 
     if vault_enabled():
@@ -161,6 +167,12 @@ def _load_secrets() -> dict[str, str | None]:
         openai_creds = get_openai_credentials()
         if openai_creds:
             secrets["openai_api_key"] = openai_creds.get("api_key")
+
+        # Claudia credentials
+        claudia_creds = get_claudia_credentials()
+        if claudia_creds:
+            secrets["claudia_api_url"] = claudia_creds.get("api_url")
+            secrets["claudia_api_key"] = claudia_creds.get("api_key")
     else:
         logger.info("Vault not configured, using environment variables")
 
@@ -193,6 +205,10 @@ def _load_secrets() -> dict[str, str | None]:
         secrets["telnyx_phone_number"] = os.getenv("TELNYX_PHONE_NUMBER")
     if not secrets["openai_api_key"]:
         secrets["openai_api_key"] = os.getenv("OPENAI_API_KEY")
+    if not secrets["claudia_api_url"]:
+        secrets["claudia_api_url"] = os.getenv("CLAUDIA_API_URL")
+    if not secrets["claudia_api_key"]:
+        secrets["claudia_api_key"] = os.getenv("CLAUDIA_API_KEY")
 
     return secrets
 
@@ -288,5 +304,8 @@ def get_settings() -> Settings:
         smtp_password=os.getenv("SMTP_PASSWORD"),
         digest_email_to=os.getenv("DIGEST_EMAIL_TO"),
         digest_time=os.getenv("DIGEST_TIME", "08:00"),
+        # Claudia integration
+        claudia_api_url=secrets["claudia_api_url"],
+        claudia_api_key=secrets["claudia_api_key"],
     )
 

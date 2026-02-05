@@ -25,3 +25,7 @@ foursquare_api_key = "fsq3..."
 
 # OpenAI API key (for gpt-5.2 agent reasoning in jorbs)
 openai_api_key = "sk-..."
+
+# Claudia API credentials (autonomous agent orchestrator)
+claudia_api_url = "https://claudia.contrived.com"
+claudia_api_key = "..."

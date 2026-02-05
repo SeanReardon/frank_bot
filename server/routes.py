@@ -51,6 +51,33 @@ from actions.telegram import (
 from actions.telegram_bot import get_telegram_bot_status, test_telegram_bot
 from actions.style_capture import generate_sean_md_action
 from actions.system_status import get_system_status_action
+from actions.android import (
+    android_status_action,
+    android_screen_action,
+    android_tap_action,
+    android_type_action,
+    android_swipe_action,
+    android_key_action,
+    android_launch_app_action,
+    android_wake_action,
+    android_screenshot_action,
+    android_find_and_tap_action,
+)
+from actions.claudia import (
+    list_claudia_repos_action,
+    create_claudia_chat_action,
+    list_claudia_chats_action,
+    get_claudia_chat_action,
+    send_claudia_message_action,
+    end_claudia_chat_action,
+    list_claudia_prompts_action,
+    get_claudia_prompt_action,
+    create_claudia_prompt_action,
+    execute_claudia_prompt_action,
+    list_claudia_executions_action,
+    get_claudia_execution_action,
+    get_claudia_queue_action,
+)
 from server.sms_webhook import sms_webhook_handler
 from server.stytch_middleware import require_stytch_session
 from config import Settings
@@ -350,6 +377,199 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(get_system_status_action)
         return await responder(payload)
 
+    # Claudia integration endpoints (protected by API key)
+    async def claudia_repos_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaRepos").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(list_claudia_repos_action)
+        return await responder(payload)
+
+    async def claudia_chat_create_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaChatCreate").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(create_claudia_chat_action)
+        return await responder(payload)
+
+    async def claudia_chats_list_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaChatsList").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        responder = _build_responder(list_claudia_chats_action)
+        return await responder(payload)
+
+    async def claudia_chat_get_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaChatGet").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        chat_id = request.path_params.get("chat_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        payload["chat_id"] = chat_id
+        responder = _build_responder(get_claudia_chat_action)
+        return await responder(payload)
+
+    async def claudia_chat_message_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaChatMessage").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        chat_id = request.path_params.get("chat_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        payload["chat_id"] = chat_id
+        responder = _build_responder(send_claudia_message_action)
+        return await responder(payload)
+
+    async def claudia_chat_end_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaChatEnd").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        chat_id = request.path_params.get("chat_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        payload["chat_id"] = chat_id
+        responder = _build_responder(end_claudia_chat_action)
+        return await responder(payload)
+
+    async def claudia_prompts_list_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaPromptsList").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        responder = _build_responder(list_claudia_prompts_action)
+        return await responder(payload)
+
+    async def claudia_prompt_get_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaPromptGet").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        prompt_id = request.path_params.get("prompt_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        payload["prompt_id"] = prompt_id
+        responder = _build_responder(get_claudia_prompt_action)
+        return await responder(payload)
+
+    async def claudia_prompt_create_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaPromptCreate").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        responder = _build_responder(create_claudia_prompt_action)
+        return await responder(payload)
+
+    async def claudia_prompt_execute_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaPromptExecute").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        prompt_id = request.path_params.get("prompt_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        payload["prompt_id"] = prompt_id
+        responder = _build_responder(execute_claudia_prompt_action)
+        return await responder(payload)
+
+    async def claudia_executions_list_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaExecutionsList").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(list_claudia_executions_action)
+        return await responder(payload)
+
+    async def claudia_execution_get_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaExecutionGet").record_call()
+        execution_id = request.path_params.get("execution_id", "")
+        payload = dict(request.query_params)
+        payload["execution_id"] = execution_id
+        responder = _build_responder(get_claudia_execution_action)
+        return await responder(payload)
+
+    async def claudia_queue_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaQueue").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        responder = _build_responder(get_claudia_queue_action)
+        return await responder(payload)
+
+    # Android device control endpoints
+    async def android_status_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidStatus").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_status_action)
+        return await responder(payload)
+
+    async def android_screen_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidScreen").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_screen_action)
+        return await responder(payload)
+
+    async def android_tap_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidTap").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_tap_action)
+        return await responder(payload)
+
+    async def android_type_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidType").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_type_action)
+        return await responder(payload)
+
+    async def android_swipe_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidSwipe").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_swipe_action)
+        return await responder(payload)
+
+    async def android_key_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidKey").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_key_action)
+        return await responder(payload)
+
+    async def android_launch_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidLaunch").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_launch_app_action)
+        return await responder(payload)
+
+    async def android_wake_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidWake").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_wake_action)
+        return await responder(payload)
+
+    async def android_screenshot_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidScreenshot").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_screenshot_action)
+        return await responder(payload)
+
+    async def android_find_tap_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidFindTap").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_find_and_tap_action)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -427,6 +647,31 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/style/generate", style_generate_handler, methods=["GET"]),
         # System status endpoint (orchestration machinery health)
         Route("/system/status", system_status_handler, methods=["GET"]),
+        # Claudia integration endpoints
+        Route("/actions/claudia/repos", claudia_repos_handler, methods=["GET"]),
+        Route("/actions/claudia/chat/create", claudia_chat_create_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/chats", claudia_chats_list_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/chats/{chat_id}", claudia_chat_get_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/chats/{chat_id}/message", claudia_chat_message_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/chats/{chat_id}/end", claudia_chat_end_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/prompts", claudia_prompts_list_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/prompts/create", claudia_prompt_create_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/prompts/{prompt_id}", claudia_prompt_get_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/prompts/{prompt_id}/execute", claudia_prompt_execute_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/queue", claudia_queue_handler, methods=["GET"]),
+        Route("/actions/claudia/executions", claudia_executions_list_handler, methods=["GET"]),
+        Route("/actions/claudia/executions/{execution_id}", claudia_execution_get_handler, methods=["GET"]),
+        # Android device control endpoints
+        Route("/actions/android/status", android_status_handler, methods=["GET"]),
+        Route("/actions/android/screen", android_screen_handler, methods=["GET"]),
+        Route("/actions/android/tap", android_tap_handler, methods=["GET"]),
+        Route("/actions/android/type", android_type_handler, methods=["GET"]),
+        Route("/actions/android/swipe", android_swipe_handler, methods=["GET"]),
+        Route("/actions/android/key", android_key_handler, methods=["GET"]),
+        Route("/actions/android/launch", android_launch_handler, methods=["GET"]),
+        Route("/actions/android/wake", android_wake_handler, methods=["GET"]),
+        Route("/actions/android/screenshot", android_screenshot_handler, methods=["GET"]),
+        Route("/actions/android/find-tap", android_find_tap_handler, methods=["GET"]),
     ]
 
     return routes

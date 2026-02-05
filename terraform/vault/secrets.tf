@@ -99,3 +99,17 @@ resource "vault_kv_secret_v2" "openai" {
     ignore_changes = [data_json]
   }
 }
+
+# Claudia API credentials (autonomous agent orchestrator)
+resource "vault_kv_secret_v2" "claudia" {
+  mount = "secret"
+  name  = "frank-bot/claudia"
+  data_json = jsonencode({
+    api_url = var.claudia_api_url
+    api_key = var.claudia_api_key
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}

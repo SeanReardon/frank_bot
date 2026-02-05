@@ -94,3 +94,17 @@ variable "openai_api_key" {
   description = "OpenAI API key for gpt-5.2 agent reasoning"
   sensitive   = true
 }
+
+# Claudia (autonomous agent orchestrator)
+variable "claudia_api_url" {
+  type        = string
+  description = "Claudia API base URL"
+  default     = "https://claudia.contrived.com"
+}
+
+variable "claudia_api_key" {
+  type        = string
+  description = "Claudia API key for authentication"
+  sensitive   = true
+  default     = ""
+}
