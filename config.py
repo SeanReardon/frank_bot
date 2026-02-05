@@ -96,6 +96,13 @@ class Settings:
     # Claudia integration settings
     claudia_api_url: str | None
     claudia_api_key: str | None
+    # Android phone settings
+    android_adb_host: str
+    android_adb_port: int
+    android_llm_model: str
+    android_llm_api_key: str | None
+    android_maintenance_cron: str
+    android_health_check_cron: str
 
 
 def _load_secrets() -> dict[str, str | None]:
@@ -307,5 +314,12 @@ def get_settings() -> Settings:
         # Claudia integration
         claudia_api_url=secrets["claudia_api_url"],
         claudia_api_key=secrets["claudia_api_key"],
+        # Android phone settings
+        android_adb_host=os.getenv("ANDROID_ADB_HOST", "10.0.0.95"),
+        android_adb_port=int(os.getenv("ANDROID_ADB_PORT", "5555")),
+        android_llm_model=os.getenv("ANDROID_LLM_MODEL", "gpt-4o"),
+        android_llm_api_key=os.getenv("ANDROID_LLM_API_KEY"),
+        android_maintenance_cron=os.getenv("ANDROID_MAINTENANCE_CRON", "0 3 1 * *"),
+        android_health_check_cron=os.getenv("ANDROID_HEALTH_CHECK_CRON", "0 4 * * 0"),
     )
 

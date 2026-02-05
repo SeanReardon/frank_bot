@@ -261,6 +261,61 @@ Jorbs are long-lived autonomous tasks that Frank Bot can execute on your behalf.
 - `GET /jorbs/{id}/cancel` - Cancel a jorb
 - `GET /jorbs/brief` - Get activity briefing
 
+### Android Phone Automation
+
+Frank Bot can control an Android phone via ADB over the network, enabling LLM-in-the-loop automation for apps like Google Home (thermostat control), Uber, DoorDash, and more.
+
+**Device Requirements:**
+- Android 10+ with wireless ADB debugging enabled
+- Connected to the same network as Frank Bot
+- ADB authorized for your computer/server
+
+**Setup steps:**
+
+1. **Enable wireless debugging** on your Android device:
+   - Go to Settings → Developer Options → Wireless debugging
+   - Note the IP address and port shown
+   - Pair your computer using `adb pair <ip>:<pairing-port>`
+
+2. **Set environment variables** in your `.env` file:
+   ```
+   ANDROID_ADB_HOST=10.0.0.95    # Your device's IP address
+   ANDROID_ADB_PORT=5555         # ADB port (usually 5555)
+   ```
+
+3. **For LLM-in-the-loop automation**, also configure:
+   ```
+   ANDROID_LLM_MODEL=gpt-4o      # Vision-capable model
+   ANDROID_LLM_API_KEY=sk-...    # Optional, uses OPENAI_API_KEY if not set
+   ```
+
+**Environment variables:**
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ANDROID_ADB_HOST` | `10.0.0.95` | Android device IP address |
+| `ANDROID_ADB_PORT` | `5555` | ADB TCP port |
+| `ANDROID_LLM_MODEL` | `gpt-4o` | Vision-capable LLM for automation |
+| `ANDROID_LLM_API_KEY` | _unset_ | API key for LLM (falls back to OPENAI_API_KEY) |
+| `ANDROID_MAINTENANCE_CRON` | `0 3 1 * *` | Monthly maintenance schedule |
+| `ANDROID_HEALTH_CHECK_CRON` | `0 4 * * 0` | Weekly health check schedule |
+
+**Available endpoints:**
+- `GET /actions/androidPhone/getScreen` - Capture screen state (screenshot + UI XML)
+- `GET /actions/androidPhone/health` - Device health check (no API key required)
+- `GET /actions/android/status` - Connection status
+- `GET /actions/android/tap?x=540&y=1200` - Tap at coordinates
+- `GET /actions/android/swipe?direction=up` - Swipe gesture
+- `GET /actions/android/type?text=hello` - Type text
+- `GET /actions/android/launch?app=chrome` - Launch app
+- `GET /actions/android/key?key=home` - Press key (home, back, etc.)
+
+**Supported apps** (common names mapped to packages):
+chrome, settings, maps, youtube, uber, lyft, doordash, ubereats, grubhub, instacart, whatsapp, instagram, telegram, venmo, cashapp, and more.
+
+**Cost considerations:**
+LLM-in-the-loop operations (like thermostat control) use vision-capable models which consume more tokens. Each screen capture + decision typically costs $0.01-0.05 depending on the model. Complex tasks may require multiple steps.
+
 ## Maintaining the OpenAPI document
 
 The canonical specification lives at `openapi/spec.json`. Update that file whenever you change the HTTP surface, then restart the server (or redeploy) so the new document is served at `/actions/openapi.json`. A quick workflow:

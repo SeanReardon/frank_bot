@@ -455,16 +455,70 @@ class AndroidClient:
     async def unlock_device(self) -> ADBResult:
         """
         Attempt to unlock the device (swipe up).
-        
+
         Note: This won't bypass PIN/pattern/password - device must have
         no lock screen or be set to swipe-only.
-        
+
         Returns:
             ADBResult indicating success
         """
         await self.wake_device()
         # Swipe up to dismiss lock screen
         return await self.swipe("up", duration_ms=200)
+
+    async def get_battery_level(self) -> int | None:
+        """
+        Get the current battery level.
+
+        Returns:
+            Battery level as percentage (0-100) or None if unavailable
+        """
+        result = await self._run_adb("shell", "dumpsys", "battery")
+        if not result.success:
+            return None
+
+        # Parse "level: XX" from output
+        for line in result.output.splitlines():
+            line = line.strip()
+            if line.startswith("level:"):
+                try:
+                    return int(line.split(":")[1].strip())
+                except (ValueError, IndexError):
+                    pass
+        return None
+
+    async def get_wifi_ssid(self) -> str | None:
+        """
+        Get the current WiFi SSID the device is connected to.
+
+        Returns:
+            WiFi SSID string or None if not connected or unavailable
+        """
+        result = await self._run_adb("shell", "dumpsys", "wifi")
+        if not result.success:
+            return None
+
+        # Look for SSID in the output
+        # Format varies by Android version, try multiple patterns
+        for line in result.output.splitlines():
+            line = line.strip()
+            # Pattern: "SSID: MyNetwork"
+            if "SSID:" in line and "null" not in line.lower():
+                parts = line.split("SSID:")
+                if len(parts) > 1:
+                    ssid = parts[1].strip().strip('"').split(",")[0].strip()
+                    if ssid and ssid != "<unknown ssid>":
+                        return ssid
+            # Pattern: 'mWifiInfo SSID: "MyNetwork"'
+            if "mWifiInfo" in line and "SSID" in line:
+                if '"' in line:
+                    try:
+                        ssid = line.split('"')[1]
+                        if ssid and ssid != "<unknown ssid>":
+                            return ssid
+                    except IndexError:
+                        pass
+        return None
 
     def parse_ui_elements(self, xml_content: str) -> list[UIElement]:
         """

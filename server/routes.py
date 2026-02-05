@@ -51,17 +51,19 @@ from actions.telegram import (
 from actions.telegram_bot import get_telegram_bot_status, test_telegram_bot
 from actions.style_capture import generate_sean_md_action
 from actions.system_status import get_system_status_action
-from actions.android import (
-    android_status_action,
-    android_screen_action,
-    android_tap_action,
-    android_type_action,
-    android_swipe_action,
-    android_key_action,
-    android_launch_app_action,
-    android_wake_action,
-    android_screenshot_action,
-    android_find_and_tap_action,
+from actions.android_phone import (
+    get_screen_action,
+    android_phone_health_action,
+    android_phone_status_action,
+    android_phone_screen_action,
+    android_phone_tap_action,
+    android_phone_type_action,
+    android_phone_swipe_action,
+    android_phone_key_action,
+    android_phone_launch_action,
+    android_phone_wake_action,
+    android_phone_screenshot_action,
+    android_phone_find_and_tap_action,
 )
 from actions.claudia import (
     list_claudia_repos_action,
@@ -499,75 +501,89 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(get_claudia_queue_action)
         return await responder(payload)
 
-    # Android device control endpoints
+    # Android phone control endpoints (new naming convention: androidPhone)
+    async def android_phone_get_screen_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidPhoneGetScreen").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_screen_action)
+        return await responder(payload)
+
+    # Android phone health check (public - no API key required for status monitoring)
+    async def android_phone_health_handler(request: Request):
+        stats.get_endpoint_stats("androidPhoneHealth").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(android_phone_health_action)
+        return await responder(payload)
+
     async def android_status_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("androidStatus").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(android_status_action)
+        responder = _build_responder(android_phone_status_action)
         return await responder(payload)
 
     async def android_screen_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("androidScreen").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(android_screen_action)
+        responder = _build_responder(android_phone_screen_action)
         return await responder(payload)
 
     async def android_tap_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("androidTap").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(android_tap_action)
+        responder = _build_responder(android_phone_tap_action)
         return await responder(payload)
 
     async def android_type_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("androidType").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(android_type_action)
+        responder = _build_responder(android_phone_type_action)
         return await responder(payload)
 
     async def android_swipe_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("androidSwipe").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(android_swipe_action)
+        responder = _build_responder(android_phone_swipe_action)
         return await responder(payload)
 
     async def android_key_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("androidKey").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(android_key_action)
+        responder = _build_responder(android_phone_key_action)
         return await responder(payload)
 
     async def android_launch_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("androidLaunch").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(android_launch_app_action)
+        responder = _build_responder(android_phone_launch_action)
         return await responder(payload)
 
     async def android_wake_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("androidWake").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(android_wake_action)
+        responder = _build_responder(android_phone_wake_action)
         return await responder(payload)
 
     async def android_screenshot_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("androidScreenshot").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(android_screenshot_action)
+        responder = _build_responder(android_phone_screenshot_action)
         return await responder(payload)
 
     async def android_find_tap_handler(request: Request):
         await _require_api_key(request)
         stats.get_endpoint_stats("androidFindTap").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(android_find_and_tap_action)
+        responder = _build_responder(android_phone_find_and_tap_action)
         return await responder(payload)
 
     routes = [
@@ -661,7 +677,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/claudia/repos/{repo_id}/queue", claudia_queue_handler, methods=["GET"]),
         Route("/actions/claudia/executions", claudia_executions_list_handler, methods=["GET"]),
         Route("/actions/claudia/executions/{execution_id}", claudia_execution_get_handler, methods=["GET"]),
-        # Android device control endpoints
+        # Android device control endpoints (legacy paths)
         Route("/actions/android/status", android_status_handler, methods=["GET"]),
         Route("/actions/android/screen", android_screen_handler, methods=["GET"]),
         Route("/actions/android/tap", android_tap_handler, methods=["GET"]),
@@ -672,6 +688,9 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/android/wake", android_wake_handler, methods=["GET"]),
         Route("/actions/android/screenshot", android_screenshot_handler, methods=["GET"]),
         Route("/actions/android/find-tap", android_find_tap_handler, methods=["GET"]),
+        # Android phone endpoints (new naming convention for LLM-in-the-loop)
+        Route("/actions/androidPhone/getScreen", android_phone_get_screen_handler, methods=["GET"]),
+        Route("/actions/androidPhone/health", android_phone_health_handler, methods=["GET"]),
     ]
 
     return routes

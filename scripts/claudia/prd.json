@@ -1493,6 +1493,315 @@
       "priority": 90,
       "passes": true,
       "notes": "Depends on frank_bot-00082 through frank_bot-00085. Validates Stream C."
+    },
+    {
+      "id": "frank_bot-00091",
+      "title": "Create androidPhoneGetScreen action with screenshot and XML parsing",
+      "acceptanceCriteria": [
+        "actions/android_phone.py created (rename from android.py) with get_screen_action(arguments)",
+        "Action returns base64-encoded PNG screenshot",
+        "Action returns raw accessibility XML from uiautomator dump",
+        "Action returns parsed list of clickable elements with coordinates, text, and content_desc",
+        "Each clickable element includes: text, content_desc, resource_id, center_x, center_y, bounds",
+        "GET /actions/androidPhone/getScreen route added to server/routes.py",
+        "Route returns JSON with screenshot_base64, xml, and clickable_elements fields",
+        "Unit tests verify screenshot capture and XML parsing"
+      ],
+      "priority": 91,
+      "passes": true,
+      "notes": "Foundation for LLM-in-the-loop pattern. Uses existing services/android_client.py. Blocking for frank_bot-00092."
+    },
+    {
+      "id": "frank_bot-00092",
+      "title": "Create AndroidPhoneRunner service with LLM loop orchestration",
+      "acceptanceCriteria": [
+        "services/android_phone_runner.py created with AndroidPhoneRunner class",
+        "run_task(task_prompt, max_steps=20) async method implements LLM loop",
+        "Each step: capture screen state (XML + screenshot) via get_screen_action",
+        "Send state + task_prompt to LLM, receive action decision (tap, type, swipe, done, error)",
+        "Execute decided action via AndroidClient methods",
+        "Loop continues until LLM returns done=True or max_steps reached",
+        "Track and return token usage and cost estimate per run",
+        "Uses configurable LLM model (default: gpt-4-vision-preview or claude-3-opus)",
+        "ANDROID_LLM_MODEL and ANDROID_LLM_API_KEY environment variables added to config",
+        "Unit tests with mocked LLM responses verify loop execution"
+      ],
+      "priority": 92,
+      "passes": false,
+      "notes": "Depends on frank_bot-00091. Core LLM-in-the-loop orchestrator. Blocking for frank_bot-00094, frank_bot-00095."
+    },
+    {
+      "id": "frank_bot-00093",
+      "title": "Create base prompt template for Android phone control",
+      "acceptanceCriteria": [
+        "prompts/androidPhone/_base.md created with common instructions",
+        "Template explains screen state format (XML structure, clickable elements)",
+        "Template defines action response JSON schema: {action, params?, done, reasoning}",
+        "Action types documented: tap(x, y), type(text), swipe(direction), press_key(key), wait(seconds), done, error",
+        "Best practices section: wait after actions, verify UI changes, handle loading states",
+        "Error handling guidance: what to do when element not found, app crashes, unexpected screens",
+        "Template uses clear, structured format suitable for vision-capable LLMs",
+        "AndroidPhoneRunner loads and includes _base.md in all prompts"
+      ],
+      "priority": 93,
+      "passes": false,
+      "notes": "Depends on frank_bot-00092. Shared prompt foundation. Blocking for frank_bot-00094, frank_bot-00095."
+    },
+    {
+      "id": "frank_bot-00094",
+      "title": "Create thermostat-setRange prompt template",
+      "acceptanceCriteria": [
+        "prompts/androidPhone/thermostat-setRange.md created",
+        "Template specifies goal: set thermostat to specific temperature range",
+        "Parameters section: low_temp (int), high_temp (int)",
+        "App information: package com.google.android.apps.chromecast.app (Google Home)",
+        "Entry point workflow: launch Google Home -> navigate to thermostat device",
+        "Step-by-step workflow for adjusting temperature range",
+        "Success criteria: both temperatures set and verified on screen",
+        "Known UI patterns: temperature controls, slider elements, save/apply buttons",
+        "Error handling: thermostat offline, app not installed, wrong screen navigation"
+      ],
+      "priority": 94,
+      "passes": false,
+      "notes": "Depends on frank_bot-00093. MVP thermostat control template. Blocking for frank_bot-00096."
+    },
+    {
+      "id": "frank_bot-00095",
+      "title": "Create thermostat-getStatus prompt template",
+      "acceptanceCriteria": [
+        "prompts/androidPhone/thermostat-getStatus.md created",
+        "Template specifies goal: read current thermostat status",
+        "Parameters section: none required",
+        "App information: package com.google.android.apps.chromecast.app (Google Home)",
+        "Entry point workflow: launch Google Home -> navigate to thermostat device",
+        "Data extraction workflow: read current temp, target temp, mode (heat/cool/auto), humidity if shown",
+        "Success criteria: all status values captured from screen",
+        "Output format: JSON with current_temp, target_low, target_high, mode, humidity",
+        "Known UI patterns: temperature display elements, mode indicators"
+      ],
+      "priority": 95,
+      "passes": false,
+      "notes": "Depends on frank_bot-00093. MVP thermostat status template. Blocking for frank_bot-00097."
+    },
+    {
+      "id": "frank_bot-00096",
+      "title": "Implement androidPhone_thermostat_setRange action",
+      "acceptanceCriteria": [
+        "actions/android_phone.py extended with thermostat_set_range_action(arguments)",
+        "Action accepts low_temp and high_temp parameters (integers)",
+        "Validates temperature range (e.g., 60-85°F reasonable bounds)",
+        "Loads thermostat-setRange.md prompt and formats with parameters",
+        "Calls AndroidPhoneRunner.run_task() with formatted prompt",
+        "Returns JSON with success, final_low_temp, final_high_temp, steps_taken, tokens_used",
+        "GET /actions/androidPhone/thermostat/setRange route added with query params low_temp, high_temp",
+        "Integration test with mocked LLM verifies action flow"
+      ],
+      "priority": 96,
+      "passes": false,
+      "notes": "Depends on frank_bot-00092, frank_bot-00094. MVP action for setting thermostat."
+    },
+    {
+      "id": "frank_bot-00097",
+      "title": "Implement androidPhone_thermostat_getStatus action",
+      "acceptanceCriteria": [
+        "actions/android_phone.py extended with thermostat_get_status_action(arguments)",
+        "Action requires no parameters",
+        "Loads thermostat-getStatus.md prompt",
+        "Calls AndroidPhoneRunner.run_task() with prompt",
+        "Returns JSON with current_temp, target_low, target_high, mode, humidity, steps_taken, tokens_used",
+        "GET /actions/androidPhone/thermostat/getStatus route added",
+        "Handles case where thermostat is offline or unreachable",
+        "Integration test with mocked LLM verifies status extraction"
+      ],
+      "priority": 97,
+      "passes": false,
+      "notes": "Depends on frank_bot-00092, frank_bot-00095. MVP action for reading thermostat status."
+    },
+    {
+      "id": "frank_bot-00098",
+      "title": "Add health check endpoint for Android phone connection",
+      "acceptanceCriteria": [
+        "GET /actions/androidPhone/health route added to server/routes.py",
+        "Returns JSON with connected, device_model, android_version, battery_level, wifi_ssid",
+        "Checks ADB connection status via AndroidClient.check_connection()",
+        "Battery level retrieved via adb shell dumpsys battery",
+        "WiFi SSID retrieved via adb shell dumpsys wifi",
+        "Returns clear error message if device not reachable",
+        "Endpoint can be called without API key (status check)",
+        "Health check result cached for 30 seconds to reduce ADB overhead"
+      ],
+      "priority": 98,
+      "passes": true,
+      "notes": "Standalone diagnostic endpoint. No blocking dependencies."
+    },
+    {
+      "id": "frank_bot-00099",
+      "title": "Create AndroidMaintenanceService for device upkeep",
+      "acceptanceCriteria": [
+        "services/android_maintenance.py created with AndroidMaintenanceService class",
+        "check_app_updates() checks Play Store for pending updates, returns list of apps needing update",
+        "install_app_updates() installs available updates via adb shell pm commands",
+        "check_security_patch() reads current security patch level, compares to latest known",
+        "clear_caches() clears app caches if storage below threshold",
+        "get_storage_info() returns internal storage used/free percentages",
+        "reboot_device() safely reboots via adb reboot",
+        "All methods are async and use AndroidClient",
+        "Unit tests verify each maintenance operation"
+      ],
+      "priority": 99,
+      "passes": false,
+      "notes": "Foundation for maintenance features. Blocking for frank_bot-00100, frank_bot-00101."
+    },
+    {
+      "id": "frank_bot-00100",
+      "title": "Add maintenance routes and actions for Android phone",
+      "acceptanceCriteria": [
+        "actions/android_phone.py extended with maintenance actions",
+        "update_apps_action() triggers app update process, returns apps updated",
+        "check_security_action() returns current and latest security patch info",
+        "reboot_action() reboots device with confirmation parameter",
+        "GET /actions/androidPhone/maintenance/updateApps route added",
+        "GET /actions/androidPhone/maintenance/checkSecurity route added",
+        "GET /actions/androidPhone/maintenance/reboot route added (requires confirm=true param)",
+        "All routes protected by API key authentication",
+        "Integration tests verify maintenance action flows"
+      ],
+      "priority": 100,
+      "passes": false,
+      "notes": "Depends on frank_bot-00099. Exposes maintenance functionality via HTTP."
+    },
+    {
+      "id": "frank_bot-00101",
+      "title": "Create maintenance prompt templates",
+      "acceptanceCriteria": [
+        "prompts/androidPhone/maintenance-updateApps.md created",
+        "Template workflow: open Play Store -> My Apps -> Update All",
+        "prompts/androidPhone/maintenance-checkStorage.md created",
+        "Template workflow: open Settings -> Storage -> read values",
+        "prompts/androidPhone/maintenance-clearCache.md created",
+        "Template workflow: open Settings -> Apps -> clear cache for top space-consuming apps",
+        "Each template includes success criteria and error handling",
+        "Templates integrated with AndroidMaintenanceService methods"
+      ],
+      "priority": 101,
+      "passes": false,
+      "notes": "Depends on frank_bot-00099. Prompt templates for LLM-driven maintenance tasks."
+    },
+    {
+      "id": "frank_bot-00102",
+      "title": "Add scheduled maintenance jorb for monthly device upkeep",
+      "acceptanceCriteria": [
+        "Monthly maintenance jorb defined in services/background_loop.py",
+        "Scheduled for 1st of month at 3 AM (configurable via ANDROID_MAINTENANCE_CRON)",
+        "Jorb executes: check_security, check_app_updates, install_updates if available, clear_caches if needed",
+        "Results sent to Sean via Telegram with summary report",
+        "Report includes: apps updated, security status, storage freed, any errors",
+        "Jorb skipped if device not connected (logs warning, retries next day)",
+        "config.py updated with ANDROID_MAINTENANCE_CRON setting",
+        "Integration test verifies scheduled execution"
+      ],
+      "priority": 102,
+      "passes": false,
+      "notes": "Depends on frank_bot-00099, frank_bot-00100, frank_bot-00068 (background loop). Monthly maintenance automation."
+    },
+    {
+      "id": "frank_bot-00103",
+      "title": "Add weekly health check jorb for Android phone",
+      "acceptanceCriteria": [
+        "Weekly health check defined in services/background_loop.py",
+        "Scheduled for Sunday at 4 AM (configurable via ANDROID_HEALTH_CHECK_CRON)",
+        "Check includes: device connection, battery health, WiFi connectivity, test app launch",
+        "Only sends Telegram notification if issues detected",
+        "Notification includes specific issues and suggested actions",
+        "Successful checks logged but not notified",
+        "config.py updated with ANDROID_HEALTH_CHECK_CRON setting",
+        "Integration test verifies health check execution and notification logic"
+      ],
+      "priority": 103,
+      "passes": false,
+      "notes": "Depends on frank_bot-00098, frank_bot-00068 (background loop). Weekly health monitoring."
+    },
+    {
+      "id": "frank_bot-00104",
+      "title": "Update OpenAPI spec with Android phone endpoints",
+      "acceptanceCriteria": [
+        "openapi/spec.json includes GET /actions/androidPhone/getScreen endpoint",
+        "openapi/spec.json includes GET /actions/androidPhone/health endpoint",
+        "openapi/spec.json includes GET /actions/androidPhone/thermostat/setRange endpoint",
+        "openapi/spec.json includes GET /actions/androidPhone/thermostat/getStatus endpoint",
+        "openapi/spec.json includes maintenance endpoints (updateApps, checkSecurity, reboot)",
+        "Response schemas accurately describe return types including nested objects",
+        "Spec passes linting with npx @redocly/cli lint openapi/spec.json",
+        "Endpoint descriptions explain LLM-in-the-loop nature and token costs"
+      ],
+      "priority": 104,
+      "passes": false,
+      "notes": "Depends on frank_bot-00096, frank_bot-00097, frank_bot-00100. Documents all Android phone APIs."
+    },
+    {
+      "id": "frank_bot-00105",
+      "title": "Add Android phone configuration to environment and documentation",
+      "acceptanceCriteria": [
+        "config.py updated with: ANDROID_ADB_HOST, ANDROID_ADB_PORT, ANDROID_LLM_MODEL, ANDROID_LLM_API_KEY",
+        "config.py updated with: ANDROID_MAINTENANCE_CRON, ANDROID_HEALTH_CHECK_CRON",
+        ".env.example updated with all Android phone environment variables",
+        "README.md updated with Android phone setup section",
+        "Documentation includes: device requirements (rooted, ADB enabled), network setup, initial configuration",
+        "Documentation explains LLM model options and cost considerations",
+        "Documentation lists supported apps and their package names"
+      ],
+      "priority": 105,
+      "passes": true,
+      "notes": "Configuration and documentation task. Can be done in parallel with implementation."
+    },
+    {
+      "id": "frank_bot-00106",
+      "title": "Write integration tests for Android phone thermostat flow",
+      "acceptanceCriteria": [
+        "Test: getScreen returns valid screenshot and parsed elements",
+        "Test: thermostat_setRange executes LLM loop and sets temperature",
+        "Test: thermostat_getStatus extracts status values correctly",
+        "Test: LLM loop respects max_steps limit",
+        "Test: Error handling when device disconnected mid-task",
+        "Test: Token tracking accumulates correctly across steps",
+        "Tests use mocked AndroidClient and LLM responses",
+        "All tests pass in CI"
+      ],
+      "priority": 106,
+      "passes": false,
+      "notes": "Depends on frank_bot-00096, frank_bot-00097. Validates MVP thermostat functionality."
+    },
+    {
+      "id": "frank_bot-00107",
+      "title": "Add rate limiting for Android phone actions",
+      "acceptanceCriteria": [
+        "Rate limiter applied to all /actions/androidPhone/* routes",
+        "Default limits: 10 requests per minute, 100 requests per hour",
+        "Limits configurable via ANDROID_RATE_LIMIT_MINUTE and ANDROID_RATE_LIMIT_HOUR",
+        "Rate limit exceeded returns 429 Too Many Requests with retry-after header",
+        "Rate limits tracked per API key",
+        "Long-running tasks (thermostat control) exempt from per-minute limit but count toward hourly",
+        "Unit tests verify rate limiting behavior"
+      ],
+      "priority": 107,
+      "passes": false,
+      "notes": "Security feature. Can be implemented after core functionality complete."
+    },
+    {
+      "id": "frank_bot-00108",
+      "title": "Add audit logging for Android phone actions",
+      "acceptanceCriteria": [
+        "All Android phone actions logged to ./data/android_audit.log",
+        "Log entries include: timestamp, action, parameters, result, tokens_used, duration_ms",
+        "Sensitive data (screenshots) not logged in full, only metadata",
+        "Log rotation: daily files, keep 30 days",
+        "GET /actions/androidPhone/audit route returns recent audit entries",
+        "Audit endpoint protected by API key",
+        "Log format is JSON lines for easy parsing"
+      ],
+      "priority": 108,
+      "passes": false,
+      "notes": "Security and debugging feature. Provides visibility into automated actions."
     }
   ]
 }

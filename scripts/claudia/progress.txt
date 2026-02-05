@@ -1492,3 +1492,57 @@ Created comprehensive integration tests for the catch-up jorb flow (Stream C). T
 - Phone number normalization is important for trusted sender matching
 
 ---
+
+## 2026-02-05: frank_bot-00091 - Create androidPhoneGetScreen action with screenshot and XML parsing
+
+### Summary
+Created the foundation action for LLM-in-the-loop phone automation. Renamed actions/android.py to actions/android_phone.py and implemented get_screen_action that returns base64-encoded screenshots, raw accessibility XML, and parsed clickable elements with full coordinate information.
+
+### Files Changed
+- actions/android_phone.py (new - renamed and extended from android.py)
+- server/routes.py (updated imports and added /actions/androidPhone/getScreen route)
+- tests/test_android_phone_actions.py (new - 17 unit tests)
+
+### Learnings
+- Base64 encoding of screenshots allows easy transmission in JSON responses
+- Clickable elements should include non-clickable elements with text for context
+- Bounds dict format {left, top, right, bottom} is clearer than tuple for LLM consumption
+- Class names should be stripped to just the final component for readability
+
+---
+
+## 2026-02-05: frank_bot-00098 - Add health check endpoint for Android phone connection
+
+### Summary
+Implemented a public health check endpoint that returns device connection status, model, Android version, battery level, and WiFi SSID. Results are cached for 30 seconds to reduce ADB overhead.
+
+### Files Changed
+- services/android_client.py (added get_battery_level and get_wifi_ssid methods)
+- actions/android_phone.py (added android_phone_health_action with 30s caching)
+- server/routes.py (added /actions/androidPhone/health route - public, no API key)
+- tests/test_android_phone_actions.py (added health check tests)
+
+### Learnings
+- WiFi SSID parsing varies by Android version; need multiple regex patterns
+- Caching health checks significantly reduces ADB command overhead
+- Health endpoints should be public for monitoring dashboard integration
+- Battery parsing from dumpsys battery is straightforward (level: XX format)
+
+---
+
+## 2026-02-05: frank_bot-00105 - Add Android phone configuration to environment and documentation
+
+### Summary
+Added comprehensive Android phone configuration to config.py, updated .env.example with all new environment variables, and added detailed setup documentation to README.md including device requirements, setup steps, and cost considerations.
+
+### Files Changed
+- config.py (added android_adb_host, android_adb_port, android_llm_model, android_llm_api_key, android_maintenance_cron, android_health_check_cron)
+- .env.example (added Android phone automation section)
+- README.md (added Android Phone Automation section with setup guide)
+
+### Learnings
+- Device doesn't need to be rooted for ADB over network, just developer options enabled
+- Vision-capable LLM costs should be documented upfront ($0.01-0.05 per screen capture)
+- Cron defaults should align with user-friendly times (3 AM for maintenance, 4 AM Sundays for health checks)
+
+---
