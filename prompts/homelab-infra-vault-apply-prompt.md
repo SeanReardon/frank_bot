@@ -43,6 +43,7 @@ EOF
 
 4. **Ensure Vault environment is configured**:
    ```bash
+   export VAULT_ADDR="https://vault.concordia.contrived.com:8200"
    echo $VAULT_ADDR
    vault status
    ```

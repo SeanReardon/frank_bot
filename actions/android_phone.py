@@ -1034,6 +1034,141 @@ async def battery_health_action(
     }
 
 
+async def do_task_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Execute a goal-based task on the Android phone using LLM automation.
+
+    This is the universal endpoint for phone automation. Describe what you want
+    to accomplish in natural language, and the LLM will navigate the phone to
+    achieve it.
+
+    IMPORTANT: The automation will STOP before any irreversible actions like
+    payments, purchases, or bookings - returning details for human review.
+
+    Args:
+        goal: Natural language description of what to accomplish.
+              Examples:
+              - "Check the thermostat temperature and humidity"
+              - "Set the thermostat to 65-70 degrees"
+              - "Open Uber and check ride prices to SFO airport"
+              - "Turn off the living room lights"
+              - "Check DoorDash for nearby restaurant options"
+        app: (Optional) App to launch first. Auto-detected from goal if omitted.
+             Examples: "google_home", "uber", "doordash", "chrome"
+
+    Returns:
+        success: Whether the task completed successfully
+        result: Description of what was accomplished or extracted data
+        steps_taken: Number of automation steps executed
+        tokens_used: LLM tokens consumed
+        estimated_cost: Estimated cost in USD
+
+    Capabilities:
+        - Thermostat: Read/set temperature via Google Home
+        - Smart Home: Control lights, locks, devices via Google Home
+        - Ride Services: Check prices, request rides (stops before payment)
+        - Food Delivery: Browse restaurants, build orders (stops before checkout)
+        - Browser: Search, navigate websites
+        - Any installed app: Navigate and interact
+
+    Cost: $0.03-0.15 per task depending on complexity (10-30 seconds)
+    """
+    from services.android_phone_runner import get_android_phone_runner
+
+    args = arguments or {}
+
+    goal = args.get("goal", "").strip()
+    if not goal:
+        raise ValueError("'goal' is required - describe what you want to accomplish")
+
+    app = args.get("app", "").strip().lower()
+
+    # Auto-detect app from goal if not specified
+    if not app:
+        goal_lower = goal.lower()
+        if any(word in goal_lower for word in ["thermostat", "temperature", "hvac", "heat", "cool", "nest"]):
+            app = "google_home"
+        elif any(word in goal_lower for word in ["light", "lamp", "switch", "plug", "smart home"]):
+            app = "google_home"
+        elif "uber" in goal_lower and "eats" not in goal_lower:
+            app = "uber"
+        elif "lyft" in goal_lower:
+            app = "lyft"
+        elif any(word in goal_lower for word in ["doordash", "food delivery"]):
+            app = "doordash"
+        elif "uber eats" in goal_lower:
+            app = "uber_eats"
+        elif any(word in goal_lower for word in ["map", "direction", "navigate"]):
+            app = "maps"
+        elif any(word in goal_lower for word in ["search", "browse", "website", "google"]):
+            app = "chrome"
+
+    # App package mapping
+    app_packages = {
+        "google_home": "com.google.android.apps.chromecast.app",
+        "uber": "com.ubercab",
+        "lyft": "com.lyft.android",
+        "doordash": "com.dd.doordash",
+        "uber_eats": "com.ubercab.eats",
+        "chrome": "com.android.chrome",
+        "maps": "com.google.android.apps.maps",
+        "settings": "com.android.settings",
+    }
+
+    # Launch app if specified
+    client = get_android_client()
+    await client.connect()
+    await client.wake_device()
+
+    if app and app in app_packages:
+        package = app_packages[app]
+        launch_result = await client.launch_app(package)
+        if not launch_result.success:
+            logger.warning("Failed to launch %s: %s", app, launch_result.error)
+            # Continue anyway - app might already be open
+        await asyncio.sleep(2)  # Wait for app to load
+
+    # Run the automation with generic prompt
+    runner = get_android_phone_runner()
+
+    if not runner.is_configured:
+        raise ValueError(
+            "AndroidPhoneRunner not configured. "
+            "Set ANDROID_LLM_MODEL and ANDROID_LLM_API_KEY environment variables."
+        )
+
+    logger.info("Starting goal-based task: %s (app=%s, model=%s)", goal[:50], app or "auto", runner.model)
+
+    result = await runner.run_task(
+        task_prompt="_generic",
+        parameters={"GOAL": goal},
+        max_steps=25,  # Allow more steps for complex tasks
+    )
+
+    if not result.success:
+        return {
+            "success": False,
+            "error": result.error,
+            "steps_taken": result.steps_taken,
+            "tokens_used": result.total_tokens_used,
+            "estimated_cost": result.total_cost,
+        }
+
+    # Extract result data
+    extracted = result.extracted_data or {}
+
+    return {
+        "success": True,
+        "result": extracted.get("result", "Task completed"),
+        "extracted_data": extracted.get("extracted_data", extracted),
+        "steps_taken": result.steps_taken,
+        "tokens_used": result.total_tokens_used,
+        "estimated_cost": result.total_cost,
+    }
+
+
 __all__ = [
     "get_screen_action",
     "android_phone_health_action",
@@ -1056,4 +1191,5 @@ __all__ = [
     "get_storage_action",
     "clear_cache_action",
     "battery_health_action",
+    "do_task_action",
 ]

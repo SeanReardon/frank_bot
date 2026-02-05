@@ -1652,6 +1652,47 @@
         }
       }
     },
+    "/actions/androidPhone/doTask": {
+      "get": {
+        "operationId": "androidPhoneDoTask",
+        "summary": "Execute goal-based task on Android phone",
+        "description": "Universal endpoint for Android phone automation. Describe what you want to accomplish in natural language, and the LLM will navigate the phone to achieve it.\n\n**IMPORTANT**: Automation STOPS before irreversible actions (payments, purchases, bookings) - returning details for human review.\n\n**Capabilities**:\n- **Thermostat**: Read status, set temperature range via Google Home\n- **Smart Home**: Control lights, locks, plugs, devices via Google Home\n- **Ride Services**: Check Uber/Lyft prices, request rides (stops before payment)\n- **Food Delivery**: Browse DoorDash/UberEats, build orders (stops before checkout)\n- **Browser**: Search Google, navigate websites\n- **Maps**: Get directions, check traffic\n- **Any App**: Navigate and interact with installed apps\n\n**Examples**:\n- goal=\"Check the thermostat temperature and humidity\"\n- goal=\"Set thermostat to 65-70 degrees\"\n- goal=\"Open Uber and check ride prices to SFO airport\"\n- goal=\"Turn off the living room lights\"\n- goal=\"Search DoorDash for nearby pizza places\"\n\n**Cost**: $0.03-0.15 per task (10-30 seconds)",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "goal",
+            "required": true,
+            "schema": {"type": "string"},
+            "description": "Natural language description of what to accomplish. Be specific about the desired outcome."
+          },
+          {
+            "in": "query",
+            "name": "app",
+            "schema": {"type": "string", "enum": ["google_home", "uber", "lyft", "doordash", "uber_eats", "chrome", "maps", "settings"]},
+            "description": "Optional: specific app to launch. Auto-detected from goal if omitted."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task result with extracted data or confirmation.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneDoTaskResponse"}
+              }
+            }
+          },
+          "400": {
+            "description": "Task failed.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
     "/actions/androidPhone/thermostat/setRange": {
       "get": {
         "operationId": "androidPhoneThermostatSetRange",
@@ -2888,6 +2929,20 @@
           "estimated_cost": {"type": "number", "description": "Estimated cost in USD."},
           "message": {"type": "string"},
           "error": {"type": "string", "description": "Error message if operation failed."}
+        },
+        "required": ["success", "steps_taken", "tokens_used"]
+      },
+      "AndroidPhoneDoTaskResponse": {
+        "type": "object",
+        "description": "Result of goal-based Android phone automation.",
+        "properties": {
+          "success": {"type": "boolean", "description": "Whether the task completed successfully."},
+          "result": {"type": "string", "description": "Description of what was accomplished."},
+          "extracted_data": {"type": "object", "description": "Any data extracted from the phone (varies by task)."},
+          "steps_taken": {"type": "integer", "description": "Number of automation steps executed."},
+          "tokens_used": {"type": "integer", "description": "Total LLM tokens consumed."},
+          "estimated_cost": {"type": "number", "description": "Estimated cost in USD."},
+          "error": {"type": "string", "description": "Error message if task failed."}
         },
         "required": ["success", "steps_taken", "tokens_used"]
       },

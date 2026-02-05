@@ -73,6 +73,7 @@ from actions.android_phone import (
     get_storage_action,
     clear_cache_action,
     battery_health_action,
+    do_task_action,
 )
 from actions.claudia import (
     list_claudia_repos_action,
@@ -713,6 +714,15 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(battery_health_action)
         return await responder(payload)
 
+    # Android phone do task - universal goal-based endpoint
+    async def android_phone_do_task_handler(request: Request):
+        await _require_api_key(request)
+        await _check_android_rate_limit(request, is_long_running=True)
+        stats.get_endpoint_stats("androidPhoneDoTask").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(do_task_action)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -818,6 +828,8 @@ def build_action_routes(settings: Settings) -> list[Route]:
         # Android phone endpoints (new naming convention for LLM-in-the-loop)
         Route("/actions/androidPhone/getScreen", android_phone_get_screen_handler, methods=["GET"]),
         Route("/actions/androidPhone/health", android_phone_health_handler, methods=["GET"]),
+        # Universal goal-based endpoint - describe what you want in natural language
+        Route("/actions/androidPhone/doTask", android_phone_do_task_handler, methods=["GET"]),
         # Android phone thermostat control
         Route("/actions/androidPhone/thermostat/setRange", android_phone_thermostat_set_range_handler, methods=["GET"]),
         Route("/actions/androidPhone/thermostat/getStatus", android_phone_thermostat_get_status_handler, methods=["GET"]),
