@@ -9,14 +9,14 @@ Personal assistant API for calendar, contacts, SMS, Telegram, Swarm, jorbs, and 
 | Calendar | `getEvents` | `day` (YYYY-MM-DD) or `time_min`/`time_max` |
 | Add event | `scheduleTime` | `summary`, `start`, `end`, `location?` |
 | Find contact | `searchContacts` | `query` (fuzzy match) |
-| Send text | `sendSMS` | `recipient`, `message` |
-| Telegram | `sendTelegramMessage` | `recipient`, `text` |
+| Send text | `smsMessageSend` | `recipient`, `message` |
+| Telegram | `telegramMessageSend` | `recipient`, `text` |
 | Check-ins | `searchCheckins` | `year`, `with_companion`, `category` |
-| Task overview | `briefMe` | jorb activity + pending decisions |
-| Create task | `createJorb` | `name`, `plan`, `contacts` array |
-| Approve task | `approveJorb` | `jorb_id`, `decision` |
-| Thermostat | `androidPhoneThermostatGetStatus` | (none) |
-| Set thermostat | `androidPhoneThermostatSetRange` | `low_temp`, `high_temp` (°F) |
+| Task overview | `jorbsBrief` | jorb activity + pending decisions |
+| Create task | `jorbCreate` | `name`, `plan`, `contacts` array |
+| Approve task | `jorbApprove` | `jorb_id`, `decision` |
+| Android task | `androidPhoneTaskDo` | `goal` (natural language) |
+| Android API docs | `androidPhoneApiGet` | returns full capabilities |
 
 ## Calendar
 - `getEvents`: day, time_min/time_max, calendar_name?, max_results?
@@ -25,14 +25,14 @@ Personal assistant API for calendar, contacts, SMS, Telegram, Swarm, jorbs, and 
 
 ## Contacts & SMS
 - `searchContacts`: query (fuzzy match name/email/phone)
-- `sendSMS`: recipient (name or number), message
-- `getSmsMessages`: contact?, direction?, limit?
+- `smsMessageSend`: recipient (name or number), message
+- `smsMessagesGet`: contact?, direction?, limit?
 
 ## Telegram
 Via Sean's personal account:
-- `sendTelegramMessage`: recipient (@user or phone), text
-- `getTelegramMessages`: chat, limit?
-- `listTelegramChats`: conversations with unread counts
+- `telegramMessageSend`: recipient (@user or phone), text
+- `telegramMessagesGet`: chat, limit?
+- `telegramChatsList`: conversations with unread counts
 
 ## Swarm Check-ins
 `searchCheckins`: year, after_date, before_date, with_companion, category (restaurant, bar, hotel, coffee, airport, gym)
@@ -41,33 +41,33 @@ Via Sean's personal account:
 
 Long-running tasks Frank executes via SMS/Telegram/email. Agent sends messages, waits for replies, pauses for approval on spending/commitments.
 
-**createJorb**: name, plan (instructions + budget + when to pause), contacts `[{"identifier":"@user","channel":"telegram","name":"Name"}]`, personality (default/concierge/researcher/negotiator/expeditor/sean-voice)
+**jorbCreate**: name, plan (instructions + budget + when to pause), contacts `[{"identifier":"@user","channel":"telegram","name":"Name"}]`, personality (default/concierge/researcher/negotiator/expeditor/sean-voice)
 
 **Lifecycle**: planning → running → paused → complete/failed/cancelled
 
-**Managing**: `listJorbs` (status=open/closed/all), `getJorb`, `approveJorb`, `cancelJorb`, `briefMe`
+**Managing**: `jorbsList` (status=open/closed/all), `jorbGet`, `jorbApprove`, `jorbCancel`, `jorbsBrief`
 
 **Auto-pause**: spending >$100, bookings, cancellations, sensitive info
 
 ## Android Phone
 
-Dedicated Pixel 9 via ADB. LLM-in-the-loop: screenshot + UI tree → LLM decides → tap/swipe/type → repeat. Takes 10-30s, costs $0.03-0.15.
+Dedicated Pixel 9 via LLM-in-the-loop automation. Describe what you want in natural language.
 
-### Thermostat
-- `androidPhoneThermostatGetStatus`: temp, setpoints, mode, humidity
-- `androidPhoneThermostatSetRange`: low_temp, high_temp (50-90°F)
+### androidPhoneTaskDo
+Universal endpoint - just describe your goal:
+- "Check the thermostat temperature and humidity"
+- "Set thermostat to 65-70 degrees"
+- "Turn off the living room lights"
+- "Check Uber prices to the airport"
 
-### Low-level (custom automation)
-1. `androidPhoneLaunch app=uber`
-2. `androidPhoneGetScreen` - screenshot + elements
-3. `androidPhoneTap x=540 y=1200`
-4. `androidPhoneType text="address"`
-5. `androidPhoneSwipe direction=up`
-6. `androidPhoneKey key=back`
-7. `androidPhoneFindAndTap text="Continue"`
+**STOPS before payments/purchases** - returns details for confirmation.
+Cost: $0.03-0.15, takes 10-30 seconds.
 
-### Maintenance
-`androidPhoneHealth`, `androidPhoneUpdateApps`, `androidPhoneGetStorage`, `androidPhoneClearCache`, `androidPhoneBatteryHealth`, `androidPhoneReboot confirm=true`
+### androidPhoneApiGet
+Returns full documentation of capabilities, supported apps, example goals, cost estimates.
+
+### androidPhoneHealth
+Quick connectivity check - returns device model, battery, wifi.
 
 ## Utilities
 - `getTime`: Sean's local time
@@ -79,11 +79,10 @@ Dedicated Pixel 9 via ADB. LLM-in-the-loop: screenshot + UI tree → LLM decides
 | Request | Action |
 |---------|--------|
 | "Calendar tomorrow" | `getEvents day=2026-02-05` |
-| "Text Mom I'm late" | `sendSMS recipient=Mom message=Running late!` |
+| "Text Mom I'm late" | `smsMessageSend recipient=Mom message=Running late!` |
 | "Restaurants with Jimmy 2024" | `searchCheckins with_companion=Jimmy year=2024 category=restaurant` |
-| "What's happening with tasks?" | `briefMe` |
-| "What's the thermostat?" | `androidPhoneThermostatGetStatus` |
-| "Set heat to 68-72" | `androidPhoneThermostatSetRange low_temp=68 high_temp=72` |
+| "What's happening with tasks?" | `jorbsBrief` |
+| "What's the thermostat?" | `androidPhoneTaskDo goal="Check thermostat temperature"` |
 
 ## Notes
 - Times: ISO8601 (2026-02-05T14:00:00)

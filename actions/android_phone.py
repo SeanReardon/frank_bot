@@ -1169,6 +1169,129 @@ async def do_task_action(
     }
 
 
+async def api_get_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Get full documentation of the androidPhoneTaskDo API capabilities.
+
+    Returns detailed information about what tasks can be accomplished,
+    example goals, supported apps, cost estimates, and safety rules.
+    This helps LLMs understand how to use the androidPhoneTaskDo endpoint.
+
+    Returns:
+        capabilities: List of supported task categories with examples
+        supported_apps: Apps that can be controlled with package names
+        safety_rules: Actions that require human confirmation
+        cost_estimates: Token usage and cost ranges by task type
+        example_goals: Ready-to-use goal strings
+    """
+    return {
+        "endpoint": "androidPhoneTaskDo",
+        "description": "Universal Android phone automation via LLM-in-the-loop control",
+        "how_it_works": (
+            "1. Describe your goal in natural language\n"
+            "2. LLM captures screenshot + UI elements\n"
+            "3. LLM decides action (tap, type, swipe)\n"
+            "4. Action executes, loop repeats\n"
+            "5. Returns result or stops for confirmation"
+        ),
+        "capabilities": {
+            "thermostat": {
+                "description": "Read and control Nest thermostat via Google Home",
+                "examples": [
+                    "Check the thermostat temperature and humidity",
+                    "Set thermostat to 68-72 degrees",
+                    "What's the current heating/cooling status?",
+                ],
+            },
+            "smart_home": {
+                "description": "Control smart devices via Google Home",
+                "examples": [
+                    "Turn off the living room lights",
+                    "Set bedroom lights to 50%",
+                    "Lock the front door",
+                    "Check if garage door is closed",
+                ],
+            },
+            "ride_services": {
+                "description": "Check prices and request rides (stops before payment)",
+                "examples": [
+                    "Check Uber prices to SFO airport",
+                    "What's the Lyft wait time right now?",
+                    "Get a ride estimate to downtown",
+                ],
+            },
+            "food_delivery": {
+                "description": "Browse and build orders (stops before checkout)",
+                "examples": [
+                    "Search DoorDash for nearby pizza places",
+                    "What's on the Chipotle menu?",
+                    "Find Chinese food delivery options",
+                ],
+            },
+            "browser": {
+                "description": "Search and navigate websites",
+                "examples": [
+                    "Search Google for weather forecast",
+                    "Open amazon.com",
+                    "Look up movie times nearby",
+                ],
+            },
+            "general": {
+                "description": "Navigate and interact with any app",
+                "examples": [
+                    "Open Settings and check storage usage",
+                    "Check my email inbox",
+                    "What notifications do I have?",
+                ],
+            },
+        },
+        "supported_apps": {
+            "google_home": "com.google.android.apps.chromecast.app",
+            "uber": "com.ubercab",
+            "lyft": "com.lyft.android",
+            "doordash": "com.dd.doordash",
+            "uber_eats": "com.ubercab.eats",
+            "chrome": "com.android.chrome",
+            "maps": "com.google.android.apps.maps",
+            "settings": "com.android.settings",
+        },
+        "safety_rules": {
+            "stops_before": [
+                "Confirming purchases or payments",
+                "Submitting financial transactions",
+                "Making reservations or bookings",
+                "Sending messages to unknown contacts",
+                "Deleting important data",
+                "Any irreversible action",
+            ],
+            "returns_for_confirmation": (
+                "When automation reaches a point requiring payment or commitment, "
+                "it stops and returns current state with 'needs_confirmation' status"
+            ),
+        },
+        "cost_estimates": {
+            "simple_read": {"tokens": "5000-8000", "cost": "$0.03-0.05", "time": "10-15s"},
+            "simple_action": {"tokens": "8000-15000", "cost": "$0.05-0.08", "time": "15-25s"},
+            "complex_task": {"tokens": "15000-30000", "cost": "$0.08-0.15", "time": "25-45s"},
+        },
+        "parameters": {
+            "goal": {
+                "type": "string",
+                "required": True,
+                "description": "Natural language description of what to accomplish",
+            },
+            "app": {
+                "type": "string",
+                "required": False,
+                "description": "Optional app to launch (auto-detected from goal if omitted)",
+                "values": ["google_home", "uber", "lyft", "doordash", "uber_eats", "chrome", "maps", "settings"],
+            },
+        },
+    }
+
+
 __all__ = [
     "get_screen_action",
     "android_phone_health_action",
@@ -1192,4 +1315,5 @@ __all__ = [
     "clear_cache_action",
     "battery_health_action",
     "do_task_action",
+    "api_get_action",
 ]

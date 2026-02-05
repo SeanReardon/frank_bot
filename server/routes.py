@@ -74,6 +74,7 @@ from actions.android_phone import (
     clear_cache_action,
     battery_health_action,
     do_task_action,
+    api_get_action,
 )
 from actions.claudia import (
     list_claudia_repos_action,
@@ -718,9 +719,17 @@ def build_action_routes(settings: Settings) -> list[Route]:
     async def android_phone_do_task_handler(request: Request):
         await _require_api_key(request)
         await _check_android_rate_limit(request, is_long_running=True)
-        stats.get_endpoint_stats("androidPhoneDoTask").record_call()
+        stats.get_endpoint_stats("androidPhoneTaskDo").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(do_task_action)
+        return await responder(payload)
+
+    # Android phone API documentation endpoint
+    async def android_phone_api_get_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidPhoneApiGet").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(api_get_action)
         return await responder(payload)
 
     routes = [
@@ -747,12 +756,12 @@ def build_action_routes(settings: Settings) -> list[Route]:
             methods=["GET"],
         ),
         Route(
-            "/actions/sms/send",
+            "/actions/sms/message/send",
             send_sms_handler,
             methods=["GET"],
         ),
         Route(
-            "/actions/sms/messages",
+            "/actions/sms/messages/get",
             get_sms_messages_handler,
             methods=["GET"],
         ),
@@ -770,9 +779,9 @@ def build_action_routes(settings: Settings) -> list[Route]:
         ),
         Route("/actions/ups/status", get_ups_status_handler, methods=["GET"]),
         # Telegram endpoints
-        Route("/actions/telegram/send", telegram_send_handler, methods=["GET"]),
-        Route("/actions/telegram/messages", telegram_messages_handler, methods=["GET"]),
-        Route("/actions/telegram/chats", telegram_chats_handler, methods=["GET"]),
+        Route("/actions/telegram/message/send", telegram_send_handler, methods=["GET"]),
+        Route("/actions/telegram/messages/get", telegram_messages_handler, methods=["GET"]),
+        Route("/actions/telegram/chats/list", telegram_chats_handler, methods=["GET"]),
         # Telegram dashboard endpoints (public - no API key required)
         Route("/telegram/status", telegram_status_handler, methods=["GET"]),
         Route("/telegram/test", telegram_test_handler, methods=["GET"]),
@@ -788,14 +797,14 @@ def build_action_routes(settings: Settings) -> list[Route]:
         # SMS messages endpoint for web dashboard (no API key required)
         Route("/sms/messages", sms_messages_web_handler, methods=["GET"]),
         # Jorb endpoints
-        Route("/jorbs", jorbs_list_handler, methods=["GET"]),
-        Route("/jorbs/create", jorbs_create_handler, methods=["GET"]),
-        Route("/jorbs/brief", jorbs_brief_handler, methods=["GET"]),
-        Route("/jorbs/stats", jorbs_stats_handler, methods=["GET"]),
-        Route("/jorbs/{id}", jorbs_get_handler, methods=["GET"]),
-        Route("/jorbs/{id}/messages", jorbs_messages_handler, methods=["GET"]),
-        Route("/jorbs/{id}/approve", jorbs_approve_handler, methods=["GET"]),
-        Route("/jorbs/{id}/cancel", jorbs_cancel_handler, methods=["GET"]),
+        Route("/actions/jorbs/list", jorbs_list_handler, methods=["GET"]),
+        Route("/actions/jorbs/create", jorbs_create_handler, methods=["GET"]),
+        Route("/actions/jorbs/brief", jorbs_brief_handler, methods=["GET"]),
+        Route("/actions/jorbs/stats", jorbs_stats_handler, methods=["GET"]),
+        Route("/actions/jorbs/{id}/get", jorbs_get_handler, methods=["GET"]),
+        Route("/actions/jorbs/{id}/messages/get", jorbs_messages_handler, methods=["GET"]),
+        Route("/actions/jorbs/{id}/approve", jorbs_approve_handler, methods=["GET"]),
+        Route("/actions/jorbs/{id}/cancel", jorbs_cancel_handler, methods=["GET"]),
         # Style capture endpoint (SEAN.md generation)
         Route("/actions/style/generate", style_generate_handler, methods=["GET"]),
         # System status endpoint (orchestration machinery health)
@@ -829,7 +838,9 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/androidPhone/getScreen", android_phone_get_screen_handler, methods=["GET"]),
         Route("/actions/androidPhone/health", android_phone_health_handler, methods=["GET"]),
         # Universal goal-based endpoint - describe what you want in natural language
-        Route("/actions/androidPhone/doTask", android_phone_do_task_handler, methods=["GET"]),
+        Route("/actions/androidPhone/task/do", android_phone_do_task_handler, methods=["GET"]),
+        # API documentation for androidPhoneTaskDo
+        Route("/actions/androidPhone/api/get", android_phone_api_get_handler, methods=["GET"]),
         # Android phone thermostat control
         Route("/actions/androidPhone/thermostat/setRange", android_phone_thermostat_set_range_handler, methods=["GET"]),
         Route("/actions/androidPhone/thermostat/getStatus", android_phone_thermostat_get_status_handler, methods=["GET"]),
