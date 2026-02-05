@@ -71,7 +71,7 @@ async def _check_scripts_status() -> dict[str, Any]:
     """Check script execution status."""
     try:
         from meta.jobs import list_jobs
-        jobs = list_jobs(limit=100)
+        jobs = list_jobs()
         by_status = {}
         for job in jobs:
             s = job.status
