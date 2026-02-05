@@ -26,6 +26,11 @@ WORKDIR /app
 ARG GIT_COMMIT=unknown
 ENV GIT_COMMIT=$GIT_COMMIT
 
+# Install Android Debug Bridge (adb) for phone automation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    android-tools-adb \
+    && rm -rf /var/lib/apt/lists/*
+
 # Configure environment
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
