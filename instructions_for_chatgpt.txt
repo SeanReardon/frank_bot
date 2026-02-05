@@ -26,6 +26,7 @@ This API uses a "learn-then-execute" pattern. For each capability:
 | **Android** | `androidPhoneApiLearn` | `androidPhoneTaskDo/Get` |
 | **Jorbs** | `jorbsApiLearn` | `jorbCreate/Brief/Approve` |
 | **Claudia** | `claudiaApiLearn` | `claudiaChatCreate/Message` |
+| **System** | - | `health`, `getDiagnostics` |
 
 ## Scripts (Access Calendar, SMS, Swarm, Telegram, etc.)
 
@@ -115,6 +116,15 @@ AI assistant for discussing and implementing code changes.
 3. `claudiaChatMessage` to discuss
 4. `claudiaPromptExecute` to implement
 
+## Diagnostics
+
+| Endpoint | Use |
+|----------|-----|
+| `health` | Quick check (no auth): is server running? |
+| `getDiagnostics` | Full subsystem status: Android connected? Jorbs active? Claudia reachable? |
+
+Call `getDiagnostics` to see if all systems are operational before starting tasks.
+
 ## Common Patterns
 
 | Request | Action |
@@ -125,6 +135,7 @@ AI assistant for discussing and implementing code changes.
 | "What's the thermostat?" | `androidPhoneTaskDo` goal="Check thermostat" |
 | "Book dinner Saturday" | `jorbCreate` with plan and contacts |
 | "What tasks need attention?" | `jorbsBrief` |
+| "Is everything working?" | `getDiagnostics` |
 
 ## Notes
 
