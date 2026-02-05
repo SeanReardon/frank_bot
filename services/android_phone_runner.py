@@ -361,7 +361,7 @@ class AndroidPhoneRunner:
                 messages=messages,
                 response_format={"type": "json_object"},
                 temperature=0.3,  # Lower temperature for more deterministic actions
-                max_tokens=1000,
+                max_completion_tokens=1000,
             )
 
             content = response.choices[0].message.content
