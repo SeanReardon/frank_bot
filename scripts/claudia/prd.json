@@ -1802,6 +1802,144 @@
       "priority": 108,
       "passes": true,
       "notes": "Security and debugging feature. Provides visibility into automated actions."
+    },
+    {
+      "id": "frank_bot-00109",
+      "title": "Create capabilities reference generator for jorb prompts",
+      "acceptanceCriteria": [
+        "New file services/jorb_capabilities.py with generate_capabilities_reference() function",
+        "Function introspects FrankAPI (from meta/api.py) and returns a markdown string documenting all frank.* namespaces, methods, parameters, and return types",
+        "Output includes method signatures with parameter names and types extracted from docstrings/annotations",
+        "Output includes brief usage examples for each namespace (calendar, contacts, sms, telegram, swarm, android, time, ups)",
+        "Function uses meta/introspection.py generate_meta_documentation() or similar reflection rather than hardcoding capability lists",
+        "Unit test in tests/ verifies the function returns valid markdown containing all current namespace names"
+      ],
+      "priority": 109,
+      "passes": false,
+      "notes": "Blocks frank_bot-00112 (new system prompt). Uses existing introspection infrastructure from meta/introspection.py. This ensures jorb prompts always reflect current FrankAPI capabilities without manual updates."
+    },
+    {
+      "id": "frank_bot-00110",
+      "title": "Add frank.android namespace to FrankAPI",
+      "acceptanceCriteria": [
+        "New AndroidNamespace class in meta/api.py with task_do(goal, app=None), task_get(task_id), and task_cancel(task_id) methods",
+        "Methods wrap the async action handlers from actions/android_phone.py (task_do_action, task_get_action, task_cancel_action) using the same sync pattern as other namespaces",
+        "FrankAPI.__init__ registers self.android = AndroidNamespace()",
+        "meta/introspection.py generate_meta_documentation() includes the android namespace in its output",
+        "Unit test verifies frank.android namespace exists and has expected methods",
+        "Existing FrankAPI tests continue to pass"
+      ],
+      "priority": 110,
+      "passes": false,
+      "notes": "Blocks frank_bot-00113 (script execution in agent runner). Follows exact same pattern as existing namespaces (CalendarNamespace, TelegramNamespace, etc.) in meta/api.py."
+    },
+    {
+      "id": "frank_bot-00111",
+      "title": "Add script_results field to JorbStorage schema",
+      "acceptanceCriteria": [
+        "Jorb dataclass in services/jorb_storage.py gains script_results: list[dict] field (default empty list)",
+        "SQLite schema includes script_results column (JSON text, default '[]')",
+        "Schema migration handles existing rows that lack the column (ALTER TABLE ADD COLUMN with default)",
+        "New method add_script_result(jorb_id, result_dict) appends to the list and persists",
+        "New method get_script_results(jorb_id, limit=20) returns most recent N results",
+        "Each script result dict contains: script, result, success (bool), timestamp",
+        "Unit tests verify add/get round-trip and limit parameter"
+      ],
+      "priority": 111,
+      "passes": false,
+      "notes": "Blocks frank_bot-00113 (script execution in agent runner). The script_results list is passed to the LLM as context so it can see what scripts have been run and their outputs."
+    },
+    {
+      "id": "frank_bot-00112",
+      "title": "Rewrite jorb session system prompt for script-generating agents",
+      "acceptanceCriteria": [
+        "prompts/jorb_session_system.md updated with new template that includes {{CAPABILITIES_REFERENCE}} placeholder",
+        "Template instructs LLM to output JSON with fields: reasoning, script, await_reply, done, pause, pause_reason, result",
+        "Template includes {{SCRIPT_RESULTS}} placeholder for execution history",
+        "Template retains existing placeholders: {{PERSONALITY_SECTION}}, {{JORB_CONTEXT}}, {{MESSAGE_HISTORY}}, {{CURRENT_EVENT}}, {{POLICY}}",
+        "Template includes clear decision guidelines: when to use script vs done vs pause vs await_reply",
+        "Template includes 2-3 inline examples showing script generation for different capability domains (calendar query, telegram send with await, android task)",
+        "services/jorb_session.py updated to inject capabilities reference (from frank_bot-00109) and script_results into the prompt template"
+      ],
+      "priority": 112,
+      "passes": false,
+      "notes": "Depends on frank_bot-00109 (capabilities reference generator). Blocks frank_bot-00113. The prompt must preserve backward compatibility by still supporting the personality system and message history injection. See prompts/unified-jorbs-design.md for reference format."
+    },
+    {
+      "id": "frank_bot-00113",
+      "title": "Update JorbSession to parse new script-based JSON response format",
+      "acceptanceCriteria": [
+        "JorbAction dataclass in services/jorb_session.py updated or replaced with new fields: script (str|None), await_reply (bool), done (bool), pause (bool), pause_reason (str|None), result (dict|None), reasoning (str)",
+        "JorbSessionResponse updated to carry the new JorbAction shape",
+        "JorbSession._parse_response() handles the new JSON format, extracting script and flow-control fields",
+        "Graceful handling of malformed LLM output (missing fields get sensible defaults, invalid JSON triggers retry or error)",
+        "Unit tests verify parsing of valid JSON for each action type: script-with-await, script-without-await, done, pause, no-action"
+      ],
+      "priority": 113,
+      "passes": false,
+      "notes": "Depends on frank_bot-00112 (new system prompt). Blocks frank_bot-00114. This task only changes the parsing layer in jorb_session.py - actual script execution is handled in frank_bot-00114."
+    },
+    {
+      "id": "frank_bot-00114",
+      "title": "Add script execution to AgentRunner via FrankAPI executor",
+      "acceptanceCriteria": [
+        "AgentRunner in services/agent_runner.py gains _execute_script(jorb, script_str) method",
+        "Method executes the script string using meta/executor.py infrastructure with FrankAPI context injected",
+        "Script results (success or error) are stored via JorbStorage.add_script_result()",
+        "Execution timeout of 300 seconds per script (configurable)",
+        "Script errors are captured and stored (not raised) so the LLM can see the error and decide how to handle it",
+        "Unit tests verify successful script execution stores result, and failed script stores error info"
+      ],
+      "priority": 114,
+      "passes": false,
+      "notes": "Depends on frank_bot-00110 (android namespace), frank_bot-00111 (script_results storage), frank_bot-00113 (new action format). Blocks frank_bot-00115. The executor must handle the script as a Python expression (e.g., 'frank.calendar.events(day=\"2026-02-05\")') and return the result dict."
+    },
+    {
+      "id": "frank_bot-00115",
+      "title": "Implement sync/async agent loop in AgentRunner",
+      "acceptanceCriteria": [
+        "AgentRunner.process_jorb_event() implements a loop: invoke LLM → parse action → execute → decide next step",
+        "Sync scripts (await_reply=false, done=false): execute script, feed result back to LLM immediately, continue loop",
+        "Async scripts (await_reply=true): execute script (sends message), mark jorb as awaiting human reply, break loop",
+        "Done actions: mark jorb complete with result, break loop",
+        "Pause actions: mark jorb paused with reason, break loop",
+        "No-script no-done no-pause: break loop (safety fallback)",
+        "Loop passes script_results history to LLM context on each iteration",
+        "Unit tests verify each flow path: sync loop continues, async breaks, done breaks, pause breaks"
+      ],
+      "priority": 115,
+      "passes": false,
+      "notes": "Depends on frank_bot-00114 (script execution). Blocks frank_bot-00116, frank_bot-00117. This is the core behavioral change - transforming the single-shot message handler into an iterative agent loop. See prompts/unified-jorbs-design.md execution flow diagram."
+    },
+    {
+      "id": "frank_bot-00116",
+      "title": "Add rate limiting for jorb LLM invocation loops",
+      "acceptanceCriteria": [
+        "AgentRunner enforces max LLM invocations per jorb: 20 per hour, 100 per day",
+        "Limits are configurable via constants (MAX_ITERATIONS_PER_HOUR, MAX_ITERATIONS_PER_DAY)",
+        "When limit exceeded, jorb is paused with a clear pause_reason explaining the rate limit",
+        "Iteration counts tracked per jorb (not global) using timestamps",
+        "Rate limit check runs before each LLM invocation in the agent loop",
+        "Unit tests verify: under-limit proceeds, at-limit pauses, counts reset after time window"
+      ],
+      "priority": 116,
+      "passes": false,
+      "notes": "Depends on frank_bot-00115 (agent loop). Safety feature to prevent runaway LLM loops that could burn through API credits. The existing JorbPolicy already has max_messages_per_hour=20 which provides a model to follow."
+    },
+    {
+      "id": "frank_bot-00117",
+      "title": "Integration tests for unified jorb flows",
+      "acceptanceCriteria": [
+        "Integration test: calendar query jorb - creates jorb, LLM generates frank.calendar.events() script, result returned, jorb completes",
+        "Integration test: telegram conversation jorb - creates jorb, LLM sends message via frank.telegram.send(), jorb awaits reply, simulated reply triggers next iteration, jorb completes",
+        "Integration test: android phone jorb - creates jorb, LLM calls frank.android.task_do(), polls with frank.android.task_get(), interprets result, jorb completes",
+        "Integration test: pause for approval - jorb pauses with reason, jorbApprove resumes processing",
+        "Tests use mocked LLM responses (not real API calls) but exercise the full AgentRunner pipeline",
+        "All existing jorb tests continue to pass"
+      ],
+      "priority": 117,
+      "passes": false,
+      "notes": "Depends on frank_bot-00115 (agent loop), frank_bot-00116 (rate limiting). These tests validate the end-to-end flow described in prompts/unified-jorbs-design.md examples (hotel booking, thermostat). Mock the OpenAI API to return predetermined JSON responses."
     }
   ]
 }
