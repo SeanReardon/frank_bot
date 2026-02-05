@@ -131,6 +131,8 @@ def _load_secrets() -> dict[str, str | None]:
         "openai_api_key": None,
         "claudia_api_url": None,
         "claudia_api_key": None,
+        "android_adb_host": None,
+        "android_adb_port": None,
     }
 
     if vault_enabled():
@@ -183,6 +185,13 @@ def _load_secrets() -> dict[str, str | None]:
         if claudia_creds:
             secrets["claudia_api_url"] = claudia_creds.get("api_url")
             secrets["claudia_api_key"] = claudia_creds.get("api_key")
+
+        # Android phone credentials
+        from services.vault_client import get_android_credentials
+        android_creds = get_android_credentials()
+        if android_creds:
+            secrets["android_adb_host"] = android_creds.get("adb_host")
+            secrets["android_adb_port"] = android_creds.get("adb_port")
     else:
         logger.info("Vault not configured, using environment variables")
 
@@ -219,6 +228,10 @@ def _load_secrets() -> dict[str, str | None]:
         secrets["claudia_api_url"] = os.getenv("CLAUDIA_API_URL")
     if not secrets["claudia_api_key"]:
         secrets["claudia_api_key"] = os.getenv("CLAUDIA_API_KEY")
+    if not secrets["android_adb_host"]:
+        secrets["android_adb_host"] = os.getenv("ANDROID_ADB_HOST", "10.0.0.95")
+    if not secrets["android_adb_port"]:
+        secrets["android_adb_port"] = os.getenv("ANDROID_ADB_PORT", "5555")
 
     return secrets
 
@@ -318,8 +331,8 @@ def get_settings() -> Settings:
         claudia_api_url=secrets["claudia_api_url"],
         claudia_api_key=secrets["claudia_api_key"],
         # Android phone settings
-        android_adb_host=os.getenv("ANDROID_ADB_HOST", "10.0.0.95"),
-        android_adb_port=int(os.getenv("ANDROID_ADB_PORT", "5555")),
+        android_adb_host=secrets["android_adb_host"] or "10.0.0.95",
+        android_adb_port=int(secrets["android_adb_port"] or "5555"),
         android_llm_model=os.getenv("ANDROID_LLM_MODEL", "gpt-5.2"),
         android_llm_api_key=os.getenv("ANDROID_LLM_API_KEY"),
         android_maintenance_cron=os.getenv("ANDROID_MAINTENANCE_CRON", "0 3 1 * *"),

@@ -113,3 +113,17 @@ resource "vault_kv_secret_v2" "claudia" {
     ignore_changes = [data_json]
   }
 }
+
+# Android phone automation configuration
+resource "vault_kv_secret_v2" "android" {
+  mount = "secret"
+  name  = "frank-bot/android"
+  data_json = jsonencode({
+    adb_host = var.android_adb_host
+    adb_port = var.android_adb_port
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}

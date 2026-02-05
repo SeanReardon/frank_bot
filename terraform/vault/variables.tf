@@ -108,3 +108,16 @@ variable "claudia_api_key" {
   sensitive   = true
   default     = ""
 }
+
+# Android phone automation
+variable "android_adb_host" {
+  type        = string
+  description = "IP address of the Android device for ADB over TCP"
+  default     = "10.0.0.95"
+}
+
+variable "android_adb_port" {
+  type        = string
+  description = "ADB TCP port (default: 5555)"
+  default     = "5555"
+}

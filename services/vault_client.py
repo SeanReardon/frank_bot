@@ -265,6 +265,19 @@ def get_claudia_credentials() -> dict[str, str] | None:
     return get_secret("frank-bot/claudia")
 
 
+def get_android_credentials() -> dict[str, str] | None:
+    """
+    Get Android phone automation credentials from Vault.
+
+    Returns dict with:
+        - adb_host: IP address of the Android device
+        - adb_port: ADB TCP port
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/android")
+
+
 __all__ = [
     "vault_enabled",
     "get_secret",
@@ -276,6 +289,7 @@ __all__ = [
     "get_telegram_bot_credentials",
     "get_openai_credentials",
     "get_claudia_credentials",
+    "get_android_credentials",
     "clear_client_cache",
     "clear_secret_cache",
 ]

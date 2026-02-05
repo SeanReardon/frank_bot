@@ -29,3 +29,7 @@ openai_api_key = "sk-..."
 # Claudia API credentials (autonomous agent orchestrator)
 claudia_api_url = "https://claudia.contrived.com"
 claudia_api_key = "..."
+
+# Android phone automation (ADB over TCP)
+android_adb_host = "10.0.0.95"
+android_adb_port = "5555"
