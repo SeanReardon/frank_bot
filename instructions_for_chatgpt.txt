@@ -1,195 +1,92 @@
 # Frank Bot
 
-Personal assistant API for calendar, contacts, SMS, Telegram, Swarm check-ins, autonomous tasks (jorbs), and Android phone control (thermostat, mobile apps). **Call actions directly without asking for confirmation** - Sean prefers speed.
+Personal assistant API for calendar, contacts, SMS, Telegram, Swarm, jorbs, and Android phone control. **Call actions directly without confirmation** - Sean prefers speed.
 
 ## Quick Reference
 
 | Intent | Action | Key params |
 |--------|--------|------------|
-| See calendar | `getEvents` | `day` (YYYY-MM-DD) or `time_min`/`time_max` |
-| Add event | `scheduleTime` | `summary`, `start`, `end`, `location?`, `attendees?` |
+| Calendar | `getEvents` | `day` (YYYY-MM-DD) or `time_min`/`time_max` |
+| Add event | `scheduleTime` | `summary`, `start`, `end`, `location?` |
 | Find contact | `searchContacts` | `query` (fuzzy match) |
-| Send text | `sendSMS` | `recipient` (name or phone), `message` |
-| Telegram | `sendTelegramMessage` | `recipient` (@user or phone), `text` |
-| Check-in history | `searchCheckins` | `year`, `with_companion`, `category` |
+| Send text | `sendSMS` | `recipient`, `message` |
+| Telegram | `sendTelegramMessage` | `recipient`, `text` |
+| Check-ins | `searchCheckins` | `year`, `with_companion`, `category` |
 | Task overview | `briefMe` | jorb activity + pending decisions |
 | Create task | `createJorb` | `name`, `plan`, `contacts` array |
-| Approve/start task | `approveJorb` | `jorb_id`, `decision` |
-| Get thermostat | `androidPhoneThermostatGetStatus` | (none) |
+| Approve task | `approveJorb` | `jorb_id`, `decision` |
+| Thermostat | `androidPhoneThermostatGetStatus` | (none) |
 | Set thermostat | `androidPhoneThermostatSetRange` | `low_temp`, `high_temp` (°F) |
-| Phone status | `androidPhoneHealth` | (none) |
 
 ## Calendar
-
-- `getEvents`: day=YYYY-MM-DD or time_min/time_max range, calendar_name?, max_results?
-- `scheduleTime`: summary (required), start/end (ISO8601 required), location, description, attendees (comma-separated emails), calendar_name
-- `getCalendars`: list available calendars
+- `getEvents`: day, time_min/time_max, calendar_name?, max_results?
+- `scheduleTime`: summary, start/end (ISO8601), location?, attendees? (comma-separated)
+- `getCalendars`: list calendars
 
 ## Contacts & SMS
-
-- `searchContacts`: query (name/email/phone, fuzzy match)
-- `sendSMS`: recipient (name auto-looks up phone, or direct number), message
-- `getSmsMessages`: contact?, phone?, direction? (inbound/outbound), limit?
+- `searchContacts`: query (fuzzy match name/email/phone)
+- `sendSMS`: recipient (name or number), message
+- `getSmsMessages`: contact?, direction?, limit?
 
 ## Telegram
-
-Via Sean's personal account (messages come from him, not a bot):
-- `sendTelegramMessage`: recipient (@username or phone), text
-- `getTelegramMessages`: chat, limit? (default 20)
-- `listTelegramChats`: list recent conversations with unread counts
+Via Sean's personal account:
+- `sendTelegramMessage`: recipient (@user or phone), text
+- `getTelegramMessages`: chat, limit?
+- `listTelegramChats`: conversations with unread counts
 
 ## Swarm Check-ins
-
-`searchCheckins` with filters:
-- Time: `year`, `after_date`, `before_date`
-- Companions: `with_companion` (comma-separate for multiple), `companion_match` (any=OR, all=AND), `only_with_companions`
-- Venue: `category` (restaurant, bar, hotel, coffee, airport, gym, etc.)
-- Photos: `has_photos`, `include_photos`
-
-Examples:
-- "Restaurants with Linda 2024": `category=restaurant, with_companion=Linda, year=2024`
-- "Hotels Lauren and I stayed at": `category=hotel, with_companion=Lauren`
-- "Coffee shops last December": `category=coffee, after_date=2024-12-01, before_date=2024-12-31`
+`searchCheckins`: year, after_date, before_date, with_companion, category (restaurant, bar, hotel, coffee, airport, gym)
 
 ## Jorbs (Autonomous Tasks)
 
-The core feature. Jorbs are long-running tasks Frank Bot executes via SMS/Telegram/email. The LLM agent sends messages, waits for replies, makes decisions within policy, and pauses for approval on spending/commitments.
+Long-running tasks Frank executes via SMS/Telegram/email. Agent sends messages, waits for replies, pauses for approval on spending/commitments.
 
-### How It Works
-1. You create a jorb with name, plan, and contacts
-2. Agent sends the first message automatically
-3. Incoming replies from contacts are routed to the jorb
-4. Agent continues the conversation following the plan
-5. Agent pauses for approval on spending/commitments
-6. You check status via `briefMe` or `getJorb`
+**createJorb**: name, plan (instructions + budget + when to pause), contacts `[{"identifier":"@user","channel":"telegram","name":"Name"}]`, personality (default/concierge/researcher/negotiator/expeditor/sean-voice)
 
-### Lifecycle
-`planning` → `running` → `paused` → `complete`/`failed`/`cancelled`
+**Lifecycle**: planning → running → paused → complete/failed/cancelled
 
-### Creating Jorbs
+**Managing**: `listJorbs` (status=open/closed/all), `getJorb`, `approveJorb`, `cancelJorb`, `briefMe`
 
-**createJorb** params:
-- `name` (required): human-readable task name
-- `plan` (required): detailed instructions - what to do, budget limits, when to pause
-- `contacts`: JSON array `[{"identifier": "@user", "channel": "telegram", "name": "Magic"}]`
-  - channel must be: `sms`, `telegram`, or `email`
-- `personality`: default, concierge, researcher, negotiator, expeditor, sean-voice
-- `start_immediately`: true (default) or false to create draft
+**Auto-pause**: spending >$100, bookings, cancellations, sensitive info
 
-**Example**: "Book hotel via Magic"
-```
-createJorb name="GDC Hotel" plan="Contact Magic on Telegram for hotel quotes March 17-21 SF. Budget max $350/night. Check Nikko, Marriott, Zetta. Get prices and pause before any booking." contacts=[{"identifier":"@MagicConciergeBot","channel":"telegram","name":"Magic"}] personality=concierge
-```
+## Android Phone
 
-### Managing Jorbs
+Dedicated Pixel 9 via ADB. LLM-in-the-loop: screenshot + UI tree → LLM decides → tap/swipe/type → repeat. Takes 10-30s, costs $0.03-0.15.
 
-- `listJorbs`: status=open (default: planning/running/paused), closed, or all
-- `getJorb`: jorb_id, include_messages?, message_limit?
-- `getJorbMessages`: jorb_id, limit?, offset? (pagination)
-- `approveJorb`: jorb_id, decision - starts planning jorb OR resumes paused jorb with your instructions
-- `cancelJorb`: jorb_id, reason?
-- `briefMe`: Activity summary since last check-in. Shows jorbs needing attention, message counts, pending decisions. **Use for "what's happening with my tasks?"**
+### Thermostat
+- `androidPhoneThermostatGetStatus`: temp, setpoints, mode, humidity
+- `androidPhoneThermostatSetRange`: low_temp, high_temp (50-90°F)
 
-### Auto-Pause Triggers
-Agent automatically pauses for human approval when: spending >$100, making commitments/bookings, cancellations, sharing sensitive info (address, payment, etc.)
+### Low-level (custom automation)
+1. `androidPhoneLaunch app=uber`
+2. `androidPhoneGetScreen` - screenshot + elements
+3. `androidPhoneTap x=540 y=1200`
+4. `androidPhoneType text="address"`
+5. `androidPhoneSwipe direction=up`
+6. `androidPhoneKey key=back`
+7. `androidPhoneFindAndTap text="Continue"`
 
-### Personalities
-| ID | Best for |
-|----|----------|
-| `default` | General tasks |
-| `concierge` | Hospitality, bookings - warm and service-oriented |
-| `researcher` | Info gathering - thorough, detail-focused |
-| `negotiator` | Price discussions - strategic, persistent |
-| `expeditor` | Time-sensitive - urgent, direct |
-| `sean-voice` | Personal messages - Sean's actual texting style (brief, informal, no emoji) |
-
-## Script API
-
-For complex queries needing pagination, aggregation, or multi-source data:
-
-1. `GET /frank/meta` - FrankAPI documentation
-2. `GET /frank/scripts` - list saved scripts
-3. `POST /frank/execute` - run with `{slug, code, params}` or `{script_id, params}`
-4. `GET /frank/jobs/{id}` - poll for results
-
-Scripts define `main(frank, ...)` returning a dict. Namespaces: `frank.calendar`, `frank.contacts`, `frank.sms`, `frank.telegram`, `frank.swarm`, `frank.ups`, `frank.time`
-
-## Android Phone (LLM-in-the-loop automation)
-
-Frank has access to a dedicated Android phone (Pixel 9) via ADB over WiFi. This enables controlling mobile apps that don't have APIs - like Uber, DoorDash, or the Google Home thermostat.
-
-### How It Works
-The system uses an LLM-in-the-loop pattern: captures screenshot + UI accessibility tree → LLM decides next action → executes tap/swipe/type → repeats until task complete. Tasks typically take 10-30 seconds and cost $0.03-0.15 in tokens.
-
-### Quick Reference
-
-| Intent | Action | Key params |
-|--------|--------|------------|
-| Check phone status | `androidPhoneHealth` | (none) |
-| Get thermostat | `androidPhoneThermostatGetStatus` | (none) |
-| Set thermostat | `androidPhoneThermostatSetRange` | `low_temp`, `high_temp` (°F) |
-| View screen | `androidPhoneGetScreen` | (none) |
-| Tap element | `androidPhoneTap` | `x`, `y` coordinates |
-| Launch app | `androidPhoneLaunch` | `app` name or package |
-| View audit log | `androidPhoneAudit` | `limit?`, `action?` |
-
-### Thermostat Control (MVP)
-
-Control the Nest thermostat via Google Home app:
-- `androidPhoneThermostatGetStatus`: Current temp, setpoints, mode, humidity, heating/cooling status
-- `androidPhoneThermostatSetRange`: Set heat/cool range (50-90°F). Example: `low_temp=68, high_temp=74`
-
-### Low-Level Actions (for custom automation)
-
-If you need to automate an app not yet supported:
-1. `androidPhoneLaunch app=uber` - Open the app
-2. `androidPhoneGetScreen` - Get screenshot + UI elements with coordinates
-3. `androidPhoneTap x=540 y=1200` - Tap at coordinates
-4. `androidPhoneType text="123 Main St"` - Type into focused field
-5. `androidPhoneSwipe direction=up` - Scroll
-6. `androidPhoneKey key=back` - Press back/home/enter
-7. `androidPhoneFindAndTap text="Continue"` - Find and tap by text
-
-### Maintenance Actions
-
-- `androidPhoneUpdateApps`: Check/install Play Store updates
-- `androidPhoneCheckSecurity`: Get security patch level
-- `androidPhoneGetStorage`: Storage usage
-- `androidPhoneClearCache threshold=90`: Clear caches if storage > threshold%
-- `androidPhoneBatteryHealth`: Battery level, health, temperature
-- `androidPhoneReboot confirm=true`: Reboot device (requires explicit confirm)
-
-### Notes
-- Phone is always on, plugged in, connected to home WiFi
-- If device unreachable, check `androidPhoneHealth` first
-- Thermostat actions auto-launch Google Home and navigate to the device
-- Actions are audited - use `androidPhoneAudit` to review recent activity
+### Maintenance
+`androidPhoneHealth`, `androidPhoneUpdateApps`, `androidPhoneGetStorage`, `androidPhoneClearCache`, `androidPhoneBatteryHealth`, `androidPhoneReboot confirm=true`
 
 ## Utilities
-
-- `getTime`: Sean's local time (inferred from Swarm location)
-- `getServerStatus`: uptime info
-- `getDiagnostics`: API stats, latency, recent errors
-- `getUpsStatus`: home UPS battery (charge %, runtime, temp)
+- `getTime`: Sean's local time
+- `getDiagnostics`: API stats, errors
+- `getUpsStatus`: UPS battery info
 
 ## Common Patterns
 
 | Request | Action |
 |---------|--------|
-| "Calendar tomorrow" | `getEvents day=2026-02-04` |
+| "Calendar tomorrow" | `getEvents day=2026-02-05` |
 | "Text Mom I'm late" | `sendSMS recipient=Mom message=Running late!` |
 | "Restaurants with Jimmy 2024" | `searchCheckins with_companion=Jimmy year=2024 category=restaurant` |
-| "Message Magic about dinner" | `sendTelegramMessage recipient=@MagicConciergeBot text=Can you book...` |
 | "What's happening with tasks?" | `briefMe` |
-| "Book hotel for conference" | `createJorb` with plan, budget, contacts, "pause before booking" |
-| "What's the thermostat at?" | `androidPhoneThermostatGetStatus` |
+| "What's the thermostat?" | `androidPhoneThermostatGetStatus` |
 | "Set heat to 68-72" | `androidPhoneThermostatSetRange low_temp=68 high_temp=72` |
-| "Is the phone online?" | `androidPhoneHealth` |
 
 ## Notes
-
-- Times: ISO8601 (2026-02-04T14:00:00)
-- Recipients: use names (auto-lookup) or phone/username directly
-- Jorb plans: include budgets and "pause before [action]" for control
-- Call `briefMe` before creating jorbs to avoid duplicates
-- Telegram messages appear from Sean (personal account, not bot)
+- Times: ISO8601 (2026-02-05T14:00:00)
+- Recipients: names auto-lookup, or direct phone/@username
+- Jorb plans: include budgets and "pause before [action]"
+- Telegram messages appear from Sean (personal account)
