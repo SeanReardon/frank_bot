@@ -1034,15 +1034,147 @@ async def battery_health_action(
     }
 
 
-async def do_task_action(
+# App package mapping (shared by task functions)
+APP_PACKAGES = {
+    "google_home": "com.google.android.apps.chromecast.app",
+    "uber": "com.ubercab",
+    "lyft": "com.lyft.android",
+    "doordash": "com.dd.doordash",
+    "uber_eats": "com.ubercab.eats",
+    "chrome": "com.android.chrome",
+    "maps": "com.google.android.apps.maps",
+    "settings": "com.android.settings",
+}
+
+
+def _detect_app_from_goal(goal: str) -> str | None:
+    """Auto-detect which app to launch based on the goal description."""
+    goal_lower = goal.lower()
+    if any(word in goal_lower for word in ["thermostat", "temperature", "hvac", "heat", "cool", "nest"]):
+        return "google_home"
+    elif any(word in goal_lower for word in ["light", "lamp", "switch", "plug", "smart home"]):
+        return "google_home"
+    elif "uber" in goal_lower and "eats" not in goal_lower:
+        return "uber"
+    elif "lyft" in goal_lower:
+        return "lyft"
+    elif any(word in goal_lower for word in ["doordash", "food delivery"]):
+        return "doordash"
+    elif "uber eats" in goal_lower:
+        return "uber_eats"
+    elif any(word in goal_lower for word in ["map", "direction", "navigate"]):
+        return "maps"
+    elif any(word in goal_lower for word in ["search", "browse", "website", "google"]):
+        return "chrome"
+    return None
+
+
+async def _execute_task_background(task_id: str, goal: str, app: str | None) -> None:
+    """Execute a task in the background. Updates task storage with progress."""
+    from services.android_phone_runner import get_android_phone_runner
+    from services.android_task_storage import get_android_task_storage
+
+    storage = get_android_task_storage()
+
+    try:
+        # Mark as running
+        await storage.update_task(task_id, status="running", current_step="Initializing")
+
+        # Check for cancellation
+        if storage.is_cancel_requested(task_id):
+            return
+
+        # Connect and wake device
+        client = get_android_client()
+        await client.connect()
+        await client.wake_device()
+
+        await storage.update_task(task_id, current_step="Device ready")
+
+        # Check for cancellation
+        if storage.is_cancel_requested(task_id):
+            return
+
+        # Launch app if specified
+        if app and app in APP_PACKAGES:
+            package = APP_PACKAGES[app]
+            await storage.update_task(task_id, current_step=f"Launching {app}")
+            launch_result = await client.launch_app(package)
+            if not launch_result.success:
+                logger.warning("Failed to launch %s: %s", app, launch_result.error)
+            await asyncio.sleep(2)  # Wait for app to load
+
+        # Check for cancellation
+        if storage.is_cancel_requested(task_id):
+            return
+
+        # Run the automation
+        runner = get_android_phone_runner()
+
+        if not runner.is_configured:
+            await storage.update_task(
+                task_id,
+                status="failed",
+                error="AndroidPhoneRunner not configured. Set ANDROID_LLM_MODEL and ANDROID_LLM_API_KEY.",
+            )
+            return
+
+        await storage.update_task(task_id, current_step="Running automation")
+        logger.info("Task %s: Starting automation for goal: %s", task_id, goal[:50])
+
+        result = await runner.run_task(
+            task_prompt="_generic",
+            parameters={"GOAL": goal},
+            max_steps=25,
+        )
+
+        # Update with final result
+        if result.success:
+            extracted = result.extracted_data or {}
+            await storage.update_task(
+                task_id,
+                status="completed",
+                result={
+                    "success": True,
+                    "result": extracted.get("result", "Task completed"),
+                    "extracted_data": extracted.get("extracted_data", extracted),
+                },
+                steps_taken=result.steps_taken,
+                tokens_used=result.total_tokens_used,
+                estimated_cost=result.total_cost,
+                current_step=None,
+            )
+            logger.info("Task %s: Completed successfully", task_id)
+        else:
+            await storage.update_task(
+                task_id,
+                status="failed",
+                error=result.error,
+                steps_taken=result.steps_taken,
+                tokens_used=result.total_tokens_used,
+                estimated_cost=result.total_cost,
+                current_step=None,
+            )
+            logger.info("Task %s: Failed - %s", task_id, result.error)
+
+    except asyncio.CancelledError:
+        await storage.update_task(task_id, status="cancelled", error="Task was cancelled")
+        logger.info("Task %s: Cancelled", task_id)
+    except Exception as exc:
+        logger.exception("Task %s: Unexpected error", task_id)
+        await storage.update_task(task_id, status="failed", error=str(exc))
+    finally:
+        storage.unregister_future(task_id)
+
+
+async def task_do_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Execute a goal-based task on the Android phone using LLM automation.
+    Start a goal-based task on the Android phone (async - returns immediately).
 
-    This is the universal endpoint for phone automation. Describe what you want
-    to accomplish in natural language, and the LLM will navigate the phone to
-    achieve it.
+    Describe what you want to accomplish in natural language. The task runs in
+    the background and you can check status with androidPhoneTaskGet.
 
     IMPORTANT: The automation will STOP before any irreversible actions like
     payments, purchases, or bookings - returning details for human review.
@@ -1054,28 +1186,18 @@ async def do_task_action(
               - "Set the thermostat to 65-70 degrees"
               - "Open Uber and check ride prices to SFO airport"
               - "Turn off the living room lights"
-              - "Check DoorDash for nearby restaurant options"
         app: (Optional) App to launch first. Auto-detected from goal if omitted.
-             Examples: "google_home", "uber", "doordash", "chrome"
 
     Returns:
-        success: Whether the task completed successfully
-        result: Description of what was accomplished or extracted data
-        steps_taken: Number of automation steps executed
-        tokens_used: LLM tokens consumed
-        estimated_cost: Estimated cost in USD
+        task_id: ID to use with androidPhoneTaskGet/Cancel
+        status: "pending" (task is queued to start)
+        goal: Echo of the goal
+        message: Instructions for checking status
 
-    Capabilities:
-        - Thermostat: Read/set temperature via Google Home
-        - Smart Home: Control lights, locks, devices via Google Home
-        - Ride Services: Check prices, request rides (stops before payment)
-        - Food Delivery: Browse restaurants, build orders (stops before checkout)
-        - Browser: Search, navigate websites
-        - Any installed app: Navigate and interact
-
-    Cost: $0.03-0.15 per task depending on complexity (10-30 seconds)
+    Use androidPhoneTaskGet(task_id) to check progress and get results.
+    Use androidPhoneTaskCancel(task_id) to cancel a running task.
     """
-    from services.android_phone_runner import get_android_phone_runner
+    from services.android_task_storage import get_android_task_storage
 
     args = arguments or {}
 
@@ -1083,216 +1205,371 @@ async def do_task_action(
     if not goal:
         raise ValueError("'goal' is required - describe what you want to accomplish")
 
-    app = args.get("app", "").strip().lower()
+    app = args.get("app", "").strip().lower() if args.get("app") else None
 
     # Auto-detect app from goal if not specified
     if not app:
-        goal_lower = goal.lower()
-        if any(word in goal_lower for word in ["thermostat", "temperature", "hvac", "heat", "cool", "nest"]):
-            app = "google_home"
-        elif any(word in goal_lower for word in ["light", "lamp", "switch", "plug", "smart home"]):
-            app = "google_home"
-        elif "uber" in goal_lower and "eats" not in goal_lower:
-            app = "uber"
-        elif "lyft" in goal_lower:
-            app = "lyft"
-        elif any(word in goal_lower for word in ["doordash", "food delivery"]):
-            app = "doordash"
-        elif "uber eats" in goal_lower:
-            app = "uber_eats"
-        elif any(word in goal_lower for word in ["map", "direction", "navigate"]):
-            app = "maps"
-        elif any(word in goal_lower for word in ["search", "browse", "website", "google"]):
-            app = "chrome"
+        app = _detect_app_from_goal(goal)
 
-    # App package mapping
-    app_packages = {
-        "google_home": "com.google.android.apps.chromecast.app",
-        "uber": "com.ubercab",
-        "lyft": "com.lyft.android",
-        "doordash": "com.dd.doordash",
-        "uber_eats": "com.ubercab.eats",
-        "chrome": "com.android.chrome",
-        "maps": "com.google.android.apps.maps",
-        "settings": "com.android.settings",
-    }
+    # Create task record
+    storage = get_android_task_storage()
+    task = await storage.create_task(goal=goal, app=app)
 
-    # Launch app if specified
-    client = get_android_client()
-    await client.connect()
-    await client.wake_device()
+    # Start background execution
+    future = asyncio.create_task(_execute_task_background(task.id, goal, app))
+    storage.register_future(task.id, future)
 
-    if app and app in app_packages:
-        package = app_packages[app]
-        launch_result = await client.launch_app(package)
-        if not launch_result.success:
-            logger.warning("Failed to launch %s: %s", app, launch_result.error)
-            # Continue anyway - app might already be open
-        await asyncio.sleep(2)  # Wait for app to load
-
-    # Run the automation with generic prompt
-    runner = get_android_phone_runner()
-
-    if not runner.is_configured:
-        raise ValueError(
-            "AndroidPhoneRunner not configured. "
-            "Set ANDROID_LLM_MODEL and ANDROID_LLM_API_KEY environment variables."
-        )
-
-    logger.info("Starting goal-based task: %s (app=%s, model=%s)", goal[:50], app or "auto", runner.model)
-
-    result = await runner.run_task(
-        task_prompt="_generic",
-        parameters={"GOAL": goal},
-        max_steps=25,  # Allow more steps for complex tasks
-    )
-
-    if not result.success:
-        return {
-            "success": False,
-            "error": result.error,
-            "steps_taken": result.steps_taken,
-            "tokens_used": result.total_tokens_used,
-            "estimated_cost": result.total_cost,
-        }
-
-    # Extract result data
-    extracted = result.extracted_data or {}
+    logger.info("Created async task %s: %s (app=%s)", task.id, goal[:50], app or "auto")
 
     return {
-        "success": True,
-        "result": extracted.get("result", "Task completed"),
-        "extracted_data": extracted.get("extracted_data", extracted),
-        "steps_taken": result.steps_taken,
-        "tokens_used": result.total_tokens_used,
-        "estimated_cost": result.total_cost,
+        "task_id": task.id,
+        "status": "pending",
+        "goal": goal,
+        "app": app,
+        "message": f"Task started. Check status with androidPhoneTaskGet(task_id='{task.id}')",
     }
 
 
-async def api_get_action(
+async def task_get_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Get full documentation of the androidPhoneTaskDo API capabilities.
+    Get the status and result of an Android phone task.
 
-    Returns detailed information about what tasks can be accomplished,
-    example goals, supported apps, cost estimates, and safety rules.
-    This helps LLMs understand how to use the androidPhoneTaskDo endpoint.
+    Args:
+        task_id: The task ID returned by androidPhoneTaskDo
 
     Returns:
-        capabilities: List of supported task categories with examples
-        supported_apps: Apps that can be controlled with package names
+        Task details including status, progress, and results (if completed).
+        Status values: pending, running, completed, failed, cancelled
+    """
+    from services.android_task_storage import get_android_task_storage
+
+    args = arguments or {}
+    task_id = args.get("task_id", "").strip()
+
+    if not task_id:
+        raise ValueError("'task_id' is required")
+
+    storage = get_android_task_storage()
+    task = await storage.get_task(task_id)
+
+    if not task:
+        raise ValueError(f"Task '{task_id}' not found")
+
+    return task.to_dict()
+
+
+async def task_list_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    List recent Android phone tasks.
+
+    Args:
+        status: Filter by status (pending, running, completed, failed, cancelled, active)
+                'active' returns pending + running tasks
+        limit: Maximum number of tasks to return (default 20)
+
+    Returns:
+        tasks: List of task summaries (most recent first)
+        count: Number of tasks returned
+    """
+    from services.android_task_storage import get_android_task_storage
+
+    args = arguments or {}
+    status = args.get("status", "").strip() or None
+    limit = int(args.get("limit", 20))
+
+    storage = get_android_task_storage()
+    tasks = await storage.list_tasks(status=status, limit=limit)
+
+    return {
+        "tasks": [t.to_summary() for t in tasks],
+        "count": len(tasks),
+    }
+
+
+async def task_cancel_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Cancel a running Android phone task.
+
+    Args:
+        task_id: The task ID to cancel
+
+    Returns:
+        Task details after cancellation.
+        Note: Already completed/failed tasks cannot be cancelled.
+    """
+    from services.android_task_storage import get_android_task_storage
+
+    args = arguments or {}
+    task_id = args.get("task_id", "").strip()
+
+    if not task_id:
+        raise ValueError("'task_id' is required")
+
+    storage = get_android_task_storage()
+    task = await storage.cancel_task(task_id)
+
+    if not task:
+        raise ValueError(f"Task '{task_id}' not found")
+
+    if task.status in ("completed", "failed"):
+        return {
+            "message": f"Task already {task.status}, cannot cancel",
+            **task.to_dict(),
+        }
+
+    return {
+        "message": "Task cancelled",
+        **task.to_dict(),
+    }
+
+
+# Keep old name as alias for backwards compatibility
+async def do_task_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Alias for task_do_action for backwards compatibility."""
+    return await task_do_action(arguments)
+
+
+async def api_learn_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Learn the full capabilities of the Android phone automation system.
+
+    Call this FIRST before using androidPhoneTaskDo. Returns comprehensive
+    documentation about everything the phone can do, including:
+    - Smart home control (thermostat, lights, locks, cameras)
+    - Ride services (Uber, Lyft - price checks, booking)
+    - Food delivery (DoorDash, Uber Eats - browsing, ordering)
+    - Device maintenance (storage, battery, updates, reboot)
+    - Browser and general app navigation
+
+    The androidPhoneTaskDo endpoint accepts natural language goals and
+    accomplishes them through LLM-in-the-loop visual automation.
+
+    Returns:
+        capabilities: Comprehensive list of what can be done with examples
+        supported_apps: Apps that can be controlled
         safety_rules: Actions that require human confirmation
-        cost_estimates: Token usage and cost ranges by task type
-        example_goals: Ready-to-use goal strings
+        cost_estimates: Token usage and cost by task type
+        maintenance_tasks: Device maintenance operations available
+        tips: Best practices for effective goal descriptions
     """
     return {
-        "endpoint": "androidPhoneTaskDo",
-        "description": "Universal Android phone automation via LLM-in-the-loop control",
-        "how_it_works": (
-            "1. Describe your goal in natural language\n"
-            "2. LLM captures screenshot + UI elements\n"
-            "3. LLM decides action (tap, type, swipe)\n"
-            "4. Action executes, loop repeats\n"
-            "5. Returns result or stops for confirmation"
+        "overview": (
+            "Sean's Pixel 9 Pro is available for automation via androidPhoneTaskDo. "
+            "Describe ANY goal in natural language - the system uses vision + UI automation "
+            "to accomplish it. This endpoint replaces dozens of specialized APIs with one "
+            "universal interface. Call androidPhoneTaskDo with a 'goal' parameter."
         ),
+        "how_it_works": [
+            "1. You describe what you want in the 'goal' parameter",
+            "2. System wakes phone, launches relevant app (auto-detected or specified)",
+            "3. LLM sees screenshot + clickable elements",
+            "4. LLM decides action: tap(x,y), type(text), swipe(direction), etc.",
+            "5. Action executes, new screenshot captured, loop continues",
+            "6. Returns extracted data OR stops for confirmation at payment/booking",
+        ],
         "capabilities": {
-            "thermostat": {
-                "description": "Read and control Nest thermostat via Google Home",
-                "examples": [
-                    "Check the thermostat temperature and humidity",
-                    "Set thermostat to 68-72 degrees",
-                    "What's the current heating/cooling status?",
+            "thermostat_control": {
+                "description": "Full Nest thermostat control via Google Home app",
+                "what_you_can_do": [
+                    "Read current temperature and humidity",
+                    "Read heat/cool setpoints",
+                    "Set temperature range (e.g., 65-70°F)",
+                    "Check if heating or cooling is active",
+                    "See thermostat mode (heat, cool, heat_cool, eco, off)",
+                ],
+                "example_goals": [
+                    "Check the thermostat - what's the current temp and humidity?",
+                    "Set the thermostat to heat between 68 and 72 degrees",
+                    "Is the AC running right now?",
+                    "What's the Nest set to?",
                 ],
             },
             "smart_home": {
-                "description": "Control smart devices via Google Home",
-                "examples": [
-                    "Turn off the living room lights",
-                    "Set bedroom lights to 50%",
-                    "Lock the front door",
-                    "Check if garage door is closed",
+                "description": "Control all Google Home-connected devices",
+                "what_you_can_do": [
+                    "Turn lights on/off",
+                    "Dim lights to specific percentage",
+                    "Lock/unlock smart locks",
+                    "Check camera feeds",
+                    "Control smart plugs and switches",
+                    "Check device status",
+                ],
+                "example_goals": [
+                    "Turn off all the lights",
+                    "Set the living room lights to 30%",
+                    "Is the front door locked?",
+                    "Turn on the bedroom fan",
                 ],
             },
             "ride_services": {
-                "description": "Check prices and request rides (stops before payment)",
-                "examples": [
-                    "Check Uber prices to SFO airport",
-                    "What's the Lyft wait time right now?",
-                    "Get a ride estimate to downtown",
+                "description": "Uber and Lyft - check prices, request rides",
+                "what_you_can_do": [
+                    "Check current ride prices to a destination",
+                    "See estimated wait times",
+                    "Compare UberX vs Uber Black vs Lyft prices",
+                    "Request a ride (STOPS before confirming payment)",
                 ],
+                "example_goals": [
+                    "Check Uber prices to SFO airport",
+                    "How much is a Lyft to downtown right now?",
+                    "What's the wait time for an Uber?",
+                    "Get me a ride to 123 Main St (will stop before booking)",
+                ],
+                "safety_note": "Always stops before confirming ride - returns price/ETA for your approval",
             },
             "food_delivery": {
-                "description": "Browse and build orders (stops before checkout)",
-                "examples": [
-                    "Search DoorDash for nearby pizza places",
-                    "What's on the Chipotle menu?",
-                    "Find Chinese food delivery options",
+                "description": "DoorDash, Uber Eats - browse restaurants, build orders",
+                "what_you_can_do": [
+                    "Search for restaurants by cuisine or name",
+                    "Browse menus and prices",
+                    "Check delivery times and fees",
+                    "Build an order (STOPS before checkout)",
+                ],
+                "example_goals": [
+                    "What pizza places are on DoorDash nearby?",
+                    "Show me the Chipotle menu",
+                    "Find Chinese food with delivery under 30 min",
+                    "Order a burrito from Chipotle (will stop at checkout)",
+                ],
+                "safety_note": "Always stops at checkout screen - returns order summary for your approval",
+            },
+            "device_maintenance": {
+                "description": "Phone maintenance and diagnostics",
+                "what_you_can_do": [
+                    "Check storage usage and free space",
+                    "Get battery health and charging status",
+                    "Clear app caches to free space",
+                    "Check for and install app updates",
+                    "View security patch level",
+                    "Reboot the device (requires confirmation)",
+                ],
+                "example_goals": [
+                    "How much storage is left on the phone?",
+                    "What's the battery health?",
+                    "Clear caches to free up space",
+                    "Check if any apps need updates",
+                    "What Android security patch is installed?",
+                    "Reboot the phone",
                 ],
             },
-            "browser": {
-                "description": "Search and navigate websites",
-                "examples": [
-                    "Search Google for weather forecast",
-                    "Open amazon.com",
-                    "Look up movie times nearby",
+            "browser_and_search": {
+                "description": "Chrome browser for web searches and navigation",
+                "what_you_can_do": [
+                    "Google searches",
+                    "Navigate to specific websites",
+                    "Read webpage content",
+                    "Fill out simple forms (STOPS before submitting sensitive data)",
+                ],
+                "example_goals": [
+                    "Google the weather forecast for tomorrow",
+                    "Go to amazon.com and search for USB cables",
+                    "What's the score of the Giants game?",
+                    "Look up movie times at AMC nearby",
                 ],
             },
-            "general": {
-                "description": "Navigate and interact with any app",
-                "examples": [
-                    "Open Settings and check storage usage",
+            "general_apps": {
+                "description": "Navigate and interact with any installed app",
+                "what_you_can_do": [
+                    "Open any app",
+                    "Navigate menus and screens",
+                    "Read displayed information",
+                    "Tap buttons and enter text",
+                ],
+                "example_goals": [
                     "Check my email inbox",
+                    "Open Settings and show battery usage",
                     "What notifications do I have?",
+                    "Open Maps and search for gas stations",
                 ],
             },
         },
         "supported_apps": {
-            "google_home": "com.google.android.apps.chromecast.app",
-            "uber": "com.ubercab",
-            "lyft": "com.lyft.android",
-            "doordash": "com.dd.doordash",
-            "uber_eats": "com.ubercab.eats",
-            "chrome": "com.android.chrome",
-            "maps": "com.google.android.apps.maps",
-            "settings": "com.android.settings",
+            "smart_home": ["Google Home (Nest, lights, locks, cameras)"],
+            "transportation": ["Uber", "Lyft", "Google Maps"],
+            "food": ["DoorDash", "Uber Eats", "Grubhub", "Instacart"],
+            "utilities": ["Chrome", "Settings", "Play Store", "Gmail"],
+            "social": ["WhatsApp", "Instagram", "Messages"],
+            "finance": ["Venmo", "Cash App (view only - stops before transactions)"],
         },
         "safety_rules": {
-            "stops_before": [
-                "Confirming purchases or payments",
-                "Submitting financial transactions",
-                "Making reservations or bookings",
-                "Sending messages to unknown contacts",
-                "Deleting important data",
-                "Any irreversible action",
+            "always_stops_before": [
+                "Confirming any purchase or payment",
+                "Booking rides, restaurants, or services",
+                "Sending money or financial transactions",
+                "Sending messages to people (returns draft for approval)",
+                "Deleting files or data",
+                "Installing or uninstalling apps",
+                "Any action that can't be undone",
             ],
-            "returns_for_confirmation": (
-                "When automation reaches a point requiring payment or commitment, "
-                "it stops and returns current state with 'needs_confirmation' status"
+            "requires_explicit_confirmation": [
+                "Rebooting the device",
+                "Factory reset (not supported)",
+                "Changing security settings",
+            ],
+            "how_it_works": (
+                "When the automation reaches a 'point of no return', it stops and "
+                "returns the current state with all details (prices, order summary, etc.) "
+                "so you can review before giving the go-ahead."
             ),
         },
-        "cost_estimates": {
-            "simple_read": {"tokens": "5000-8000", "cost": "$0.03-0.05", "time": "10-15s"},
-            "simple_action": {"tokens": "8000-15000", "cost": "$0.05-0.08", "time": "15-25s"},
-            "complex_task": {"tokens": "15000-30000", "cost": "$0.08-0.15", "time": "25-45s"},
+        "cost_and_timing": {
+            "simple_read": {
+                "examples": ["Check thermostat", "What's the battery level?"],
+                "tokens": "5,000-8,000",
+                "cost": "$0.03-0.05",
+                "time": "10-15 seconds",
+            },
+            "simple_action": {
+                "examples": ["Set thermostat to 70", "Turn off lights"],
+                "tokens": "8,000-15,000",
+                "cost": "$0.05-0.08",
+                "time": "15-25 seconds",
+            },
+            "complex_navigation": {
+                "examples": ["Check Uber prices to airport", "Browse DoorDash menus"],
+                "tokens": "15,000-30,000",
+                "cost": "$0.08-0.15",
+                "time": "25-45 seconds",
+            },
         },
-        "parameters": {
-            "goal": {
-                "type": "string",
-                "required": True,
-                "description": "Natural language description of what to accomplish",
-            },
-            "app": {
-                "type": "string",
-                "required": False,
-                "description": "Optional app to launch (auto-detected from goal if omitted)",
-                "values": ["google_home", "uber", "lyft", "doordash", "uber_eats", "chrome", "maps", "settings"],
-            },
+        "tips_for_best_results": [
+            "Be specific: 'Set thermostat to 68-72' is better than 'adjust temperature'",
+            "Include destination for rides: 'Uber to SFO' not just 'check Uber'",
+            "Mention the app if it's ambiguous: 'Check DoorDash for pizza'",
+            "For reads, ask a question: 'What's the thermostat set to?'",
+            "For actions, be imperative: 'Turn off the living room lights'",
+        ],
+        "quick_reference": {
+            "thermostat": "androidPhoneTaskDo(goal='Check/Set thermostat to X-Y degrees')",
+            "lights": "androidPhoneTaskDo(goal='Turn on/off [room] lights')",
+            "rides": "androidPhoneTaskDo(goal='Check Uber/Lyft prices to [destination]')",
+            "food": "androidPhoneTaskDo(goal='Search DoorDash for [cuisine]')",
+            "maintenance": "androidPhoneTaskDo(goal='Check storage/battery/updates')",
+            "browser": "androidPhoneTaskDo(goal='Google [search term]')",
         },
     }
 
 
+# Keep old name as alias for backwards compatibility
+async def api_get_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Alias for api_learn_action for backwards compatibility."""
+    return await api_learn_action(arguments)
+
+
 __all__ = [
+    # Screen and basic actions (internal/advanced use)
     "get_screen_action",
     "android_phone_health_action",
     "android_phone_status_action",
@@ -1305,8 +1582,10 @@ __all__ = [
     "android_phone_wake_action",
     "android_phone_screenshot_action",
     "android_phone_find_and_tap_action",
+    # Thermostat-specific (internal use - prefer task_do_action)
     "thermostat_set_range_action",
     "thermostat_get_status_action",
+    # Audit and maintenance (internal use)
     "android_phone_audit_action",
     "update_apps_action",
     "check_security_action",
@@ -1314,6 +1593,13 @@ __all__ = [
     "get_storage_action",
     "clear_cache_action",
     "battery_health_action",
-    "do_task_action",
+    # PRIMARY PUBLIC API (5 endpoints for ChatGPT)
+    "api_learn_action",      # androidPhoneApiLearn - learn capabilities
+    "task_do_action",        # androidPhoneTaskDo - start a task
+    "task_get_action",       # androidPhoneTaskGet - get task status
+    "task_list_action",      # androidPhoneTaskList - list tasks
+    "task_cancel_action",    # androidPhoneTaskCancel - cancel a task
+    # Backwards compatibility aliases
     "api_get_action",
+    "do_task_action",
 ]

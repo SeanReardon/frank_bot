@@ -1183,110 +1183,88 @@
         ]
       }
     },
-    "/actions/androidPhone/health": {
+    "/actions/androidPhone/api/learn": {
       "get": {
-        "operationId": "androidPhoneHealth",
-        "summary": "Health check for Android phone",
-        "description": "Returns device connection status, model, Android version, battery level, and WiFi SSID. Results are cached for 30 seconds. Public endpoint - no API key required.",
+        "operationId": "androidPhoneApiLearn",
+        "summary": "Learn Android capabilities (CALL FIRST)",
+        "description": "Call this FIRST to learn everything the phone can do: thermostat, lights, Uber/Lyft, DoorDash, maintenance, browser. Returns comprehensive docs with examples.",
         "responses": {
           "200": {
-            "description": "Health check result.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AndroidPhoneHealthResponse"
-                }
-              }
-            }
+            "description": "Comprehensive API documentation.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AndroidPhoneApiDocResponse"}}}
           }
-        }
+        },
+        "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/androidPhone/task/do": {
       "get": {
         "operationId": "androidPhoneTaskDo",
-        "summary": "Execute goal-based task on Android phone",
-        "description": "Universal Android phone automation. Describe your goal in natural language. Capabilities: thermostat, smart home, Uber/Lyft, DoorDash, browser, any app. STOPS before payments/purchases. Cost: $0.03-0.15, takes 10-30s.",
+        "summary": "Start a task (async)",
+        "description": "Start a task. Returns immediately with task_id. Poll with androidPhoneTaskGet for results.",
         "parameters": [
-          {
-            "in": "query",
-            "name": "goal",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Natural language description of what to accomplish. Be specific about the desired outcome."
-          },
-          {
-            "in": "query",
-            "name": "app",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "google_home",
-                "uber",
-                "lyft",
-                "doordash",
-                "uber_eats",
-                "chrome",
-                "maps",
-                "settings"
-              ]
-            },
-            "description": "Optional: specific app to launch. Auto-detected from goal if omitted."
-          }
+          {"in": "query", "name": "goal", "required": true, "schema": {"type": "string"}, "description": "What to accomplish in natural language."},
+          {"in": "query", "name": "app", "schema": {"type": "string"}, "description": "Optional app to launch."}
         ],
         "responses": {
           "200": {
-            "description": "Task result with extracted data or confirmation.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AndroidPhoneDoTaskResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Task failed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
+            "description": "Task created.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AndroidPhoneTaskCreateResponse"}}}
           }
         },
-        "security": [
-          {
-            "ActionsApiKey": []
-          }
-        ]
+        "security": [{"ActionsApiKey": []}]
       }
     },
-    "/actions/androidPhone/api/get": {
+    "/actions/androidPhone/task/get": {
       "get": {
-        "operationId": "androidPhoneApiGet",
-        "summary": "Get Android phone API documentation",
-        "description": "Returns full documentation of androidPhoneTaskDo capabilities, supported apps, example goals, cost estimates, and safety rules.",
+        "operationId": "androidPhoneTaskGet",
+        "summary": "Get task status/result",
+        "description": "Check task status and get result when completed.",
+        "parameters": [
+          {"in": "query", "name": "task_id", "required": true, "schema": {"type": "string"}, "description": "Task ID from TaskDo."}
+        ],
         "responses": {
           "200": {
-            "description": "API documentation.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AndroidPhoneApiDocResponse"
-                }
-              }
-            }
+            "description": "Task details.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AndroidPhoneTaskResponse"}}}
           }
         },
-        "security": [
-          {
-            "ActionsApiKey": []
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/task/list": {
+      "get": {
+        "operationId": "androidPhoneTaskList",
+        "summary": "List recent tasks",
+        "description": "List recent tasks, optionally filtered by status.",
+        "parameters": [
+          {"in": "query", "name": "status", "schema": {"type": "string"}, "description": "Filter: pending/running/completed/failed/cancelled/active"},
+          {"in": "query", "name": "limit", "schema": {"type": "integer", "default": 20}, "description": "Max tasks."}
+        ],
+        "responses": {
+          "200": {
+            "description": "Task list.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AndroidPhoneTaskListResponse"}}}
           }
-        ]
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/task/cancel": {
+      "get": {
+        "operationId": "androidPhoneTaskCancel",
+        "summary": "Cancel a task",
+        "description": "Cancel a pending or running task.",
+        "parameters": [
+          {"in": "query", "name": "task_id", "required": true, "schema": {"type": "string"}, "description": "Task ID to cancel."}
+        ],
+        "responses": {
+          "200": {
+            "description": "Task after cancellation.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AndroidPhoneTaskResponse"}}}
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
       }
     }
   },
@@ -2006,41 +1984,59 @@
       },
       "AndroidPhoneApiDocResponse": {
         "type": "object",
-        "description": "Documentation for Android phone automation API.",
+        "description": "Comprehensive documentation for Android phone automation.",
         "properties": {
-          "endpoint": {
-            "type": "string",
-            "description": "The endpoint name."
-          },
-          "description": {
-            "type": "string",
-            "description": "What the API does."
-          },
-          "how_it_works": {
-            "type": "string",
-            "description": "Step-by-step explanation."
-          },
-          "capabilities": {
-            "type": "object",
-            "description": "Task categories with examples."
-          },
-          "supported_apps": {
-            "type": "object",
-            "description": "App names to package mappings."
-          },
-          "safety_rules": {
-            "type": "object",
-            "description": "Actions requiring confirmation."
-          },
-          "cost_estimates": {
-            "type": "object",
-            "description": "Token and cost ranges by task type."
-          },
-          "parameters": {
-            "type": "object",
-            "description": "API parameters documentation."
-          }
+          "overview": {"type": "string"},
+          "how_it_works": {"type": "array", "items": {"type": "string"}},
+          "capabilities": {"type": "object"},
+          "supported_apps": {"type": "object"},
+          "safety_rules": {"type": "object"},
+          "cost_and_timing": {"type": "object"},
+          "tips_for_best_results": {"type": "array", "items": {"type": "string"}},
+          "quick_reference": {"type": "object"}
         }
+      },
+      "AndroidPhoneTaskCreateResponse": {
+        "type": "object",
+        "description": "Response when task is created.",
+        "properties": {
+          "task_id": {"type": "string"},
+          "status": {"type": "string"},
+          "goal": {"type": "string"},
+          "app": {"type": "string"},
+          "message": {"type": "string"}
+        },
+        "required": ["task_id", "status", "goal"]
+      },
+      "AndroidPhoneTaskResponse": {
+        "type": "object",
+        "description": "Task details including status and result.",
+        "properties": {
+          "id": {"type": "string"},
+          "goal": {"type": "string"},
+          "status": {"type": "string", "enum": ["pending", "running", "completed", "failed", "cancelled"]},
+          "app": {"type": "string"},
+          "created_at": {"type": "string"},
+          "updated_at": {"type": "string"},
+          "started_at": {"type": "string"},
+          "completed_at": {"type": "string"},
+          "result": {"type": "object"},
+          "error": {"type": "string"},
+          "steps_taken": {"type": "integer"},
+          "current_step": {"type": "string"},
+          "tokens_used": {"type": "integer"},
+          "estimated_cost": {"type": "number"}
+        },
+        "required": ["id", "goal", "status"]
+      },
+      "AndroidPhoneTaskListResponse": {
+        "type": "object",
+        "description": "List of task summaries.",
+        "properties": {
+          "tasks": {"type": "array", "items": {"type": "object"}},
+          "count": {"type": "integer"}
+        },
+        "required": ["tasks", "count"]
       },
       "PendingDecision": {
         "type": "object",

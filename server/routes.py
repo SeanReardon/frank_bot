@@ -73,8 +73,11 @@ from actions.android_phone import (
     get_storage_action,
     clear_cache_action,
     battery_health_action,
-    do_task_action,
-    api_get_action,
+    task_do_action,
+    task_get_action,
+    task_list_action,
+    task_cancel_action,
+    api_learn_action,
 )
 from actions.claudia import (
     list_claudia_repos_action,
@@ -715,21 +718,46 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(battery_health_action)
         return await responder(payload)
 
-    # Android phone do task - universal goal-based endpoint
-    async def android_phone_do_task_handler(request: Request):
+    # Android phone task CRUD endpoints
+    async def android_phone_task_do_handler(request: Request):
+        """Start a new task (returns immediately with task_id)."""
         await _require_api_key(request)
         await _check_android_rate_limit(request, is_long_running=True)
         stats.get_endpoint_stats("androidPhoneTaskDo").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(do_task_action)
+        responder = _build_responder(task_do_action)
         return await responder(payload)
 
-    # Android phone API documentation endpoint
-    async def android_phone_api_get_handler(request: Request):
+    async def android_phone_task_get_handler(request: Request):
+        """Get task status and result."""
         await _require_api_key(request)
-        stats.get_endpoint_stats("androidPhoneApiGet").record_call()
+        stats.get_endpoint_stats("androidPhoneTaskGet").record_call()
         payload = dict(request.query_params)
-        responder = _build_responder(api_get_action)
+        responder = _build_responder(task_get_action)
+        return await responder(payload)
+
+    async def android_phone_task_list_handler(request: Request):
+        """List recent tasks."""
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidPhoneTaskList").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(task_list_action)
+        return await responder(payload)
+
+    async def android_phone_task_cancel_handler(request: Request):
+        """Cancel a running task."""
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidPhoneTaskCancel").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(task_cancel_action)
+        return await responder(payload)
+
+    # Android phone API documentation endpoint - teaches LLM about all capabilities
+    async def android_phone_api_learn_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidPhoneApiLearn").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(api_learn_action)
         return await responder(payload)
 
     routes = [
@@ -837,10 +865,12 @@ def build_action_routes(settings: Settings) -> list[Route]:
         # Android phone endpoints (new naming convention for LLM-in-the-loop)
         Route("/actions/androidPhone/getScreen", android_phone_get_screen_handler, methods=["GET"]),
         Route("/actions/androidPhone/health", android_phone_health_handler, methods=["GET"]),
-        # Universal goal-based endpoint - describe what you want in natural language
-        Route("/actions/androidPhone/task/do", android_phone_do_task_handler, methods=["GET"]),
-        # API documentation for androidPhoneTaskDo
-        Route("/actions/androidPhone/api/get", android_phone_api_get_handler, methods=["GET"]),
+        # PRIMARY API: Learn + Task CRUD (5 endpoints for ChatGPT)
+        Route("/actions/androidPhone/api/learn", android_phone_api_learn_handler, methods=["GET"]),
+        Route("/actions/androidPhone/task/do", android_phone_task_do_handler, methods=["GET"]),
+        Route("/actions/androidPhone/task/get", android_phone_task_get_handler, methods=["GET"]),
+        Route("/actions/androidPhone/task/list", android_phone_task_list_handler, methods=["GET"]),
+        Route("/actions/androidPhone/task/cancel", android_phone_task_cancel_handler, methods=["GET"]),
         # Android phone thermostat control
         Route("/actions/androidPhone/thermostat/setRange", android_phone_thermostat_set_range_handler, methods=["GET"]),
         Route("/actions/androidPhone/thermostat/getStatus", android_phone_thermostat_get_status_handler, methods=["GET"]),

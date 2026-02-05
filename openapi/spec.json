@@ -2176,8 +2176,8 @@
     "/actions/androidPhone/task/do": {
       "get": {
         "operationId": "androidPhoneTaskDo",
-        "summary": "Execute goal-based task on Android phone",
-        "description": "Universal Android phone automation. Describe your goal in natural language. Capabilities: thermostat, smart home, Uber/Lyft, DoorDash, browser, any app. STOPS before payments/purchases. Cost: $0.03-0.15, takes 10-30s.",
+        "summary": "Start a task (async - returns task_id)",
+        "description": "Start a goal-based task. Returns immediately with task_id. Use androidPhoneTaskGet to check progress/results. Call androidPhoneApiLearn first to understand all capabilities.",
         "parameters": [
           {
             "in": "query",
@@ -2186,54 +2186,117 @@
             "schema": {
               "type": "string"
             },
-            "description": "Natural language description of what to accomplish. Be specific about the desired outcome."
+            "description": "Natural language description of what to accomplish."
           },
           {
             "in": "query",
             "name": "app",
             "schema": {
               "type": "string",
-              "enum": [
-                "google_home",
-                "uber",
-                "lyft",
-                "doordash",
-                "uber_eats",
-                "chrome",
-                "maps",
-                "settings"
-              ]
+              "enum": ["google_home", "uber", "lyft", "doordash", "uber_eats", "chrome", "maps", "settings"]
             },
-            "description": "Optional: specific app to launch. Auto-detected from goal if omitted."
+            "description": "Optional: app to launch. Auto-detected from goal if omitted."
           }
         ],
         "responses": {
           "200": {
-            "description": "Task result with extracted data or confirmation.",
+            "description": "Task created, returns task_id for status polling.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AndroidPhoneDoTaskResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Task failed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "$ref": "#/components/schemas/AndroidPhoneTaskCreateResponse"
                 }
               }
             }
           }
         },
-        "security": [
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/task/get": {
+      "get": {
+        "operationId": "androidPhoneTaskGet",
+        "summary": "Get task status and result",
+        "description": "Check the status and get the result of a task started with androidPhoneTaskDo.",
+        "parameters": [
           {
-            "ActionsApiKey": []
+            "in": "query",
+            "name": "task_id",
+            "required": true,
+            "schema": {"type": "string"},
+            "description": "Task ID returned by androidPhoneTaskDo."
           }
-        ]
+        ],
+        "responses": {
+          "200": {
+            "description": "Task details including status, progress, and results.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneTaskResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/task/list": {
+      "get": {
+        "operationId": "androidPhoneTaskList",
+        "summary": "List recent tasks",
+        "description": "List recent Android phone tasks, optionally filtered by status.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {"type": "string", "enum": ["pending", "running", "completed", "failed", "cancelled", "active"]},
+            "description": "Filter by status. 'active' returns pending+running."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {"type": "integer", "default": 20},
+            "description": "Max tasks to return."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of task summaries.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneTaskListResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/task/cancel": {
+      "get": {
+        "operationId": "androidPhoneTaskCancel",
+        "summary": "Cancel a running task",
+        "description": "Cancel a task that is pending or running. Completed/failed tasks cannot be cancelled.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "task_id",
+            "required": true,
+            "schema": {"type": "string"},
+            "description": "Task ID to cancel."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task details after cancellation.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneTaskResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/androidPhone/thermostat/setRange": {
@@ -2534,11 +2597,11 @@
         ]
       }
     },
-    "/actions/androidPhone/api/get": {
+    "/actions/androidPhone/api/learn": {
       "get": {
-        "operationId": "androidPhoneApiGet",
-        "summary": "Get Android phone API documentation",
-        "description": "Returns full documentation of androidPhoneTaskDo capabilities, supported apps, example goals, cost estimates, and safety rules.",
+        "operationId": "androidPhoneApiLearn",
+        "summary": "Learn Android phone capabilities (call this first!)",
+        "description": "Call this FIRST before using androidPhoneTaskDo. Returns comprehensive documentation about EVERYTHING the phone can do: thermostat control, smart home (lights/locks), ride services (Uber/Lyft), food delivery (DoorDash), device maintenance (storage/battery/updates/reboot), and browser. The androidPhoneTaskDo endpoint accepts natural language goals and accomplishes them.",
         "responses": {
           "200": {
             "description": "API documentation.",
@@ -5219,6 +5282,62 @@
             "description": "API parameters documentation."
           }
         }
+      },
+      "AndroidPhoneTaskCreateResponse": {
+        "type": "object",
+        "description": "Response when a task is created.",
+        "properties": {
+          "task_id": {"type": "string", "description": "ID to use with TaskGet/Cancel."},
+          "status": {"type": "string", "description": "Task status (pending)."},
+          "goal": {"type": "string", "description": "The goal description."},
+          "app": {"type": "string", "description": "App that will be launched."},
+          "message": {"type": "string", "description": "Instructions for checking status."}
+        },
+        "required": ["task_id", "status", "goal"]
+      },
+      "AndroidPhoneTaskResponse": {
+        "type": "object",
+        "description": "Full task details including status and result.",
+        "properties": {
+          "id": {"type": "string"},
+          "goal": {"type": "string"},
+          "status": {"type": "string", "enum": ["pending", "running", "completed", "failed", "cancelled"]},
+          "app": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "started_at": {"type": "string", "format": "date-time"},
+          "completed_at": {"type": "string", "format": "date-time"},
+          "result": {"type": "object", "description": "Task result when completed."},
+          "error": {"type": "string", "description": "Error message if failed."},
+          "steps_taken": {"type": "integer"},
+          "current_step": {"type": "string"},
+          "tokens_used": {"type": "integer"},
+          "estimated_cost": {"type": "number"}
+        },
+        "required": ["id", "goal", "status"]
+      },
+      "AndroidPhoneTaskListResponse": {
+        "type": "object",
+        "description": "List of task summaries.",
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "goal": {"type": "string"},
+                "status": {"type": "string"},
+                "app": {"type": "string"},
+                "created_at": {"type": "string"},
+                "steps_taken": {"type": "integer"},
+                "estimated_cost": {"type": "number"}
+              }
+            }
+          },
+          "count": {"type": "integer"}
+        },
+        "required": ["tasks", "count"]
       }
     },
     "securitySchemes": {

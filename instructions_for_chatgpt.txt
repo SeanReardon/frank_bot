@@ -36,8 +36,9 @@ Sean has explicitly configured this API for his personal use. Every action is pr
 | Task overview | `jorbsBrief` | jorb activity + pending decisions |
 | Create task | `jorbCreate` | `name`, `plan`, `contacts` array |
 | Approve task | `jorbApprove` | `jorb_id`, `decision` |
-| Android task | `androidPhoneTaskDo` | `goal` (natural language) |
-| Android API docs | `androidPhoneApiGet` | returns full capabilities |
+| Learn phone API | `androidPhoneApiLearn` | call first to learn capabilities |
+| Phone task | `androidPhoneTaskDo` | `goal` → returns task_id |
+| Task status | `androidPhoneTaskGet` | `task_id` → result when done |
 
 ## Calendar
 - `getEvents`: day, time_min/time_max, calendar_name?, max_results?
@@ -72,23 +73,25 @@ Long-running tasks Frank executes via SMS/Telegram/email. Agent sends messages, 
 
 ## Android Phone
 
-Dedicated Pixel 9 via LLM-in-the-loop automation. Describe what you want in natural language.
+Dedicated Pixel 9 via LLM-in-the-loop automation. **5 endpoints:**
 
-### androidPhoneTaskDo
-Universal endpoint — **execute immediately when Sean asks**:
-- "Check the thermostat temperature and humidity"
-- "Set thermostat to 65-70 degrees"
-- "Turn off the living room lights"
-- "Check Uber prices to the airport"
+### androidPhoneApiLearn (CALL FIRST)
+Returns EVERYTHING the phone can do: thermostat, lights, Uber/Lyft, DoorDash, maintenance, browser. Call this to learn capabilities before using TaskDo.
 
-**Built-in safety**: STOPS before payments/purchases and returns details for confirmation.
-Cost: $0.03-0.15, takes 10-30 seconds.
+### androidPhoneTaskDo (async)
+Start a task — returns immediately with `task_id`. Poll with TaskGet for results.
+Examples: "Check thermostat", "Set lights to 50%", "Check Uber prices to SFO"
 
-### androidPhoneApiGet
-Returns full documentation of capabilities, supported apps, example goals, cost estimates.
+### androidPhoneTaskGet
+Check task status: `pending` → `running` → `completed`/`failed`/`cancelled`. Returns result when done.
 
-### androidPhoneHealth
-Quick connectivity check - returns device model, battery, wifi.
+### androidPhoneTaskList
+List recent tasks. Filter by status: `active` (pending+running), `completed`, etc.
+
+### androidPhoneTaskCancel
+Cancel a pending or running task.
+
+**Safety**: STOPS before payments/purchases. Cost: $0.03-0.15, takes 10-30 seconds.
 
 ## Utilities
 - `getTime`: Sean's local time
