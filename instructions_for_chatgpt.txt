@@ -1,6 +1,6 @@
 # Frank Bot
 
-Personal assistant API for calendar, contacts, SMS, Telegram, Swarm check-ins, and autonomous tasks (jorbs). **Call actions directly without asking for confirmation** - Sean prefers speed.
+Personal assistant API for calendar, contacts, SMS, Telegram, Swarm check-ins, autonomous tasks (jorbs), and Android phone control (thermostat, mobile apps). **Call actions directly without asking for confirmation** - Sean prefers speed.
 
 ## Quick Reference
 
@@ -15,6 +15,9 @@ Personal assistant API for calendar, contacts, SMS, Telegram, Swarm check-ins, a
 | Task overview | `briefMe` | jorb activity + pending decisions |
 | Create task | `createJorb` | `name`, `plan`, `contacts` array |
 | Approve/start task | `approveJorb` | `jorb_id`, `decision` |
+| Get thermostat | `androidPhoneThermostatGetStatus` | (none) |
+| Set thermostat | `androidPhoneThermostatSetRange` | `low_temp`, `high_temp` (°F) |
+| Phone status | `androidPhoneHealth` | (none) |
 
 ## Calendar
 
@@ -111,6 +114,57 @@ For complex queries needing pagination, aggregation, or multi-source data:
 
 Scripts define `main(frank, ...)` returning a dict. Namespaces: `frank.calendar`, `frank.contacts`, `frank.sms`, `frank.telegram`, `frank.swarm`, `frank.ups`, `frank.time`
 
+## Android Phone (LLM-in-the-loop automation)
+
+Frank has access to a dedicated Android phone (Pixel 9) via ADB over WiFi. This enables controlling mobile apps that don't have APIs - like Uber, DoorDash, or the Google Home thermostat.
+
+### How It Works
+The system uses an LLM-in-the-loop pattern: captures screenshot + UI accessibility tree → LLM decides next action → executes tap/swipe/type → repeats until task complete. Tasks typically take 10-30 seconds and cost $0.03-0.15 in tokens.
+
+### Quick Reference
+
+| Intent | Action | Key params |
+|--------|--------|------------|
+| Check phone status | `androidPhoneHealth` | (none) |
+| Get thermostat | `androidPhoneThermostatGetStatus` | (none) |
+| Set thermostat | `androidPhoneThermostatSetRange` | `low_temp`, `high_temp` (°F) |
+| View screen | `androidPhoneGetScreen` | (none) |
+| Tap element | `androidPhoneTap` | `x`, `y` coordinates |
+| Launch app | `androidPhoneLaunch` | `app` name or package |
+| View audit log | `androidPhoneAudit` | `limit?`, `action?` |
+
+### Thermostat Control (MVP)
+
+Control the Nest thermostat via Google Home app:
+- `androidPhoneThermostatGetStatus`: Current temp, setpoints, mode, humidity, heating/cooling status
+- `androidPhoneThermostatSetRange`: Set heat/cool range (50-90°F). Example: `low_temp=68, high_temp=74`
+
+### Low-Level Actions (for custom automation)
+
+If you need to automate an app not yet supported:
+1. `androidPhoneLaunch app=uber` - Open the app
+2. `androidPhoneGetScreen` - Get screenshot + UI elements with coordinates
+3. `androidPhoneTap x=540 y=1200` - Tap at coordinates
+4. `androidPhoneType text="123 Main St"` - Type into focused field
+5. `androidPhoneSwipe direction=up` - Scroll
+6. `androidPhoneKey key=back` - Press back/home/enter
+7. `androidPhoneFindAndTap text="Continue"` - Find and tap by text
+
+### Maintenance Actions
+
+- `androidPhoneUpdateApps`: Check/install Play Store updates
+- `androidPhoneCheckSecurity`: Get security patch level
+- `androidPhoneGetStorage`: Storage usage
+- `androidPhoneClearCache threshold=90`: Clear caches if storage > threshold%
+- `androidPhoneBatteryHealth`: Battery level, health, temperature
+- `androidPhoneReboot confirm=true`: Reboot device (requires explicit confirm)
+
+### Notes
+- Phone is always on, plugged in, connected to home WiFi
+- If device unreachable, check `androidPhoneHealth` first
+- Thermostat actions auto-launch Google Home and navigate to the device
+- Actions are audited - use `androidPhoneAudit` to review recent activity
+
 ## Utilities
 
 - `getTime`: Sean's local time (inferred from Swarm location)
@@ -128,6 +182,9 @@ Scripts define `main(frank, ...)` returning a dict. Namespaces: `frank.calendar`
 | "Message Magic about dinner" | `sendTelegramMessage recipient=@MagicConciergeBot text=Can you book...` |
 | "What's happening with tasks?" | `briefMe` |
 | "Book hotel for conference" | `createJorb` with plan, budget, contacts, "pause before booking" |
+| "What's the thermostat at?" | `androidPhoneThermostatGetStatus` |
+| "Set heat to 68-72" | `androidPhoneThermostatSetRange low_temp=68 high_temp=72` |
+| "Is the phone online?" | `androidPhoneHealth` |
 
 ## Notes
 
