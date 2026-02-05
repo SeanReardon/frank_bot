@@ -64,6 +64,8 @@ from actions.android_phone import (
     android_phone_wake_action,
     android_phone_screenshot_action,
     android_phone_find_and_tap_action,
+    thermostat_set_range_action,
+    thermostat_get_status_action,
 )
 from actions.claudia import (
     list_claudia_repos_action,
@@ -586,6 +588,21 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(android_phone_find_and_tap_action)
         return await responder(payload)
 
+    # Android phone thermostat control (LLM-in-the-loop)
+    async def android_phone_thermostat_set_range_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidPhoneThermostatSetRange").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(thermostat_set_range_action)
+        return await responder(payload)
+
+    async def android_phone_thermostat_get_status_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("androidPhoneThermostatGetStatus").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(thermostat_get_status_action)
+        return await responder(payload)
+
     routes = [
         # All endpoints use GET for minimal confirmation prompts
         Route("/actions/hello", hello_get, methods=["GET"]),
@@ -691,6 +708,9 @@ def build_action_routes(settings: Settings) -> list[Route]:
         # Android phone endpoints (new naming convention for LLM-in-the-loop)
         Route("/actions/androidPhone/getScreen", android_phone_get_screen_handler, methods=["GET"]),
         Route("/actions/androidPhone/health", android_phone_health_handler, methods=["GET"]),
+        # Android phone thermostat control
+        Route("/actions/androidPhone/thermostat/setRange", android_phone_thermostat_set_range_handler, methods=["GET"]),
+        Route("/actions/androidPhone/thermostat/getStatus", android_phone_thermostat_get_status_handler, methods=["GET"]),
     ]
 
     return routes

@@ -1546,3 +1546,86 @@ Added comprehensive Android phone configuration to config.py, updated .env.examp
 - Cron defaults should align with user-friendly times (3 AM for maintenance, 4 AM Sundays for health checks)
 
 ---
+
+## 2026-02-05: frank_bot-00092 - Create AndroidPhoneRunner service with LLM loop orchestration
+
+### Summary
+Implemented the AndroidPhoneRunner service that orchestrates LLM-in-the-loop phone control. The runner captures screen state (screenshot + XML), sends it to vision-capable LLMs (OpenAI or Anthropic), receives action decisions, and executes them until task completion or max steps reached.
+
+### Files Changed
+- services/android_phone_runner.py (new - 500+ lines)
+- tests/test_android_phone_runner.py (new - 29 unit tests)
+
+### Learnings
+- Vision models need multimodal message format with base64-encoded images
+- Lower temperature (0.3) makes actions more deterministic and predictable
+- Step delay between actions allows UI to settle before next screenshot
+- Token tracking per-step enables accurate cost estimation
+- Supporting both OpenAI and Anthropic requires format conversion
+
+---
+
+## 2026-02-05: frank_bot-00093 - Create base prompt template for Android phone control
+
+### Summary
+Created comprehensive base prompt template that teaches the LLM how to control Android phones via accessibility commands. Covers screen state format, all available actions, best practices, and error recovery strategies.
+
+### Files Changed
+- prompts/androidPhone/_base.md (new)
+
+### Learnings
+- Prompt must explain both screenshot (visual) and XML (structured) data sources
+- JSON response format must be explicit and consistent for reliable parsing
+- Common UI patterns section helps LLM recognize standard Android widgets
+- Error recovery guidance prevents automation from getting stuck
+
+---
+
+## 2026-02-05: frank_bot-00094 - Create thermostat-setRange prompt template
+
+### Summary
+Created detailed prompt template for setting thermostat temperature range via Google Home app. Includes step-by-step workflow, known UI patterns for Google Home, parameter substitution, and comprehensive error handling.
+
+### Files Changed
+- prompts/androidPhone/thermostat-setRange.md (new)
+
+### Learnings
+- Google Home UI varies by version; prompts should be adaptable
+- Mode switching (Heat-only to Heat/Cool) may be required before setting range
+- Temperature controls may be circular dials, sliders, or +/- buttons
+- Success criteria should include verification step to confirm values set
+
+---
+
+## 2026-02-05: frank_bot-00095 - Create thermostat-getStatus prompt template
+
+### Summary
+Created prompt template for reading current thermostat status via Google Home app. Extracts current temperature, setpoints, mode, humidity, and active status. Returns structured JSON data.
+
+### Files Changed
+- prompts/androidPhone/thermostat-getStatus.md (new)
+
+### Learnings
+- Status reading is simpler than setting; needs fewer max_steps
+- Current temp vs target temp must be clearly distinguished in prompts
+- Mode affects which setpoints are visible (Heat-only hides cool setpoint)
+- Some thermostats don't display humidity; should handle gracefully with null
+
+---
+
+## 2026-02-05: frank_bot-00096 - Implement androidPhone_thermostat_setRange action
+
+### Summary
+Implemented the thermostat set range action with input validation, app launch, and LLM loop execution. Action validates temperature bounds (50-90°F), launches Google Home, and runs the AndroidPhoneRunner with the thermostat-setRange prompt template.
+
+### Files Changed
+- actions/android_phone.py (added thermostat_set_range_action, thermostat_get_status_action)
+- server/routes.py (added imports and routes for thermostat endpoints)
+
+### Learnings
+- Temperature validation upfront prevents wasted LLM tokens on invalid inputs
+- App launch should happen before runner.run_task() for consistent starting state
+- Wait time after app launch (2s) allows UI to fully initialize
+- Extracted data from LLM "done" action provides final confirmed values
+
+---

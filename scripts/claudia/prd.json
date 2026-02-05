@@ -1527,7 +1527,7 @@
         "Unit tests with mocked LLM responses verify loop execution"
       ],
       "priority": 92,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00091. Core LLM-in-the-loop orchestrator. Blocking for frank_bot-00094, frank_bot-00095."
     },
     {
@@ -1544,7 +1544,7 @@
         "AndroidPhoneRunner loads and includes _base.md in all prompts"
       ],
       "priority": 93,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00092. Shared prompt foundation. Blocking for frank_bot-00094, frank_bot-00095."
     },
     {
@@ -1562,7 +1562,7 @@
         "Error handling: thermostat offline, app not installed, wrong screen navigation"
       ],
       "priority": 94,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00093. MVP thermostat control template. Blocking for frank_bot-00096."
     },
     {
@@ -1580,7 +1580,7 @@
         "Known UI patterns: temperature display elements, mode indicators"
       ],
       "priority": 95,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00093. MVP thermostat status template. Blocking for frank_bot-00097."
     },
     {
@@ -1589,7 +1589,7 @@
       "acceptanceCriteria": [
         "actions/android_phone.py extended with thermostat_set_range_action(arguments)",
         "Action accepts low_temp and high_temp parameters (integers)",
-        "Validates temperature range (e.g., 60-85°F reasonable bounds)",
+        "Validates temperature range (e.g., 60-85\u00b0F reasonable bounds)",
         "Loads thermostat-setRange.md prompt and formats with parameters",
         "Calls AndroidPhoneRunner.run_task() with formatted prompt",
         "Returns JSON with success, final_low_temp, final_high_temp, steps_taken, tokens_used",
@@ -1597,7 +1597,7 @@
         "Integration test with mocked LLM verifies action flow"
       ],
       "priority": 96,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00092, frank_bot-00094. MVP action for setting thermostat."
     },
     {

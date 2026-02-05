@@ -583,6 +583,194 @@ async def android_phone_find_and_tap_action(
     }
 
 
+# Temperature validation bounds
+MIN_TEMP_F = 50
+MAX_TEMP_F = 90
+
+
+async def thermostat_set_range_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Set the thermostat temperature range via Google Home app.
+
+    This action uses LLM-in-the-loop automation to navigate the Google Home
+    app and set the thermostat to the specified temperature range.
+
+    Args:
+        low_temp: Target low temperature (heat setpoint) in Fahrenheit (50-90)
+        high_temp: Target high temperature (cool setpoint) in Fahrenheit (50-90)
+
+    Returns:
+        success: Whether the operation completed successfully
+        final_low_temp: The actual low temperature set
+        final_high_temp: The actual high temperature set
+        steps_taken: Number of automation steps executed
+        tokens_used: LLM tokens consumed
+        estimated_cost: Estimated cost in USD
+    """
+    from services.android_phone_runner import get_android_phone_runner
+
+    args = arguments or {}
+
+    # Validate low_temp
+    low_temp = args.get("low_temp")
+    if low_temp is None:
+        raise ValueError("'low_temp' is required")
+    try:
+        low_temp = int(low_temp)
+    except (ValueError, TypeError):
+        raise ValueError("'low_temp' must be an integer")
+    if low_temp < MIN_TEMP_F or low_temp > MAX_TEMP_F:
+        raise ValueError(f"'low_temp' must be between {MIN_TEMP_F} and {MAX_TEMP_F}")
+
+    # Validate high_temp
+    high_temp = args.get("high_temp")
+    if high_temp is None:
+        raise ValueError("'high_temp' is required")
+    try:
+        high_temp = int(high_temp)
+    except (ValueError, TypeError):
+        raise ValueError("'high_temp' must be an integer")
+    if high_temp < MIN_TEMP_F or high_temp > MAX_TEMP_F:
+        raise ValueError(f"'high_temp' must be between {MIN_TEMP_F} and {MAX_TEMP_F}")
+
+    # Validate range
+    if low_temp >= high_temp:
+        raise ValueError("'low_temp' must be less than 'high_temp'")
+
+    # Launch Google Home app first
+    client = get_android_client()
+    await client.connect()
+    await client.wake_device()
+    launch_result = await client.launch_app("com.google.android.apps.chromecast.app")
+    if not launch_result.success:
+        raise ValueError(f"Failed to launch Google Home: {launch_result.error}")
+
+    # Wait for app to load
+    await asyncio.sleep(2)
+
+    # Run the automation
+    runner = get_android_phone_runner()
+
+    if not runner.is_configured:
+        raise ValueError(
+            "AndroidPhoneRunner not configured. "
+            "Set ANDROID_LLM_MODEL and ANDROID_LLM_API_KEY environment variables."
+        )
+
+    logger.info(
+        "Starting thermostat set range: low=%d, high=%d, model=%s",
+        low_temp, high_temp, runner.model,
+    )
+
+    result = await runner.run_task(
+        task_prompt="thermostat-setRange",
+        parameters={"low_temp": low_temp, "high_temp": high_temp},
+        max_steps=20,
+    )
+
+    if not result.success:
+        return {
+            "success": False,
+            "error": result.error,
+            "steps_taken": result.steps_taken,
+            "tokens_used": result.total_tokens_used,
+            "estimated_cost": result.total_cost,
+        }
+
+    # Extract final temperatures from result
+    extracted = result.extracted_data or {}
+
+    return {
+        "success": True,
+        "final_low_temp": extracted.get("final_low_temp", low_temp),
+        "final_high_temp": extracted.get("final_high_temp", high_temp),
+        "mode": extracted.get("mode", "heat_cool"),
+        "steps_taken": result.steps_taken,
+        "tokens_used": result.total_tokens_used,
+        "estimated_cost": result.total_cost,
+        "message": f"Thermostat set to {low_temp}-{high_temp}°F",
+    }
+
+
+async def thermostat_get_status_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Get the current thermostat status via Google Home app.
+
+    This action uses LLM-in-the-loop automation to navigate the Google Home
+    app and read the current thermostat status.
+
+    Returns:
+        success: Whether the operation completed successfully
+        current_temp: Current ambient temperature in °F
+        target_low: Heat setpoint in °F
+        target_high: Cool setpoint in °F
+        mode: Current mode (heat, cool, heat_cool, eco, off)
+        humidity: Humidity percentage if available
+        status: Current status (heating, cooling, idle, off)
+        steps_taken: Number of automation steps executed
+        tokens_used: LLM tokens consumed
+        estimated_cost: Estimated cost in USD
+    """
+    from services.android_phone_runner import get_android_phone_runner
+
+    # Launch Google Home app first
+    client = get_android_client()
+    await client.connect()
+    await client.wake_device()
+    launch_result = await client.launch_app("com.google.android.apps.chromecast.app")
+    if not launch_result.success:
+        raise ValueError(f"Failed to launch Google Home: {launch_result.error}")
+
+    # Wait for app to load
+    await asyncio.sleep(2)
+
+    # Run the automation
+    runner = get_android_phone_runner()
+
+    if not runner.is_configured:
+        raise ValueError(
+            "AndroidPhoneRunner not configured. "
+            "Set ANDROID_LLM_MODEL and ANDROID_LLM_API_KEY environment variables."
+        )
+
+    logger.info("Starting thermostat status read, model=%s", runner.model)
+
+    result = await runner.run_task(
+        task_prompt="thermostat-getStatus",
+        parameters={},
+        max_steps=15,  # Status read should be simpler than set
+    )
+
+    if not result.success:
+        return {
+            "success": False,
+            "error": result.error,
+            "steps_taken": result.steps_taken,
+            "tokens_used": result.total_tokens_used,
+            "estimated_cost": result.total_cost,
+        }
+
+    # Extract status from result
+    extracted = result.extracted_data or {}
+
+    return {
+        "success": True,
+        "current_temp": extracted.get("current_temp"),
+        "target_low": extracted.get("target_low"),
+        "target_high": extracted.get("target_high"),
+        "mode": extracted.get("mode"),
+        "humidity": extracted.get("humidity"),
+        "status": extracted.get("status"),
+        "steps_taken": result.steps_taken,
+        "tokens_used": result.total_tokens_used,
+        "estimated_cost": result.total_cost,
+    }
+
+
 __all__ = [
     "get_screen_action",
     "android_phone_health_action",
@@ -596,4 +784,6 @@ __all__ = [
     "android_phone_wake_action",
     "android_phone_screenshot_action",
     "android_phone_find_and_tap_action",
+    "thermostat_set_range_action",
+    "thermostat_get_status_action",
 ]
