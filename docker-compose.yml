@@ -67,6 +67,8 @@ services:
       - ${LOG_PATH:-./logs}:/app/logs
       # Persist scripts and jobs data
       - ./data:/app/data
+      # Persist ADB keys (so Android phone stays authorized across rebuilds)
+      - ./adb-keys:/root/.android
     healthcheck:
       test:
         [
