@@ -1719,6 +1719,163 @@
         },
         "security": [{"ActionsApiKey": []}]
       }
+    },
+    "/actions/androidPhone/audit": {
+      "get": {
+        "operationId": "androidPhoneAudit",
+        "summary": "Get Android phone audit log",
+        "description": "Returns recent Android phone actions logged for auditing. Useful for reviewing what automations have been executed.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {"type": "integer", "default": 100, "maximum": 500},
+            "description": "Maximum entries to return."
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {"type": "string"},
+            "description": "Filter by action name."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit log entries.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneAuditResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/maintenance/updateApps": {
+      "get": {
+        "operationId": "androidPhoneUpdateApps",
+        "summary": "Check and install app updates",
+        "description": "Launches Play Store to check for and install available app updates. Returns workflow steps for LLM automation to complete.",
+        "responses": {
+          "200": {
+            "description": "Update check result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneMaintenanceResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/maintenance/checkSecurity": {
+      "get": {
+        "operationId": "androidPhoneCheckSecurity",
+        "summary": "Check security patch level",
+        "description": "Returns the device's current Android security patch date and version info.",
+        "responses": {
+          "200": {
+            "description": "Security patch info.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneSecurityResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/maintenance/reboot": {
+      "get": {
+        "operationId": "androidPhoneReboot",
+        "summary": "Reboot the Android device",
+        "description": "Reboots the device. Requires explicit confirmation to prevent accidental reboots.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "confirm",
+            "schema": {"type": "string"},
+            "required": true,
+            "description": "Must be 'true' to actually perform reboot."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reboot status.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneMaintenanceResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/maintenance/storage": {
+      "get": {
+        "operationId": "androidPhoneGetStorage",
+        "summary": "Get device storage info",
+        "description": "Returns storage usage including total, used, and free space with percentages.",
+        "responses": {
+          "200": {
+            "description": "Storage info.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneStorageResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/maintenance/clearCache": {
+      "get": {
+        "operationId": "androidPhoneClearCache",
+        "summary": "Clear app caches",
+        "description": "Clears app caches if storage usage exceeds threshold. Helps free up space on the device.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "threshold",
+            "schema": {"type": "number", "default": 90},
+            "description": "Storage used percentage threshold to trigger clearing (default 90)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cache clear result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneMaintenanceResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/androidPhone/maintenance/battery": {
+      "get": {
+        "operationId": "androidPhoneBatteryHealth",
+        "summary": "Get battery health info",
+        "description": "Returns detailed battery information including level, health status, temperature, and charging state.",
+        "responses": {
+          "200": {
+            "description": "Battery health info.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/AndroidPhoneBatteryResponse"}
+              }
+            }
+          }
+        },
+        "security": [{"ActionsApiKey": []}]
+      }
     }
   },
   "components": {
@@ -2751,6 +2908,71 @@
           "error": {"type": "string", "description": "Error message if operation failed."}
         },
         "required": ["success", "steps_taken", "tokens_used"]
+      },
+      "AndroidPhoneAuditResponse": {
+        "type": "object",
+        "description": "Audit log entries for Android phone actions.",
+        "properties": {
+          "entries": {"type": "array", "items": {"type": "object"}, "description": "List of audit log entries."},
+          "count": {"type": "integer", "description": "Number of entries returned."},
+          "stats": {"type": "object", "description": "Aggregate statistics about actions."}
+        },
+        "required": ["entries", "count"]
+      },
+      "AndroidPhoneMaintenanceResponse": {
+        "type": "object",
+        "description": "Generic maintenance operation result.",
+        "properties": {
+          "success": {"type": "boolean", "description": "Whether the operation completed."},
+          "message": {"type": "string", "description": "Status message."},
+          "error": {"type": "string", "description": "Error message if failed."},
+          "requires_llm_automation": {"type": "boolean", "description": "Whether LLM automation is needed to complete."},
+          "workflow": {"type": "array", "items": {"type": "string"}, "description": "Steps to complete the operation."}
+        },
+        "required": ["success", "message"]
+      },
+      "AndroidPhoneSecurityResponse": {
+        "type": "object",
+        "description": "Security patch information.",
+        "properties": {
+          "success": {"type": "boolean"},
+          "message": {"type": "string"},
+          "security_patch": {"type": "string", "description": "Security patch date (e.g., 2025-01-05)."},
+          "android_version": {"type": "string", "description": "Android OS version."},
+          "build_date": {"type": "string", "description": "Device build date."},
+          "error": {"type": "string"}
+        },
+        "required": ["success"]
+      },
+      "AndroidPhoneStorageResponse": {
+        "type": "object",
+        "description": "Device storage information.",
+        "properties": {
+          "success": {"type": "boolean"},
+          "message": {"type": "string"},
+          "used_percent": {"type": "number", "description": "Percentage of storage used."},
+          "free_percent": {"type": "number", "description": "Percentage of storage free."},
+          "total_formatted": {"type": "string", "description": "Total storage (human readable)."},
+          "used_formatted": {"type": "string", "description": "Used storage (human readable)."},
+          "free_formatted": {"type": "string", "description": "Free storage (human readable)."},
+          "error": {"type": "string"}
+        },
+        "required": ["success"]
+      },
+      "AndroidPhoneBatteryResponse": {
+        "type": "object",
+        "description": "Battery health information.",
+        "properties": {
+          "success": {"type": "boolean"},
+          "message": {"type": "string"},
+          "level_percent": {"type": "integer", "description": "Battery level (0-100)."},
+          "status": {"type": "string", "description": "Charging status."},
+          "health": {"type": "string", "description": "Battery health status."},
+          "temperature": {"type": "string", "description": "Battery temperature."},
+          "plugged": {"type": "string", "description": "Power source if plugged in."},
+          "error": {"type": "string"}
+        },
+        "required": ["success"]
       }
     },
     "securitySchemes": {
