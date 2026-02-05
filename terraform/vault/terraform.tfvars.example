@@ -33,3 +33,6 @@ claudia_api_key = "..."
 # Android phone automation (ADB over TCP)
 android_adb_host = "10.0.0.95"
 android_adb_port = "5555"
+
+# Actions API key (for X-API-Key header authentication)
+actions_api_key = "your-secret-api-key"

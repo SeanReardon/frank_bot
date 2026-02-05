@@ -278,6 +278,18 @@ def get_android_credentials() -> dict[str, str] | None:
     return get_secret("frank-bot/android")
 
 
+def get_actions_credentials() -> dict[str, str] | None:
+    """
+    Get Actions API credentials from Vault.
+
+    Returns dict with:
+        - api_key: API key for X-API-Key header authentication
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/actions")
+
+
 __all__ = [
     "vault_enabled",
     "get_secret",
@@ -290,6 +302,7 @@ __all__ = [
     "get_openai_credentials",
     "get_claudia_credentials",
     "get_android_credentials",
+    "get_actions_credentials",
     "clear_client_cache",
     "clear_secret_cache",
 ]

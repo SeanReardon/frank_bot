@@ -133,6 +133,7 @@ def _load_secrets() -> dict[str, str | None]:
         "claudia_api_key": None,
         "android_adb_host": None,
         "android_adb_port": None,
+        "actions_api_key": None,
     }
 
     if vault_enabled():
@@ -192,6 +193,12 @@ def _load_secrets() -> dict[str, str | None]:
         if android_creds:
             secrets["android_adb_host"] = android_creds.get("adb_host")
             secrets["android_adb_port"] = android_creds.get("adb_port")
+
+        # Actions API credentials
+        from services.vault_client import get_actions_credentials
+        actions_creds = get_actions_credentials()
+        if actions_creds:
+            secrets["actions_api_key"] = actions_creds.get("api_key")
     else:
         logger.info("Vault not configured, using environment variables")
 
@@ -232,6 +239,8 @@ def _load_secrets() -> dict[str, str | None]:
         secrets["android_adb_host"] = os.getenv("ANDROID_ADB_HOST", "10.0.0.95")
     if not secrets["android_adb_port"]:
         secrets["android_adb_port"] = os.getenv("ANDROID_ADB_PORT", "5555")
+    if not secrets["actions_api_key"]:
+        secrets["actions_api_key"] = os.getenv("ACTIONS_API_KEY")
 
     return secrets
 
@@ -272,7 +281,7 @@ def get_settings() -> Settings:
             ("https://www.googleapis.com/auth/contacts",),
         ),
         public_base_url=base_url,
-        actions_api_key=os.getenv("ACTIONS_API_KEY"),
+        actions_api_key=secrets["actions_api_key"],
         actions_name_for_human=os.getenv(
             "ACTIONS_NAME_FOR_HUMAN",
             "Frank Bot",

@@ -127,3 +127,16 @@ resource "vault_kv_secret_v2" "android" {
     ignore_changes = [data_json]
   }
 }
+
+# Actions API key (for authenticating requests to frank-bot)
+resource "vault_kv_secret_v2" "actions" {
+  mount = "secret"
+  name  = "frank-bot/actions"
+  data_json = jsonencode({
+    api_key = var.actions_api_key
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}

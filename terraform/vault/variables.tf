@@ -121,3 +121,10 @@ variable "android_adb_port" {
   description = "ADB TCP port (default: 5555)"
   default     = "5555"
 }
+
+# Actions API authentication
+variable "actions_api_key" {
+  type        = string
+  description = "API key for authenticating requests to frank-bot (X-API-Key header)"
+  sensitive   = true
+}
