@@ -301,9 +301,9 @@
         ]
       }
     },
-    "/actions/sms/message/send": {
+    "/actions/messages/sms/send": {
       "get": {
-        "operationId": "smsMessageSend",
+        "operationId": "messagesSMSSend",
         "summary": "Send an SMS text message to a contact",
         "description": "Send a text message to someone in your Google Contacts by name, or directly to a phone number. Messages are sent from your Telnyx phone number.",
         "parameters": [
@@ -355,9 +355,9 @@
         ]
       }
     },
-    "/actions/sms/messages/get": {
+    "/actions/messages/sms/get": {
       "get": {
-        "operationId": "smsMessagesGet",
+        "operationId": "messagesSMSGet",
         "summary": "Get recent SMS messages (read-only)",
         "description": "Retrieve recent SMS/MMS messages. Messages can be filtered by contact name, phone number, or direction.",
         "parameters": [
@@ -619,9 +619,9 @@
         ]
       }
     },
-    "/actions/telegram/message/send": {
+    "/actions/messages/telegram/send": {
       "get": {
-        "operationId": "telegramMessageSend",
+        "operationId": "messagesTelegramSend",
         "summary": "Send a Telegram message via your personal account",
         "description": "Send a message to a Telegram user, group, or channel using your authenticated Telegram account (not a bot). Requires prior session setup via the setup script.",
         "parameters": [
@@ -673,9 +673,9 @@
         ]
       }
     },
-    "/actions/telegram/messages/get": {
+    "/actions/messages/telegram/get": {
       "get": {
-        "operationId": "telegramMessagesGet",
+        "operationId": "messagesTelegramGet",
         "summary": "Get messages from a Telegram chat via your personal account",
         "description": "Retrieve recent messages from a Telegram conversation using your authenticated Telegram account (not a bot). Returns messages you have access to in the specified chat.",
         "parameters": [
@@ -730,9 +730,9 @@
         ]
       }
     },
-    "/actions/telegram/chats/list": {
+    "/actions/chats/telegram/list": {
       "get": {
-        "operationId": "telegramChatsList",
+        "operationId": "chatsTelegramList",
         "summary": "List your Telegram conversations via your personal account",
         "description": "List recent Telegram conversations (dialogs) from your authenticated Telegram account (not a bot). Includes direct messages, groups, and channels you have access to.",
         "parameters": [

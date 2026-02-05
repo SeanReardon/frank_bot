@@ -756,12 +756,12 @@ def build_action_routes(settings: Settings) -> list[Route]:
             methods=["GET"],
         ),
         Route(
-            "/actions/sms/message/send",
+            "/actions/messages/sms/send",
             send_sms_handler,
             methods=["GET"],
         ),
         Route(
-            "/actions/sms/messages/get",
+            "/actions/messages/sms/get",
             get_sms_messages_handler,
             methods=["GET"],
         ),
@@ -779,9 +779,9 @@ def build_action_routes(settings: Settings) -> list[Route]:
         ),
         Route("/actions/ups/status", get_ups_status_handler, methods=["GET"]),
         # Telegram endpoints
-        Route("/actions/telegram/message/send", telegram_send_handler, methods=["GET"]),
-        Route("/actions/telegram/messages/get", telegram_messages_handler, methods=["GET"]),
-        Route("/actions/telegram/chats/list", telegram_chats_handler, methods=["GET"]),
+        Route("/actions/messages/telegram/send", telegram_send_handler, methods=["GET"]),
+        Route("/actions/messages/telegram/get", telegram_messages_handler, methods=["GET"]),
+        Route("/actions/chats/telegram/list", telegram_chats_handler, methods=["GET"]),
         # Telegram dashboard endpoints (public - no API key required)
         Route("/telegram/status", telegram_status_handler, methods=["GET"]),
         Route("/telegram/test", telegram_test_handler, methods=["GET"]),

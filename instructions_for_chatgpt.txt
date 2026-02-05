@@ -9,8 +9,8 @@ Personal assistant API for calendar, contacts, SMS, Telegram, Swarm, jorbs, and 
 | Calendar | `getEvents` | `day` (YYYY-MM-DD) or `time_min`/`time_max` |
 | Add event | `scheduleTime` | `summary`, `start`, `end`, `location?` |
 | Find contact | `searchContacts` | `query` (fuzzy match) |
-| Send text | `smsMessageSend` | `recipient`, `message` |
-| Telegram | `telegramMessageSend` | `recipient`, `text` |
+| Send text | `messagesSMSSend` | `recipient`, `message` |
+| Telegram | `messagesTelegramSend` | `recipient`, `text` |
 | Check-ins | `searchCheckins` | `year`, `with_companion`, `category` |
 | Task overview | `jorbsBrief` | jorb activity + pending decisions |
 | Create task | `jorbCreate` | `name`, `plan`, `contacts` array |
@@ -25,14 +25,14 @@ Personal assistant API for calendar, contacts, SMS, Telegram, Swarm, jorbs, and 
 
 ## Contacts & SMS
 - `searchContacts`: query (fuzzy match name/email/phone)
-- `smsMessageSend`: recipient (name or number), message
-- `smsMessagesGet`: contact?, direction?, limit?
+- `messagesSMSSend`: recipient (name or number), message
+- `messagesSMSGet`: contact?, direction?, limit?
 
 ## Telegram
 Via Sean's personal account:
-- `telegramMessageSend`: recipient (@user or phone), text
-- `telegramMessagesGet`: chat, limit?
-- `telegramChatsList`: conversations with unread counts
+- `messagesTelegramSend`: recipient (@user or phone), text
+- `messagesTelegramGet`: chat, limit?
+- `chatsTelegramList`: conversations with unread counts
 
 ## Swarm Check-ins
 `searchCheckins`: year, after_date, before_date, with_companion, category (restaurant, bar, hotel, coffee, airport, gym)
@@ -79,7 +79,7 @@ Quick connectivity check - returns device model, battery, wifi.
 | Request | Action |
 |---------|--------|
 | "Calendar tomorrow" | `getEvents day=2026-02-05` |
-| "Text Mom I'm late" | `smsMessageSend recipient=Mom message=Running late!` |
+| "Text Mom I'm late" | `messagesSMSSend recipient=Mom message=Running late!` |
 | "Restaurants with Jimmy 2024" | `searchCheckins with_companion=Jimmy year=2024 category=restaurant` |
 | "What's happening with tasks?" | `jorbsBrief` |
 | "What's the thermostat?" | `androidPhoneTaskDo goal="Check thermostat temperature"` |
