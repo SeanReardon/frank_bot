@@ -1804,3 +1804,20 @@ Added weekly health check to BackgroundLoopService running on Sunday at configur
 - Suggested actions in notification help user resolve issues
 
 ---
+
+## 2026-02-06: frank_bot-00109 - Create capabilities reference generator for jorb prompts
+
+### Summary
+Created services/jorb_capabilities.py with generate_capabilities_reference() function that introspects FrankAPI and returns markdown documentation. Function uses meta/introspection.py's generate_method_table() for reflection-based documentation. Output includes all frank.* namespaces (calendar, contacts, sms, telegram, swarm, time, ups) with method signatures, parameters, and usage examples. Comprehensive unit tests verify the generated markdown contains all expected namespaces.
+
+### Files Changed
+- services/jorb_capabilities.py (existing - generate_capabilities_reference function using introspection)
+- tests/test_jorb_capabilities.py (existing - comprehensive test suite)
+
+### Learnings
+- Function uses generate_method_table() from meta.introspection for reflection
+- Documentation includes usage examples for each namespace
+- Android namespace placeholder ready for when frank_bot-00110 is implemented
+- Tests verify all 7 current namespaces are documented
+
+---

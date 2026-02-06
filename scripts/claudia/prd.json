@@ -1815,7 +1815,7 @@
         "Unit test in tests/ verifies the function returns valid markdown containing all current namespace names"
       ],
       "priority": 109,
-      "passes": false,
+      "passes": true,
       "notes": "Blocks frank_bot-00112 (new system prompt). Uses existing introspection infrastructure from meta/introspection.py. This ensures jorb prompts always reflect current FrankAPI capabilities without manual updates."
     },
     {
