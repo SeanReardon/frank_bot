@@ -374,6 +374,87 @@ class TelegramNamespace:
         return asyncio.run(list_telegram_chats(args))
 
 
+class AndroidNamespace:
+    """
+    Android phone operations.
+
+    Wraps Android phone automation actions for LLM-in-the-loop control.
+    Provides task-based automation that runs in the background.
+    """
+
+    def task_do(
+        self,
+        goal: str,
+        app: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Start a goal-based task on the Android phone.
+
+        The task runs asynchronously in the background. Use task_get() to
+        check progress and get results. The automation stops before any
+        irreversible actions like payments or bookings.
+
+        Parameters:
+            goal: Natural language description of what to accomplish.
+                  Examples:
+                  - "Check the thermostat temperature"
+                  - "Set the thermostat to 65-70 degrees"
+                  - "Open Uber and check ride prices"
+            app: Optional app to launch (google_home, uber, lyft, doordash, etc.)
+                 Auto-detected from goal if omitted.
+
+        Returns:
+            Dict with task_id, status, goal, and message for checking status
+        """
+        from actions.android_phone import task_do_action
+
+        args = {
+            "goal": goal,
+            "app": app,
+        }
+        return asyncio.run(task_do_action(args))
+
+    def task_get(
+        self,
+        task_id: str,
+    ) -> dict[str, Any]:
+        """
+        Get the status and result of an Android phone task.
+
+        Parameters:
+            task_id: The task ID returned by task_do()
+
+        Returns:
+            Dict with task details including status, progress, and results
+        """
+        from actions.android_phone import task_get_action
+
+        args = {
+            "task_id": task_id,
+        }
+        return asyncio.run(task_get_action(args))
+
+    def task_cancel(
+        self,
+        task_id: str,
+    ) -> dict[str, Any]:
+        """
+        Cancel a running Android phone task.
+
+        Parameters:
+            task_id: The task ID to cancel
+
+        Returns:
+            Dict with task details after cancellation attempt
+        """
+        from actions.android_phone import task_cancel_action
+
+        args = {
+            "task_id": task_id,
+        }
+        return asyncio.run(task_cancel_action(args))
+
+
 class FrankAPI:
     """
     Synchronous API for Frank Bot scripting.
@@ -397,6 +478,7 @@ class FrankAPI:
         self._ups = UPSNamespace()
         self._time = TimeNamespace()
         self._telegram = TelegramNamespace()
+        self._android = AndroidNamespace()
 
     @property
     def calendar(self) -> CalendarNamespace:
@@ -433,6 +515,11 @@ class FrankAPI:
         """Telegram operations (send, messages, chats)."""
         return self._telegram
 
+    @property
+    def android(self) -> AndroidNamespace:
+        """Android phone operations (task_do, task_get, task_cancel)."""
+        return self._android
+
 
 __all__ = [
     "FrankAPI",
@@ -443,4 +530,5 @@ __all__ = [
     "UPSNamespace",
     "TimeNamespace",
     "TelegramNamespace",
+    "AndroidNamespace",
 ]

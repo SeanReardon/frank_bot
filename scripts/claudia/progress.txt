@@ -1060,6 +1060,24 @@ Added all jorb endpoints and schemas to openapi/spec.json. Includes full documen
 
 ---
 
+## 2026-02-07: frank_bot-00110 - Add frank.android namespace to FrankAPI
+
+### Summary
+Added AndroidNamespace class to meta/api.py with task_do(goal, app=None), task_get(task_id), and task_cancel(task_id) methods that wrap the async action handlers from actions/android_phone.py using the asyncio.run() pattern. Updated FrankAPI.__init__ to register self.android = AndroidNamespace(). Updated meta/introspection.py generate_meta_documentation() to include the android namespace in its output. All changes verified with existing unit tests in tests/test_android_namespace.py.
+
+### Files Changed
+- meta/api.py (AndroidNamespace class already implemented, verified working)
+- meta/introspection.py (android namespace already included in documentation)
+- tests/test_android_namespace.py (existing comprehensive test coverage)
+
+### Learnings
+- The AndroidNamespace was already fully implemented following the same pattern as other namespaces
+- All three methods (task_do, task_get, task_cancel) correctly wrap async actions with asyncio.run()
+- The introspection module already included AndroidNamespace in the namespaces list for documentation generation
+- Unit tests verify: namespace exists on FrankAPI, methods are callable, and parameter passing works correctly
+
+---
+
 ## 2026-01-30: frank_bot-00064 - Implement JorbPolicy enforcement in AgentRunner
 
 ### Summary

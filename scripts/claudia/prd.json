@@ -1829,8 +1829,8 @@
         "Unit test verifies frank.android namespace exists and has expected methods",
         "Existing FrankAPI tests continue to pass"
       ],
-      "priority": 110,
-      "passes": false,
+      "priority": 2,
+      "passes": true,
       "notes": "Blocks frank_bot-00113 (script execution in agent runner). Follows exact same pattern as existing namespaces (CalendarNamespace, TelegramNamespace, etc.) in meta/api.py."
     },
     {

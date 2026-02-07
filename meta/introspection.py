@@ -12,6 +12,7 @@ import re
 from typing import Any, get_type_hints
 
 from meta.api import (
+    AndroidNamespace,
     CalendarNamespace,
     ContactsNamespace,
     FrankAPI,
@@ -197,6 +198,7 @@ def generate_meta_documentation() -> str:
         ("ups", UPSNamespace, "UPS power status"),
         ("time", TimeNamespace, "Current time with timezone"),
         ("telegram", TelegramNamespace, "Telegram messaging via personal account"),
+        ("android", AndroidNamespace, "Android phone automation (tasks)"),
     ]
 
     doc_parts.append("## Services\n")
