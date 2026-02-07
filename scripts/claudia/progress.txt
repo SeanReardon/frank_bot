@@ -5,6 +5,26 @@ Each entry documents what was implemented and lessons learned.
 
 ---
 
+## 2026-02-07: frank_bot-00113 - Update JorbSession to parse new script-based JSON response format
+
+### Summary
+Updated JorbSession to parse the new script-based JSON response format from LLM. The JorbAction dataclass now includes fields for script execution (script, await_reply, done, pause, pause_reason, result, reasoning) alongside legacy fields for backward compatibility. Added _parse_response() method to extract and validate the new format, with graceful handling of malformed JSON and sensible defaults for missing fields.
+
+### Files Changed
+- services/jorb_session.py (updated JorbAction, JorbSessionResponse, added _parse_response())
+- tests/test_jorb_session_parse_response.py (new - 22 comprehensive tests)
+- tests/test_catch_up_kickoff.py (updated test mocks to use new format)
+
+### Learnings
+- New format fields are at the top level of JSON response, not nested under "action" key
+- Action type priority: done > pause > script > no_action (for determining action.type)
+- Backward compatibility maintained: legacy fields (content, channel, recipient) still populated
+- Script execution flow: script runs immediately if await_reply=false, jorb pauses if await_reply=true
+- Malformed JSON handling: non-dict responses raise ValueError, missing fields get sensible defaults
+- Unit tests cover all action types: script-with-await, script-without-await, done, pause, no-action
+
+---
+
 ## 2026-01-29: frank_bot-00001 - Create meta module structure and FrankAPI namespace classes
 
 ### Summary

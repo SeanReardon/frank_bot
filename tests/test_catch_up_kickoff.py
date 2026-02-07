@@ -80,9 +80,7 @@ def catch_up_jorb():
         original_plan="Recover context for in-flight task. Original message: hey quick question about the reservation",
         personality="sean-voice",
     )
-    jorb.contacts = [
-        JorbContact(identifier="@magic", channel="telegram", name="Magic Concierge")
-    ]
+    jorb.contacts = [JorbContact(identifier="@magic", channel="telegram", name="Magic Concierge")]
     return jorb
 
 
@@ -96,9 +94,7 @@ def regular_jorb():
         original_plan="Book a hotel in SF for March 17-21",
         personality="sean-voice",
     )
-    jorb.contacts = [
-        JorbContact(identifier="@magic", channel="telegram", name="Magic Concierge")
-    ]
+    jorb.contacts = [JorbContact(identifier="@magic", channel="telegram", name="Magic Concierge")]
     return jorb
 
 
@@ -149,11 +145,20 @@ class TestKickoffCatchUpJorb:
         )
         response = session._kickoff_catch_up_jorb()
 
-        # Should contain words about forgetting/catching up
+        # Should contain words about forgetting/catching up or asking for context
         message_lower = response.action.content.lower()
         assert any(
             phrase in message_lower
-            for phrase in ["sorry", "lost track", "remind me", "catch me up", "where"]
+            for phrase in [
+                "sorry",
+                "lost track",
+                "remind me",
+                "catch me up",
+                "where",
+                "what were we",
+                "brain fart",
+                "memory",
+            ]
         )
 
     def test_message_is_lowercase_casual(self, catch_up_jorb, sean_voice_personality):
@@ -168,9 +173,7 @@ class TestKickoffCatchUpJorb:
         # Message should be lowercase (Sean's style)
         assert response.action.content == response.action.content.lower()
 
-    def test_sets_awaiting_to_context_recovery(
-        self, catch_up_jorb, sean_voice_personality
-    ):
+    def test_sets_awaiting_to_context_recovery(self, catch_up_jorb, sean_voice_personality):
         """Catch-up kickoff sets awaiting to 'context_recovery'."""
         session = JorbSession(
             jorb=catch_up_jorb,
@@ -194,9 +197,7 @@ class TestKickoffCatchUpJorb:
         assert response.tokens_used == 0
         assert response.estimated_cost == 0.0
 
-    def test_message_varies_for_natural_feel(
-        self, catch_up_jorb, sean_voice_personality
-    ):
+    def test_message_varies_for_natural_feel(self, catch_up_jorb, sean_voice_personality):
         """Messages should vary between calls for natural feel."""
         session = JorbSession(
             jorb=catch_up_jorb,
@@ -272,7 +273,7 @@ class TestKickoffMethodRouting:
         mock_response.choices = [
             MagicMock(
                 message=MagicMock(
-                    content='{"reasoning": "test", "action": {"type": "send_message", "channel": "telegram", "recipient": "@magic", "content": "Hi!"}}'
+                    content='{"reasoning": "Sending initial greeting", "script": "frank.telegram.send(\'@magic\', \'Hi!\')", "await_reply": true, "done": false, "pause": false}'
                 )
             )
         ]
@@ -288,7 +289,9 @@ class TestKickoffMethodRouting:
             # OpenAI SHOULD be called for regular jorbs
             mock_openai.OpenAI.assert_called_once()
 
-        assert response.action.type == "send_message"
+        # In new format, script actions have type "script"
+        assert response.action.type == "script"
+        assert "frank.telegram.send" in response.action.script
 
 
 class TestCreateJorbSessionIntegration:

@@ -1876,7 +1876,7 @@
         "Unit tests verify parsing of valid JSON for each action type: script-with-await, script-without-await, done, pause, no-action"
       ],
       "priority": 113,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00112 (new system prompt). Blocks frank_bot-00114. This task only changes the parsing layer in jorb_session.py - actual script execution is handled in frank_bot-00114."
     },
     {

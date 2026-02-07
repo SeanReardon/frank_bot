@@ -48,12 +48,20 @@ def _calculate_token_cost(input_tokens: int, output_tokens: int) -> float:
 class JorbAction:
     """An action decided by the jorb session."""
 
-    type: Literal["send_message", "pause", "complete", "update_status", "no_action"]
+    type: Literal["send_message", "pause", "complete", "update_status", "no_action", "script"]
+    # Legacy fields for backward compatibility
     channel: Channel | None = None
     recipient: str | None = None
     content: str | None = None
     pause_reason: str | None = None
     needs_approval_for: str | None = None
+    # New script-based response format fields
+    script: str | None = None
+    await_reply: bool = False
+    done: bool = False
+    pause: bool = False
+    result: dict | None = None
+    reasoning: str = ""
 
 
 @dataclass
@@ -75,6 +83,12 @@ class JorbSessionResponse:
     # Token usage
     tokens_used: int = 0
     estimated_cost: float = 0.0
+    # New script-based format fields (extracted from action for convenience)
+    script: str | None = None
+    await_reply: bool = False
+    done: bool = False
+    pause: bool = False
+    result: dict | None = None
 
 
 def _load_jorb_session_template() -> str:
@@ -210,6 +224,88 @@ class JorbSession:
 
         # Get learnings relevant to this jorb's contacts
         self._progress_log = get_progress_log()
+
+    def _parse_response(self, response_json: dict[str, Any]) -> JorbSessionResponse:
+        """
+        Parse the LLM JSON response into a JorbSessionResponse.
+
+        Handles the new script-based JSON format with fields:
+        - reasoning: thought process
+        - script: Python code to execute (or null)
+        - await_reply: whether to wait for human response
+        - done: whether jorb is complete
+        - pause: whether to pause for approval
+        - pause_reason: why pausing
+        - result: final result if done
+
+        Args:
+            response_json: Parsed JSON dict from LLM response
+
+        Returns:
+            JorbSessionResponse with action and metadata
+
+        Raises:
+            ValueError: If response_json is not a dict
+        """
+        if not isinstance(response_json, dict):
+            raise ValueError(f"Expected dict response, got {type(response_json).__name__}")
+
+        # Extract fields with sensible defaults
+        reasoning = response_json.get("reasoning", "") or ""
+        script = response_json.get("script")
+        await_reply = bool(response_json.get("await_reply", False))
+        done = bool(response_json.get("done", False))
+        pause = bool(response_json.get("pause", False))
+        pause_reason = response_json.get("pause_reason")
+        result = response_json.get("result")
+
+        # Determine action type based on new format fields
+        action_type: Literal[
+            "send_message", "pause", "complete", "update_status", "no_action", "script"
+        ] = "no_action"
+
+        if done:
+            action_type = "complete"
+        elif pause:
+            action_type = "pause"
+        elif script is not None and script.strip():
+            action_type = "script"
+
+        # Create the action with all new format fields
+        action = JorbAction(
+            type=action_type,
+            script=script,
+            await_reply=await_reply,
+            done=done,
+            pause=pause,
+            pause_reason=pause_reason,
+            result=result if isinstance(result, dict) else None,
+            reasoning=reasoning,
+            # Legacy fields for backward compatibility
+            content=script if script else None,
+        )
+
+        # Create progress from any progress data in response
+        progress = None
+        progress_data = response_json.get("progress")
+        if progress_data and isinstance(progress_data, dict):
+            progress = JorbProgress(
+                note=progress_data.get("note"),
+                awaiting=progress_data.get("awaiting"),
+                learnings=progress_data.get("learnings"),
+            )
+
+        return JorbSessionResponse(
+            reasoning=reasoning,
+            action=action,
+            progress=progress,
+            # Also expose new format fields at response level for convenience
+            script=script,
+            await_reply=await_reply,
+            done=done,
+            pause=pause,
+            result=result if isinstance(result, dict) else None,
+        )
 
     def _build_system_prompt(self) -> str:
         """Build the complete system prompt for this session."""
@@ -381,42 +477,18 @@ class JorbSession:
                 tokens_used = input_tokens + output_tokens
                 estimated_cost = _calculate_token_cost(input_tokens, output_tokens)
 
-            # Parse action
-            action_data = result.get("action", {})
-            action = JorbAction(
-                type=action_data.get("type", "no_action"),
-                channel=action_data.get("channel"),
-                recipient=action_data.get("recipient"),
-                content=action_data.get("content"),
-                pause_reason=action_data.get("pause_reason"),
-                needs_approval_for=action_data.get("needs_approval_for"),
-            )
+            # Parse response using new format
+            response_obj = self._parse_response(result)
+            response_obj.tokens_used = tokens_used
+            response_obj.estimated_cost = estimated_cost
 
-            # Parse progress
-            progress = None
-            progress_data = result.get("progress")
-            if progress_data:
-                progress = JorbProgress(
-                    note=progress_data.get("note"),
-                    awaiting=progress_data.get("awaiting"),
-                    learnings=progress_data.get("learnings"),
-                )
-
-                # Record any new learnings
-                if progress.learnings:
-                    self._record_learning(progress.learnings)
-
-            response_obj = JorbSessionResponse(
-                reasoning=result.get("reasoning", ""),
-                action=action,
-                progress=progress,
-                tokens_used=tokens_used,
-                estimated_cost=estimated_cost,
-            )
+            # Record any new learnings from progress
+            if response_obj.progress and response_obj.progress.learnings:
+                self._record_learning(response_obj.progress.learnings)
 
             logger.info(
                 "Jorb session decided: action=%s, tokens=%d",
-                action.type,
+                response_obj.action.type,
                 tokens_used,
             )
 
@@ -571,34 +643,12 @@ class JorbSession:
                 tokens_used = input_tokens + output_tokens
                 estimated_cost = _calculate_token_cost(input_tokens, output_tokens)
 
-            # Parse action
-            action_data = result.get("action", {})
-            action = JorbAction(
-                type=action_data.get("type", "no_action"),
-                channel=action_data.get("channel"),
-                recipient=action_data.get("recipient"),
-                content=action_data.get("content"),
-                pause_reason=action_data.get("pause_reason"),
-                needs_approval_for=action_data.get("needs_approval_for"),
-            )
+            # Parse response using new format
+            response_obj = self._parse_response(result)
+            response_obj.tokens_used = tokens_used
+            response_obj.estimated_cost = estimated_cost
 
-            # Parse progress
-            progress = None
-            progress_data = result.get("progress")
-            if progress_data:
-                progress = JorbProgress(
-                    note=progress_data.get("note"),
-                    awaiting=progress_data.get("awaiting"),
-                    learnings=progress_data.get("learnings"),
-                )
-
-            return JorbSessionResponse(
-                reasoning=result.get("reasoning", ""),
-                action=action,
-                progress=progress,
-                tokens_used=tokens_used,
-                estimated_cost=estimated_cost,
-            )
+            return response_obj
 
         except Exception as e:
             logger.error("Jorb kickoff error: %s", e)
