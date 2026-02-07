@@ -19,6 +19,7 @@ from typing import Any, Literal
 from services.jorb_storage import Jorb, JorbMessage, JorbWithMessages, Channel
 from services.personality_loader import Personality, get_personality_loader
 from services.progress_log import get_progress_log
+from services.jorb_capabilities import generate_capabilities_reference
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,10 @@ class JorbSession:
         personality_section = self._personality.format_for_prompt()
         prompt = prompt.replace("{{PERSONALITY_SECTION}}", personality_section)
 
+        # Replace capabilities reference
+        capabilities_reference = generate_capabilities_reference()
+        prompt = prompt.replace("{{CAPABILITIES_REFERENCE}}", capabilities_reference)
+
         # Replace jorb context
         jorb_context = json.dumps(_format_jorb_context(self._jorb), indent=2)
         prompt = prompt.replace("{{JORB_CONTEXT}}", jorb_context)
@@ -248,6 +253,23 @@ class JorbSession:
             message_history = "(No messages yet)"
         prompt = prompt.replace("{{MESSAGE_HISTORY}}", message_history)
 
+        # Replace script results history
+        script_results = getattr(self._jorb, "script_results", [])
+        if script_results:
+            script_results_lines = []
+            for i, result in enumerate(script_results[-10:]):  # Last 10 results
+                script_results_lines.append(f"Step {i + 1}:")
+                script_results_lines.append(f"  Script: {result.get('script', 'N/A')[:100]}...")
+                script_results_lines.append(f"  Success: {result.get('success', False)}")
+                script_results_lines.append(
+                    f"  Result: {json.dumps(result.get('result', {}))[:200]}"
+                )
+                script_results_lines.append("")
+            script_results_text = "\n".join(script_results_lines)
+        else:
+            script_results_text = "(No scripts executed yet)"
+        prompt = prompt.replace("{{SCRIPT_RESULTS}}", script_results_text)
+
         # Add learning instruction if there are sean_direct messages
         if sean_direct_messages:
             learning_instruction = (
@@ -271,10 +293,7 @@ class JorbSession:
 
         # Add learnings to the prompt (after personality section)
         if learnings_text and "No relevant learnings" not in learnings_text:
-            prompt = prompt.replace(
-                "## Learnings\n",
-                f"{learnings_text}\n\n## Learnings\n"
-            )
+            prompt = prompt.replace("## Learnings\n", f"{learnings_text}\n\n## Learnings\n")
 
         return prompt
 
@@ -315,7 +334,9 @@ class JorbSession:
         event_context = _format_event_context(
             channel, sender, sender_name, content, timestamp, message_count
         )
-        user_message = f"New message received:\n\n```json\n{json.dumps(event_context, indent=2)}\n```"
+        user_message = (
+            f"New message received:\n\n```json\n{json.dumps(event_context, indent=2)}\n```"
+        )
 
         # Replace the placeholder in template
         system_prompt = system_prompt.replace("{{CURRENT_EVENT}}", "See user message")

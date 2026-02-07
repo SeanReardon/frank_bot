@@ -1862,7 +1862,7 @@
         "services/jorb_session.py updated to inject capabilities reference (from frank_bot-00109) and script_results into the prompt template"
       ],
       "priority": 112,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00109 (capabilities reference generator). Blocks frank_bot-00113. The prompt must preserve backward compatibility by still supporting the personality system and message history injection. See prompts/unified-jorbs-design.md for reference format."
     },
     {

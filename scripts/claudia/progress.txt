@@ -1856,3 +1856,21 @@ Created services/jorb_capabilities.py with generate_capabilities_reference() fun
 - Tests verify all 7 current namespaces are documented
 
 ---
+
+## 2026-02-07: frank_bot-00112 - Rewrite jorb session system prompt for script-generating agents
+
+### Summary
+Rewrote prompts/jorb_session_system.md with a new template that enables script-generating agent loops. The template includes {{CAPABILITIES_REFERENCE}} placeholder for frank.* API documentation and {{SCRIPT_RESULTS}} placeholder for execution history. Updated services/jorb_session.py to inject capabilities reference from generate_capabilities_reference() and script_results from the jorb into the prompt. The template instructs LLMs to output JSON with fields: reasoning, script, await_reply, done, pause, pause_reason, result. Includes 5 inline examples covering calendar query, telegram send with await, android task, done with result, and pause for approval.
+
+### Files Changed
+- prompts/jorb_session_system.md (complete rewrite with new JSON response format)
+- services/jorb_session.py (added import for generate_capabilities_reference, updated _build_system_prompt to inject {{CAPABILITIES_REFERENCE}} and {{SCRIPT_RESULTS}})
+
+### Learnings
+- The new format enables jorbs to use any frank.* capability (calendar, swarm, android, etc.) not just messaging
+- await_reply flag determines whether jorb pauses for human response or continues immediately
+- Script execution history is limited to last 10 results to manage token usage
+- All existing placeholders ({{PERSONALITY_SECTION}}, {{JORB_CONTEXT}}, {{MESSAGE_HISTORY}}, {{CURRENT_EVENT}}, {{POLICY}}) are preserved for backward compatibility
+- Decision guidelines must be explicit about when to use script vs done vs pause vs await_reply
+
+---
