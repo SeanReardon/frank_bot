@@ -86,6 +86,8 @@ class Jorb:
     outcome_result: str | None = None
     outcome_completed_at: str | None = None
     outcome_failure_reason: str | None = None
+    # Script results field for tracking executed scripts
+    script_results: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Set default timestamps if not provided."""
@@ -217,7 +219,9 @@ CREATE TABLE IF NOT EXISTS jorbs (
     -- Outcome columns (added in v2)
     outcome_result TEXT,
     outcome_completed_at TEXT,
-    outcome_failure_reason TEXT
+    outcome_failure_reason TEXT,
+    -- Script results column (added in v4)
+    script_results TEXT DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS jorb_messages (
@@ -268,6 +272,15 @@ ALTER TABLE jorbs ADD COLUMN outcome_failure_reason TEXT;
 
 def _row_to_jorb(row: aiosqlite.Row) -> Jorb:
     """Convert a database row to a Jorb object."""
+    # Parse script_results JSON (may be None in older databases before migration)
+    script_results_json = row["script_results"]
+    script_results: list[dict] = []
+    if script_results_json:
+        try:
+            script_results = json.loads(script_results_json)
+        except (json.JSONDecodeError, TypeError):
+            script_results = []
+
     return Jorb(
         id=row["id"],
         name=row["name"],
@@ -291,6 +304,8 @@ def _row_to_jorb(row: aiosqlite.Row) -> Jorb:
         outcome_result=row["outcome_result"],
         outcome_completed_at=row["outcome_completed_at"],
         outcome_failure_reason=row["outcome_failure_reason"],
+        # Script results field
+        script_results=script_results,
     )
 
 
@@ -355,6 +370,7 @@ class JorbStorage:
 
         # Migration v2: Add metrics and outcome columns
         # Migration v3: Add personality column
+        # Migration v4: Add script_results column
         new_columns = [
             ("messages_in", "INTEGER DEFAULT 0"),
             ("messages_out", "INTEGER DEFAULT 0"),
@@ -365,6 +381,7 @@ class JorbStorage:
             ("outcome_completed_at", "TEXT"),
             ("outcome_failure_reason", "TEXT"),
             ("personality", "TEXT DEFAULT 'default'"),
+            ("script_results", "TEXT DEFAULT '[]'"),
         ]
 
         for col_name, col_type in new_columns:
@@ -560,6 +577,8 @@ class JorbStorage:
             "outcome_result",
             "outcome_completed_at",
             "outcome_failure_reason",
+            # Script results field
+            "script_results",
         }
         invalid_fields = set(updates.keys()) - valid_fields
         if invalid_fields:
@@ -1045,6 +1064,84 @@ class JorbStorage:
                     "cancelled": status_counts.get("cancelled", 0),
                 },
             }
+
+    # Script results methods (frank_bot-00111)
+
+    async def add_script_result(self, jorb_id: str, result_dict: dict) -> bool:
+        """
+        Add a script result to a jorb's history.
+
+        Args:
+            jorb_id: The jorb ID
+            result_dict: Dictionary containing:
+                - script: str - name of the script executed
+                - result: any - the result/output of the script
+                - success: bool - whether execution succeeded
+                - timestamp: str - ISO 8601 timestamp (optional, defaults to now)
+
+        Returns:
+            True if added successfully, False if jorb not found
+        """
+        await self._ensure_initialized()
+
+        # Validate required fields
+        required_fields = {"script", "result", "success"}
+        if not required_fields.issubset(result_dict.keys()):
+            missing = required_fields - result_dict.keys()
+            raise ValueError(f"Missing required fields: {missing}")
+
+        # Ensure timestamp exists
+        if "timestamp" not in result_dict:
+            result_dict["timestamp"] = datetime.now(timezone.utc).isoformat()
+
+        # Get current script results
+        jorb = await self.get_jorb(jorb_id)
+        if jorb is None:
+            return False
+
+        # Append new result to the list
+        updated_results = jorb.script_results + [result_dict]
+
+        # Update the jorb with new script results (serialize to JSON)
+        await self.update_jorb(jorb_id, script_results=json.dumps(updated_results))
+
+        logger.debug("Added script result to jorb %s: %s", jorb_id, result_dict["script"])
+        return True
+
+    async def get_script_results(
+        self,
+        jorb_id: str,
+        limit: int = 20,
+    ) -> list[dict]:
+        """
+        Get script results for a jorb, most recent first.
+
+        Args:
+            jorb_id: The jorb ID
+            limit: Maximum number of results to return (default 20)
+
+        Returns:
+            List of script result dictionaries, sorted by timestamp descending
+            (most recent first). Each dict contains: script, result, success, timestamp.
+
+        Raises:
+            ValueError: If jorb not found
+        """
+        await self._ensure_initialized()
+
+        jorb = await self.get_jorb(jorb_id)
+        if jorb is None:
+            raise ValueError(f"Jorb not found: {jorb_id}")
+
+        # Sort by timestamp descending (most recent first)
+        sorted_results = sorted(
+            jorb.script_results,
+            key=lambda x: x.get("timestamp", ""),
+            reverse=True,
+        )
+
+        # Return limited number of results
+        return sorted_results[:limit]
 
 
 __all__ = [

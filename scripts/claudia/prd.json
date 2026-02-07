@@ -1846,7 +1846,7 @@
         "Unit tests verify add/get round-trip and limit parameter"
       ],
       "priority": 111,
-      "passes": false,
+      "passes": true,
       "notes": "Blocks frank_bot-00113 (script execution in agent runner). The script_results list is passed to the LLM as context so it can see what scripts have been run and their outputs."
     },
     {

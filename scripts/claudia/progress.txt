@@ -1096,6 +1096,23 @@ Added JorbPolicy dataclass and enforcement to AgentRunner. Rate limiting tracks 
 
 ---
 
+## 2026-02-07: frank_bot-00111 - Add script_results field to JorbStorage schema
+
+### Summary
+Added `script_results: list[dict]` field to the Jorb dataclass and corresponding SQLite column for tracking script execution history. Implemented `add_script_result(jorb_id, result_dict)` method to append script results and `get_script_results(jorb_id, limit=20)` method to retrieve most recent N results. Schema migration handles existing databases via ALTER TABLE ADD COLUMN. Each script result dict contains: script, result, success (bool), timestamp.
+
+### Files Changed
+- services/jorb_storage.py (Jorb dataclass + script_results field, schema update, add_script_result and get_script_results methods)
+- tests/test_jorb_storage.py (14 new tests for script results functionality)
+
+### Learnings
+- SQLite stores JSON as TEXT, so lists must be serialized with json.dumps() before storage and deserialized when retrieved
+- The `_run_migrations` method handles adding new columns to existing databases using PRAGMA table_info to check column existence
+- Default empty list handled via `field(default_factory=list)` in dataclass to avoid mutable default argument issues
+- `get_script_results` returns results in reverse chronological order (most recent first) with configurable limit parameter
+
+---
+
 ---
 
 ## 2026-01-30: frank_bot-00062 - Connect SMS webhook to jorb message processing

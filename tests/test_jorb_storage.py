@@ -511,3 +511,248 @@ class TestNormalizeIdentifier:
         """Strips leading/trailing whitespace."""
         result = JorbStorage._normalize_identifier("  @magic  ")
         assert result == "magic"
+
+
+class TestScriptResults:
+    """Tests for script_results field and methods."""
+
+    async def test_jorb_has_empty_script_results_by_default(self, storage):
+        """New jorb has empty script_results list by default."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+        assert jorb.script_results == []
+        assert isinstance(jorb.script_results, list)
+
+    async def test_add_script_result_success(self, storage):
+        """Can add a script result to a jorb."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        result_dict = {
+            "script": "test_script.py",
+            "result": {"data": "value"},
+            "success": True,
+        }
+
+        success = await storage.add_script_result(jorb.id, result_dict)
+        assert success is True
+
+        # Verify it was added
+        updated_jorb = await storage.get_jorb(jorb.id)
+        assert len(updated_jorb.script_results) == 1
+        assert updated_jorb.script_results[0]["script"] == "test_script.py"
+        assert updated_jorb.script_results[0]["success"] is True
+        assert "timestamp" in updated_jorb.script_results[0]
+
+    async def test_add_script_result_jorb_not_found(self, storage):
+        """Returns False when jorb not found."""
+        result_dict = {
+            "script": "test_script.py",
+            "result": "output",
+            "success": True,
+        }
+
+        success = await storage.add_script_result("jorb_nonexistent", result_dict)
+        assert success is False
+
+    async def test_add_script_result_missing_required_fields(self, storage):
+        """Raises ValueError when required fields missing."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        # Missing 'success' field
+        with pytest.raises(ValueError, match="Missing required fields"):
+            await storage.add_script_result(
+                jorb.id,
+                {"script": "test.py", "result": "output"},
+            )
+
+        # Missing 'script' field
+        with pytest.raises(ValueError, match="Missing required fields"):
+            await storage.add_script_result(
+                jorb.id,
+                {"result": "output", "success": True},
+            )
+
+        # Missing 'result' field
+        with pytest.raises(ValueError, match="Missing required fields"):
+            await storage.add_script_result(
+                jorb.id,
+                {"script": "test.py", "success": True},
+            )
+
+    async def test_add_script_result_adds_timestamp(self, storage):
+        """Timestamp is automatically added if not provided."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        result_dict = {
+            "script": "test_script.py",
+            "result": "output",
+            "success": True,
+            # No timestamp
+        }
+
+        await storage.add_script_result(jorb.id, result_dict)
+
+        updated_jorb = await storage.get_jorb(jorb.id)
+        assert "timestamp" in updated_jorb.script_results[0]
+        assert isinstance(updated_jorb.script_results[0]["timestamp"], str)
+
+    async def test_add_script_result_preserves_existing_timestamp(self, storage):
+        """Preserves timestamp if provided."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        result_dict = {
+            "script": "test_script.py",
+            "result": "output",
+            "success": True,
+            "timestamp": "2026-02-07T12:00:00+00:00",
+        }
+
+        await storage.add_script_result(jorb.id, result_dict)
+
+        updated_jorb = await storage.get_jorb(jorb.id)
+        assert updated_jorb.script_results[0]["timestamp"] == "2026-02-07T12:00:00+00:00"
+
+    async def test_add_multiple_script_results(self, storage):
+        """Can add multiple script results to a jorb."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        results = [
+            {"script": "script1.py", "result": "result1", "success": True},
+            {"script": "script2.py", "result": "result2", "success": False},
+            {"script": "script3.py", "result": "result3", "success": True},
+        ]
+
+        for result in results:
+            await storage.add_script_result(jorb.id, result)
+
+        updated_jorb = await storage.get_jorb(jorb.id)
+        assert len(updated_jorb.script_results) == 3
+        assert updated_jorb.script_results[0]["script"] == "script1.py"
+        assert updated_jorb.script_results[1]["script"] == "script2.py"
+        assert updated_jorb.script_results[2]["script"] == "script3.py"
+
+    async def test_get_script_results_empty(self, storage):
+        """Returns empty list when no script results."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        results = await storage.get_script_results(jorb.id)
+        assert results == []
+
+    async def test_get_script_results_returns_most_recent_first(self, storage):
+        """Script results are returned in reverse chronological order."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        # Add results in chronological order
+        results = [
+            {
+                "script": "script1.py",
+                "result": "result1",
+                "success": True,
+                "timestamp": "2026-02-07T10:00:00+00:00",
+            },
+            {
+                "script": "script2.py",
+                "result": "result2",
+                "success": True,
+                "timestamp": "2026-02-07T11:00:00+00:00",
+            },
+            {
+                "script": "script3.py",
+                "result": "result3",
+                "success": True,
+                "timestamp": "2026-02-07T12:00:00+00:00",
+            },
+        ]
+
+        for result in results:
+            await storage.add_script_result(jorb.id, result)
+
+        # Get results - should be most recent first
+        results = await storage.get_script_results(jorb.id)
+        assert len(results) == 3
+        assert results[0]["script"] == "script3.py"
+        assert results[1]["script"] == "script2.py"
+        assert results[2]["script"] == "script1.py"
+
+    async def test_get_script_results_limit(self, storage):
+        """Limit parameter restricts number of results."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        # Add 5 results
+        for i in range(5):
+            await storage.add_script_result(
+                jorb.id,
+                {
+                    "script": f"script{i}.py",
+                    "result": f"result{i}",
+                    "success": True,
+                },
+            )
+
+        # Get with limit=2 - should return only the 2 most recent
+        results = await storage.get_script_results(jorb.id, limit=2)
+        assert len(results) == 2
+        assert results[0]["script"] == "script4.py"
+        assert results[1]["script"] == "script3.py"
+
+    async def test_get_script_results_default_limit_is_20(self, storage):
+        """Default limit is 20."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        # Add 25 results
+        for i in range(25):
+            await storage.add_script_result(
+                jorb.id,
+                {
+                    "script": f"script{i}.py",
+                    "result": f"result{i}",
+                    "success": True,
+                },
+            )
+
+        # Get with default limit (20)
+        results = await storage.get_script_results(jorb.id)
+        assert len(results) == 20
+
+    async def test_get_script_results_jorb_not_found(self, storage):
+        """Raises ValueError when jorb not found."""
+        with pytest.raises(ValueError, match="Jorb not found"):
+            await storage.get_script_results("jorb_nonexistent")
+
+    async def test_script_results_persisted_across_retrievals(self, storage):
+        """Script results persist when jorb is retrieved multiple times."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        await storage.add_script_result(
+            jorb.id,
+            {"script": "script.py", "result": "output", "success": True},
+        )
+
+        # Get jorb twice - both should have the result
+        jorb1 = await storage.get_jorb(jorb.id)
+        jorb2 = await storage.get_jorb(jorb.id)
+
+        assert len(jorb1.script_results) == 1
+        assert len(jorb2.script_results) == 1
+        assert jorb1.script_results[0]["script"] == "script.py"
+        assert jorb2.script_results[0]["script"] == "script.py"
+
+    async def test_script_results_with_complex_result_data(self, storage):
+        """Script results can contain complex nested data."""
+        jorb = await storage.create_jorb(name="Test", plan="Plan")
+
+        complex_result = {
+            "script": "complex_script.py",
+            "result": {
+                "users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
+                "count": 2,
+                "nested": {"deep": {"value": "data"}},
+            },
+            "success": True,
+        }
+
+        await storage.add_script_result(jorb.id, complex_result)
+
+        results = await storage.get_script_results(jorb.id)
+        assert results[0]["result"]["users"][0]["name"] == "Alice"
+        assert results[0]["result"]["count"] == 2
+        assert results[0]["result"]["nested"]["deep"]["value"] == "data"
