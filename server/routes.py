@@ -480,7 +480,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def claudia_chat_message_handler(request: Request):
         await _require_api_key(request)
-        stats.get_endpoint_stats("claudiaMessageSend").record_call()
+        stats.get_endpoint_stats("claudiaChatSend").record_call()
         repo_id = request.path_params.get("repo_id", "")
         chat_id = request.path_params.get("chat_id", "")
         payload = dict(request.query_params)

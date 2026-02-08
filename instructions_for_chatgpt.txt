@@ -42,7 +42,7 @@ All operations follow **`{system}{Resource}{Action}`** — noun first, verb last
 
 ```
 claudiaChatCreate    (not createClaudiaChat)
-claudiaPromptExecute (not executeClaudiaPrompt)
+claudiaPromptCreate  (not createClaudiaPrompt)
 jorbBriefGet         (not getJorbBrief)
 diagnosticsGet       (not getDiagnostics)
 ```
@@ -56,7 +56,7 @@ If you're unsure of an operation name, use this pattern to construct it.
 | **Scripts** | `frankScriptApiLearn` | `frankScriptTaskStart`, `frankScriptTaskStatus`, `frankScriptTaskList`, `frankScriptTaskCancel` |
 | **Jorbs** | `jorbApiLearn` | `jorbCreate`, `jorbGet`, `jorbBriefGet`, `jorbApprove`, `jorbCancel` |
 | **Android** | `androidPhoneApiLearn` | `androidPhoneTaskDo`, `androidPhoneTaskGet`, `androidPhoneTaskList`, `androidPhoneTaskCancel` |
-| **Claudia** | `claudiaApiLearn` | `claudiaRepoList`, `claudiaChatCreate`, `claudiaChatList`, `claudiaChatGet`, `claudiaMessageSend`, `claudiaChatEnd`, `claudiaPromptList`, `claudiaPromptCreate`, `claudiaPromptGet`, `claudiaPromptExecute`, `claudiaQueueGet`, `claudiaExecutionList`, `claudiaExecutionGet` |
+| **Claudia** | `claudiaApiLearn` | `claudiaRepoList`, `claudiaChatCreate`, `claudiaChatList`, `claudiaChatGet`, `claudiaChatSend`, `claudiaChatEnd`, `claudiaPromptCreate`, `claudiaQueueGet`, `claudiaExecutionList`, `claudiaExecutionGet` |
 | **System** | — | `health`, `diagnosticsGet` |
 
 ## Scripts (Fast, Deterministic)
@@ -102,10 +102,10 @@ Claudia is an **autonomous agent orchestrator** that manages GitHub repositories
 **Workflow:**
 1. `claudiaRepoList` - see available repos and their status
 2. `claudiaChatCreate` - start a conversation about a repo (requires title)
-3. `claudiaMessageSend` - continue the conversation
+3. `claudiaChatSend` - continue the conversation
 4. `claudiaChatEnd` - finish the chat when done
-5. `claudiaPromptList` - see available prompts for a repo
-6. `claudiaPromptExecute` - queue a prompt for execution
+5. `claudiaPromptCreate` - generate prompt from chat and execute it
+6. `claudiaExecutionGet` - monitor result (diff, costs, status)
 7. `claudiaQueueGet` - check queue status and active work
 
 **Example - Chat about a feature:**
@@ -113,10 +113,10 @@ Claudia is an **autonomous agent orchestrator** that manages GitHub repositories
 claudiaChatCreate(repo_name="frank_bot", title="Add webhook support", message="I want to add webhook support for incoming SMS...")
 ```
 
-**Example - Execute a prompt:**
+**Example - Execute from a chat:**
 ```
-claudiaPromptList(repo_id="705fb9e3...")  # Find available prompts
-claudiaPromptExecute(repo_id="705fb9e3...", prompt_id="chat-and-queue-api")
+claudiaPromptCreate(repo_id="705fb9e3...", chat_id="abc123...")  # Generates prompt + queues execution
+claudiaExecutionGet(execution_id="...")  # Check result
 ```
 
 **Queue awareness:** Claudia has a unified queue. If something is already running, new work goes to the queue. Use `claudiaQueueGet` to check status.
@@ -177,7 +177,7 @@ jorbCreate(
 | "What repos does Claudia manage?" | `claudiaRepoList` | See all repos |
 | "Let's add a feature to frank_bot" | `claudiaChatCreate` | Start codebase conversation |
 | "What's Claudia working on?" | `claudiaQueueGet` | Check queue status |
-| "Execute the auth-refactor prompt" | `claudiaPromptExecute` | Run a prompt |
+| "Execute from this chat" | `claudiaPromptCreate` | Generate prompt + execute |
 
 ## Notes
 

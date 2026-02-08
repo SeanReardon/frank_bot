@@ -237,7 +237,7 @@
     },
     "/actions/claudia/repos/{repo_id}/chats/{chat_id}/message": {
       "get": {
-        "operationId": "claudiaMessageSend",
+        "operationId": "claudiaChatSend",
         "summary": "Send message in chat",
         "parameters": [
           {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
@@ -260,50 +260,16 @@
         "security": [{"ActionsApiKey": []}]
       }
     },
-    "/actions/claudia/repos/{repo_id}/prompts": {
-      "get": {
-        "operationId": "claudiaPromptList",
-        "summary": "List prompts for a repo",
-        "parameters": [{"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"description": "List of prompts", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptsResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
     "/actions/claudia/repos/{repo_id}/prompts/create": {
       "get": {
         "operationId": "claudiaPromptCreate",
-        "summary": "Create prompt from completed chat",
-        "description": "Queue prompt generation from a completed chat conversation.",
+        "summary": "Generate prompt from chat and execute it",
+        "description": "Takes a completed chat, generates a prompt from the conversation, and queues it for execution by Claude. This is the single step that turns a design discussion into code changes. Use claudiaExecutionGet to monitor the result.",
         "parameters": [
           {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
           {"in": "query", "name": "chat_id", "required": true, "schema": {"type": "string"}}
         ],
-        "responses": {"200": {"description": "Prompt generation queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptCreateResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/actions/claudia/repos/{repo_id}/prompts/{prompt_id}": {
-      "get": {
-        "operationId": "claudiaPromptGet",
-        "summary": "Get prompt details",
-        "parameters": [
-          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
-          {"in": "path", "name": "prompt_id", "required": true, "schema": {"type": "string"}}
-        ],
-        "responses": {"200": {"description": "Prompt details with content", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptGetResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/actions/claudia/repos/{repo_id}/prompts/{prompt_id}/execute": {
-      "get": {
-        "operationId": "claudiaPromptExecute",
-        "summary": "Execute a prompt",
-        "description": "Queue prompt for direct execution by Claude.",
-        "parameters": [
-          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
-          {"in": "path", "name": "prompt_id", "required": true, "schema": {"type": "string"}}
-        ],
-        "responses": {"200": {"description": "Execution queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptExecuteResponse"}}}}},
+        "responses": {"200": {"description": "Prompt generated and execution queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptCreateResponse"}}}}},
         "security": [{"ActionsApiKey": []}]
       }
     },
