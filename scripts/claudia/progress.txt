@@ -3,6 +3,81 @@
 This file tracks completed work by the Claudia autonomous agent.
 Each entry documents what was implemented and lessons learned.
 
+## Codebase Patterns
+
+- FrankAPI is in meta/api.py - patch target for tests is `meta.api.FrankAPI`
+- Scripts for jorbs are Python expressions (eval first, exec fallback), not main() functions
+- JorbStorage.add_script_result() stores results as JSON in jorbs table's script_results column
+- Agent loop in process_jorb_event() re-creates JorbSession each iteration for fresh context
+- Rate limiting uses `iter_{jorb_id}` key in _message_counts dict, tracked per-jorb
+- SCRIPT_EXECUTION_TIMEOUT=300s, MAX_ITERATIONS_PER_HOUR=20, MAX_ITERATIONS_PER_DAY=100
+- Pre-existing test failures: test_enrich_event_sms_with_contact, test_send_sms_message (missing google module)
+- Integration tests use real JorbStorage with temp DB, mock only LLM and FrankAPI
+- Action priority in JorbSession._parse_response: done > pause > script > no_action
+
+---
+
+## 2026-02-08: frank_bot-00114 - Add script execution to AgentRunner via FrankAPI executor
+
+### Summary
+Added `_execute_script(jorb, script_str)` method to AgentRunner that executes Python expressions/scripts using FrankAPI context. Scripts are evaluated with `eval()` first (for expressions like `frank.calendar.events(day="2026-02-09")`), falling back to `exec()` for multi-line scripts. Results and errors are stored via `JorbStorage.add_script_result()`. Configurable 300s timeout via `SCRIPT_EXECUTION_TIMEOUT`.
+
+### Files Changed
+- services/agent_runner.py (added _execute_script, imports for threading/traceback)
+- tests/test_agent_runner_script_loop.py (new - TestExecuteScript class with 6 tests)
+
+### Learnings
+- Scripts are Python expressions, not full scripts with main() - use eval() first, exec() fallback
+- FrankAPI imported inside method to avoid circular imports; patch target is `meta.api.FrankAPI`
+- ThreadPoolExecutor for timeout protection, same pattern as meta/executor.py
+
+---
+
+## 2026-02-08: frank_bot-00115 - Implement sync/async agent loop in AgentRunner
+
+### Summary
+Added `process_jorb_event()` method implementing the iterative agent loop: invoke LLM → parse action → execute → decide next step. Sync scripts continue the loop (feed results back to LLM), async scripts (await_reply=true) break to wait for human reply, done/pause break the loop. Safety fallback breaks on no-action.
+
+### Files Changed
+- services/agent_runner.py (added process_jorb_event method)
+- tests/test_agent_runner_script_loop.py (TestAgentLoop class with 7 tests)
+
+### Learnings
+- Loop re-creates JorbSession on each iteration to pick up fresh script_results
+- First iteration with event uses process_message(); subsequent use kickoff()
+- Rate limit check happens before each LLM invocation, not after
+
+---
+
+## 2026-02-08: frank_bot-00116 - Add rate limiting for jorb LLM invocation loops
+
+### Summary
+Added per-jorb LLM iteration rate limiting with configurable MAX_ITERATIONS_PER_HOUR (20) and MAX_ITERATIONS_PER_DAY (100). Rate check runs before each LLM invocation in the agent loop. When limit exceeded, jorb is paused with clear explanation. Timestamps tracked per-jorb using `iter_{jorb_id}` key in existing _message_counts dict.
+
+### Files Changed
+- services/agent_runner.py (added _check_iteration_rate_limit, _record_iteration, constants)
+- tests/test_agent_runner_script_loop.py (TestIterationRateLimiting class with 6 tests)
+
+### Learnings
+- Reuse _message_counts dict with `iter_` prefix to avoid adding new state
+- Daily limit test: timestamps must be outside the last hour to avoid triggering hourly limit first
+- Constants configurable via env vars JORB_MAX_ITERATIONS_PER_HOUR/DAY
+
+---
+
+## 2026-02-08: frank_bot-00117 - Integration tests for unified jorb flows
+
+### Summary
+Added 4 integration tests covering end-to-end AgentRunner pipeline with mocked LLM responses: calendar query (sync script → done), telegram conversation (async script → await reply → resume → done), android phone (task_do → task_get → done), and pause for approval (pause → resume → done). All tests use real JorbStorage with temp DB.
+
+### Files Changed
+- tests/test_agent_runner_script_loop.py (4 integration test classes, 25 total tests)
+
+### Learnings
+- Integration tests create real jorbs in temp DB, only mock the LLM and FrankAPI
+- Side-effect functions with call_count track which iteration the loop is on
+- Verify both ProcessingResult and final jorb state in DB for completeness
+
 ---
 
 ## 2026-02-07: frank_bot-00113 - Update JorbSession to parse new script-based JSON response format

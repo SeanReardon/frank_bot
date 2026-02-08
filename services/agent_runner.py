@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import traceback
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Any, Literal
@@ -54,6 +56,13 @@ AGENT_MODEL = "gpt-5.2"
 # These should be updated based on actual OpenAI pricing
 TOKEN_PRICE_INPUT = 0.01  # $0.01 per 1K input tokens
 TOKEN_PRICE_OUTPUT = 0.03  # $0.03 per 1K output tokens
+
+# Script execution timeout (seconds) for jorb scripts
+SCRIPT_EXECUTION_TIMEOUT = int(os.getenv("JORB_SCRIPT_TIMEOUT", "300"))
+
+# Rate limiting for jorb LLM invocation loops
+MAX_ITERATIONS_PER_HOUR = int(os.getenv("JORB_MAX_ITERATIONS_PER_HOUR", "20"))
+MAX_ITERATIONS_PER_DAY = int(os.getenv("JORB_MAX_ITERATIONS_PER_DAY", "100"))
 
 # Feature flag for switchboard mode (can be disabled for backwards compatibility)
 # Checked at runtime to allow test fixtures to override
@@ -836,6 +845,307 @@ class AgentRunner:
             "paused_stale": stale,
             "failed_expired": expired,
         }
+
+    # --- Script execution (frank_bot-00114) ---
+
+    async def _execute_script(
+        self,
+        jorb: Jorb,
+        script_str: str,
+        timeout: int = SCRIPT_EXECUTION_TIMEOUT,
+    ) -> dict:
+        """
+        Execute a script expression using FrankAPI and store the result.
+
+        The script is a Python expression like 'frank.calendar.events(day="2026-02-05")'
+        or a multi-line snippet using the 'frank' object. The result (or error) is
+        stored via JorbStorage.add_script_result() so the LLM can see it on the
+        next iteration.
+
+        Args:
+            jorb: The jorb this script belongs to
+            script_str: Python code/expression to execute
+            timeout: Maximum execution time in seconds
+
+        Returns:
+            Dict with keys: script, result, success, error, timestamp
+        """
+        from meta.api import FrankAPI
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        def _run_script() -> Any:
+            frank = FrankAPI()
+            namespace: dict[str, Any] = {"frank": frank, "__builtins__": __builtins__}
+            # Try as expression first (e.g. frank.calendar.events(...))
+            try:
+                return eval(script_str, namespace)
+            except SyntaxError:
+                # Fall back to exec for multi-line scripts
+                exec(script_str, namespace)
+                return namespace.get("result")
+
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = executor.submit(_run_script)
+            try:
+                result_value = future.result(timeout=timeout)
+                result_dict = {
+                    "script": script_str[:500],
+                    "result": result_value,
+                    "success": True,
+                    "timestamp": timestamp,
+                }
+            except FuturesTimeoutError:
+                future.cancel()
+                result_dict = {
+                    "script": script_str[:500],
+                    "result": None,
+                    "success": False,
+                    "error": f"Script timed out after {timeout} seconds",
+                    "timestamp": timestamp,
+                }
+            except Exception as exc:
+                tb_str = traceback.format_exc()
+                result_dict = {
+                    "script": script_str[:500],
+                    "result": None,
+                    "success": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "traceback": tb_str[:1000],
+                    "timestamp": timestamp,
+                }
+        finally:
+            executor.shutdown(wait=False)
+
+        # Store the result
+        try:
+            await self._storage.add_script_result(jorb.id, result_dict)
+        except Exception as e:
+            logger.error("Failed to store script result for jorb %s: %s", jorb.id, e)
+
+        logger.info(
+            "Script execution for jorb %s: success=%s, script=%s",
+            jorb.id,
+            result_dict.get("success"),
+            script_str[:80],
+        )
+
+        return result_dict
+
+    # --- Rate limiting for LLM iteration loops (frank_bot-00116) ---
+
+    def _check_iteration_rate_limit(self, jorb_id: str) -> str | None:
+        """
+        Check if a jorb has exceeded LLM iteration rate limits.
+
+        Tracks invocation timestamps per jorb and enforces both hourly and daily limits.
+
+        Args:
+            jorb_id: The jorb ID
+
+        Returns:
+            None if under limit, or a string explaining which limit was exceeded
+        """
+        now = datetime.now(timezone.utc)
+        one_hour_ago = now - timedelta(hours=1)
+        one_day_ago = now - timedelta(days=1)
+
+        key = f"iter_{jorb_id}"
+        timestamps = self._message_counts.get(key, [])
+
+        # Parse timestamps and filter
+        recent_hour = [ts for ts in timestamps if ts > one_hour_ago.isoformat()]
+        recent_day = [ts for ts in timestamps if ts > one_day_ago.isoformat()]
+
+        # Update stored timestamps (prune old ones)
+        self._message_counts[key] = recent_day
+
+        if len(recent_hour) >= MAX_ITERATIONS_PER_HOUR:
+            return f"Rate limit exceeded: {MAX_ITERATIONS_PER_HOUR} LLM invocations per hour"
+
+        if len(recent_day) >= MAX_ITERATIONS_PER_DAY:
+            return f"Rate limit exceeded: {MAX_ITERATIONS_PER_DAY} LLM invocations per day"
+
+        return None
+
+    def _record_iteration(self, jorb_id: str) -> None:
+        """Record an LLM iteration for rate limiting."""
+        key = f"iter_{jorb_id}"
+        now = datetime.now(timezone.utc).isoformat()
+        if key not in self._message_counts:
+            self._message_counts[key] = []
+        self._message_counts[key].append(now)
+
+    # --- Agent loop for jorb processing (frank_bot-00115) ---
+
+    async def process_jorb_event(
+        self,
+        jorb: Jorb,
+        event: IncomingEvent | None = None,
+    ) -> ProcessingResult:
+        """
+        Process a jorb event using the iterative agent loop.
+
+        Implements: invoke LLM -> parse action -> execute -> decide next step.
+        - Sync scripts (await_reply=false, done=false): execute, feed result back, continue
+        - Async scripts (await_reply=true): execute, mark awaiting reply, break
+        - Done: mark complete, break
+        - Pause: mark paused, break
+        - No action: break (safety fallback)
+
+        Args:
+            jorb: The jorb to process
+            event: Optional incoming event that triggered processing
+
+        Returns:
+            ProcessingResult with details of what happened
+        """
+        jorb_id = jorb.id
+        message_sent = False
+        last_action = "no_action"
+
+        # Reload jorb with messages for each LLM call
+        async def _get_jorb_with_messages() -> JorbWithMessages:
+            refreshed_jorb = await self._storage.get_jorb(jorb_id)
+            if refreshed_jorb is None:
+                raise AgentRunnerError(f"Jorb {jorb_id} not found")
+            messages = await self._storage.get_messages(jorb_id)
+            return JorbWithMessages(jorb=refreshed_jorb, messages=messages)
+
+        while True:
+            # Check rate limit before each LLM invocation
+            rate_limit_msg = self._check_iteration_rate_limit(jorb_id)
+            if rate_limit_msg:
+                logger.warning("Rate limit hit for jorb %s: %s", jorb_id, rate_limit_msg)
+                self._record_policy_violation(
+                    jorb_id, jorb.name, "iteration_rate_limit", rate_limit_msg
+                )
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    status="paused",
+                    paused_reason=rate_limit_msg,
+                )
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken="paused_rate_limit",
+                    success=True,
+                )
+
+            # Record this iteration
+            self._record_iteration(jorb_id)
+
+            # Get fresh jorb state with messages and script_results
+            jwm = await _get_jorb_with_messages()
+
+            # Create session and invoke LLM
+            jorb_session = create_jorb_session(
+                jwm,
+                policy=self._policy.to_context_dict(),
+            )
+
+            if event is not None:
+                # First iteration with incoming message
+                session_response = await jorb_session.process_message(
+                    channel=event.channel,
+                    sender=event.sender,
+                    sender_name=event.sender_name,
+                    content=event.content,
+                    timestamp=event.timestamp,
+                    message_count=event.message_count,
+                )
+                event = None  # Only use event for first iteration
+            else:
+                # Subsequent iterations (kickoff or after script result)
+                session_response = await jorb_session.kickoff()
+
+            # Track token usage
+            if session_response.tokens_used > 0:
+                await self._storage.increment_metrics(
+                    jorb_id,
+                    tokens_used=session_response.tokens_used,
+                    estimated_cost=session_response.estimated_cost,
+                )
+
+            action = session_response.action
+            last_action = action.type
+
+            logger.info(
+                "Agent loop for jorb %s: action=%s, script=%s, await_reply=%s, done=%s, pause=%s",
+                jorb_id, action.type,
+                (action.script or "")[:60],
+                action.await_reply, action.done, action.pause,
+            )
+
+            # Update progress if provided
+            if session_response.progress:
+                progress = session_response.progress
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    progress_summary=progress.note,
+                    awaiting=progress.awaiting,
+                )
+
+            # --- Handle each action type ---
+
+            if action.done:
+                # Done: mark jorb complete
+                result_data = action.result or session_response.result
+                await self.update_jorb_status(jorb_id=jorb_id, status="complete")
+                await self._storage.set_outcome(
+                    jorb_id,
+                    result=json.dumps(result_data) if result_data else None,
+                )
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken="complete",
+                    success=True,
+                    message_sent=message_sent,
+                )
+
+            if action.pause:
+                # Pause: mark jorb paused
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    status="paused",
+                    paused_reason=action.pause_reason or "Paused by agent",
+                )
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken="pause",
+                    success=True,
+                    message_sent=message_sent,
+                )
+
+            if action.script:
+                # Execute the script
+                script_result = await self._execute_script(jwm.jorb, action.script)
+
+                if action.await_reply:
+                    # Async: script sent a message, wait for human reply
+                    await self.update_jorb_status(
+                        jorb_id=jorb_id,
+                        status="running",
+                        awaiting="human_reply",
+                    )
+                    message_sent = True
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="script_await_reply",
+                        success=True,
+                        message_sent=True,
+                    )
+                else:
+                    # Sync: feed result back to LLM, continue loop
+                    continue
+
+            # No script, no done, no pause: safety fallback - break
+            return ProcessingResult(
+                jorb_id=jorb_id,
+                action_taken=last_action,
+                success=True,
+                message_sent=message_sent,
+            )
 
     async def _send_message(
         self,
@@ -1855,4 +2165,7 @@ __all__ = [
     "TaskUpdate",
     "AGENT_MODEL",
     "USE_SWITCHBOARD_MODE",
+    "SCRIPT_EXECUTION_TIMEOUT",
+    "MAX_ITERATIONS_PER_HOUR",
+    "MAX_ITERATIONS_PER_DAY",
 ]

@@ -1891,7 +1891,7 @@
         "Unit tests verify successful script execution stores result, and failed script stores error info"
       ],
       "priority": 114,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00110 (android namespace), frank_bot-00111 (script_results storage), frank_bot-00113 (new action format). Blocks frank_bot-00115. The executor must handle the script as a Python expression (e.g., 'frank.calendar.events(day=\"2026-02-05\")') and return the result dict."
     },
     {
@@ -1908,7 +1908,7 @@
         "Unit tests verify each flow path: sync loop continues, async breaks, done breaks, pause breaks"
       ],
       "priority": 115,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00114 (script execution). Blocks frank_bot-00116, frank_bot-00117. This is the core behavioral change - transforming the single-shot message handler into an iterative agent loop. See prompts/unified-jorbs-design.md execution flow diagram."
     },
     {
@@ -1923,7 +1923,7 @@
         "Unit tests verify: under-limit proceeds, at-limit pauses, counts reset after time window"
       ],
       "priority": 116,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00115 (agent loop). Safety feature to prevent runaway LLM loops that could burn through API credits. The existing JorbPolicy already has max_messages_per_hour=20 which provides a model to follow."
     },
     {
@@ -1938,7 +1938,7 @@
         "All existing jorb tests continue to pass"
       ],
       "priority": 117,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00115 (agent loop), frank_bot-00116 (rate limiting). These tests validate the end-to-end flow described in prompts/unified-jorbs-design.md examples (hotel booking, thermostat). Mock the OpenAI API to return predetermined JSON responses."
     }
   ]
