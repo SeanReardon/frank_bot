@@ -183,53 +183,122 @@
       "get": {
         "operationId": "claudiaApiLearn",
         "summary": "Learn Claudia coding assistant (CALL FIRST)",
-        "description": "Returns docs about chatting with Claudia for coding. Learn workflow: create chat, discuss, end, execute prompt.",
+        "description": "Returns docs about chatting with Claudia for coding. Learn workflow: list repos, create chat, discuss, end, execute prompt, check queue.",
         "responses": {"200": {"description": "Claudia documentation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaApiLearnResponse"}}}}},
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/claudia/repos": {
+      "get": {
+        "operationId": "listClaudiaRepos",
+        "summary": "List Claudia-managed repositories",
+        "description": "See all repos Claudia manages with their status, model, and queue info.",
+        "responses": {"200": {"description": "List of repos", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaReposResponse"}}}}},
         "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/claudia/chat/create": {
       "get": {
-        "operationId": "claudiaChatCreate",
-        "summary": "Start chat with Claudia",
+        "operationId": "createClaudiaChat",
+        "summary": "Start chat with Claudia about a repo",
+        "description": "Create a new chat session. Requires repo_name and title. Optionally include initial message.",
         "parameters": [
-          {"in": "query", "name": "repo_name", "required": true, "schema": {"type": "string"}},
-          {"in": "query", "name": "title", "required": true, "schema": {"type": "string"}},
-          {"in": "query", "name": "message", "schema": {"type": "string"}}
+          {"in": "query", "name": "repo_name", "required": true, "schema": {"type": "string"}, "description": "Repository name (e.g., frank_bot)"},
+          {"in": "query", "name": "title", "required": true, "schema": {"type": "string"}, "description": "Chat topic/title"},
+          {"in": "query", "name": "message", "schema": {"type": "string"}, "description": "Optional initial message"}
         ],
-        "responses": {"200": {"description": "Chat created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatCreateResponse"}}}}},
+        "responses": {"200": {"description": "Chat created with queue position", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatCreateResponse"}}}}},
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/claudia/repos/{repo_id}/chats": {
+      "get": {
+        "operationId": "listClaudiaChats",
+        "summary": "List chats for a repo",
+        "parameters": [
+          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
+          {"in": "query", "name": "status", "schema": {"type": "string", "enum": ["active", "completed", "cancelled"]}}
+        ],
+        "responses": {"200": {"description": "List of chats", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatsResponse"}}}}},
         "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/claudia/repos/{repo_id}/chats/{chat_id}": {
       "get": {
-        "operationId": "claudiaChatGet",
-        "summary": "Get chat with messages",
+        "operationId": "getClaudiaChat",
+        "summary": "Get chat with all messages",
         "parameters": [
           {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
           {"in": "path", "name": "chat_id", "required": true, "schema": {"type": "string"}}
         ],
-        "responses": {"200": {"description": "Chat details", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatGetResponse"}}}}},
+        "responses": {"200": {"description": "Chat details with messages", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatGetResponse"}}}}},
         "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/claudia/repos/{repo_id}/chats/{chat_id}/message": {
       "get": {
-        "operationId": "claudiaChatMessage",
+        "operationId": "sendClaudiaMessage",
         "summary": "Send message in chat",
         "parameters": [
           {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
           {"in": "path", "name": "chat_id", "required": true, "schema": {"type": "string"}},
           {"in": "query", "name": "message", "required": true, "schema": {"type": "string"}}
         ],
-        "responses": {"200": {"description": "Message sent", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatMessageResponse"}}}}},
+        "responses": {"200": {"description": "Message added", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatMessageResponse"}}}}},
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/claudia/repos/{repo_id}/chats/{chat_id}/end": {
+      "get": {
+        "operationId": "endClaudiaChat",
+        "summary": "End a chat session",
+        "parameters": [
+          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
+          {"in": "path", "name": "chat_id", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Chat ended", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatEndResponse"}}}}},
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/claudia/repos/{repo_id}/prompts": {
+      "get": {
+        "operationId": "listClaudiaPrompts",
+        "summary": "List prompts for a repo",
+        "parameters": [{"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "List of prompts", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptsResponse"}}}}},
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/claudia/repos/{repo_id}/prompts/create": {
+      "get": {
+        "operationId": "createClaudiaPrompt",
+        "summary": "Create prompt from completed chat",
+        "description": "Queue prompt generation from a completed chat conversation.",
+        "parameters": [
+          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
+          {"in": "query", "name": "chat_id", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Prompt generation queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptCreateResponse"}}}}},
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/claudia/repos/{repo_id}/prompts/{prompt_id}": {
+      "get": {
+        "operationId": "getClaudiaPrompt",
+        "summary": "Get prompt details",
+        "parameters": [
+          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
+          {"in": "path", "name": "prompt_id", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Prompt details with content", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptGetResponse"}}}}},
         "security": [{"ActionsApiKey": []}]
       }
     },
     "/actions/claudia/repos/{repo_id}/prompts/{prompt_id}/execute": {
       "get": {
-        "operationId": "claudiaPromptExecute",
+        "operationId": "executeClaudiaPrompt",
         "summary": "Execute a prompt",
+        "description": "Queue prompt for direct execution by Claude.",
         "parameters": [
           {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
           {"in": "path", "name": "prompt_id", "required": true, "schema": {"type": "string"}}
@@ -238,10 +307,34 @@
         "security": [{"ActionsApiKey": []}]
       }
     },
+    "/actions/claudia/repos/{repo_id}/queue": {
+      "get": {
+        "operationId": "getClaudiaQueue",
+        "summary": "Get queue status for a repo",
+        "description": "See pending and active tasks in the queue.",
+        "parameters": [{"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Queue status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaQueueResponse"}}}}},
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/claudia/executions": {
+      "get": {
+        "operationId": "listClaudiaExecutions",
+        "summary": "List executions",
+        "parameters": [
+          {"in": "query", "name": "repo_id", "schema": {"type": "string"}},
+          {"in": "query", "name": "status", "schema": {"type": "string"}},
+          {"in": "query", "name": "limit", "schema": {"type": "integer", "default": 50}}
+        ],
+        "responses": {"200": {"description": "List of executions", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaExecutionsResponse"}}}}},
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
     "/actions/claudia/executions/{execution_id}": {
       "get": {
-        "operationId": "claudiaExecutionGet",
-        "summary": "Get execution result",
+        "operationId": "getClaudiaExecution",
+        "summary": "Get execution details",
+        "description": "Full execution details including prompt, output, git diff, costs.",
         "parameters": [{"in": "path", "name": "execution_id", "required": true, "schema": {"type": "string"}}],
         "responses": {"200": {"description": "Execution details", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaExecutionGetResponse"}}}}},
         "security": [{"ActionsApiKey": []}]
@@ -442,19 +535,44 @@
           "tips": {"type": "array", "items": {"type": "string"}}
         }
       },
+      "ClaudiaReposResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "repos": {"type": "array", "items": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "name": {"type": "string"},
+            "model": {"type": "string"},
+            "status": {"type": "string"}
+          }}}
+        }
+      },
       "ClaudiaChatCreateResponse": {
         "type": "object",
         "properties": {
           "message": {"type": "string"},
           "repo": {"type": "object"},
-          "chat": {"type": "object"}
+          "chat": {"type": "object"},
+          "queue_position": {"type": "integer"}
+        }
+      },
+      "ClaudiaChatsResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "chats": {"type": "array", "items": {"type": "object"}}
         }
       },
       "ClaudiaChatGetResponse": {
         "type": "object",
         "properties": {
           "message": {"type": "string"},
-          "chat": {"type": "object"}
+          "chat": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "title": {"type": "string"},
+            "status": {"type": "string", "enum": ["active", "completed", "cancelled"]},
+            "messages": {"type": "array", "items": {"type": "object"}}
+          }}
         }
       },
       "ClaudiaChatMessageResponse": {
@@ -462,6 +580,44 @@
         "properties": {
           "message": {"type": "string"},
           "chat_message": {"type": "object"}
+        }
+      },
+      "ClaudiaChatEndResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "chat": {"type": "object"}
+        }
+      },
+      "ClaudiaPromptsResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "prompts": {"type": "array", "items": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "name": {"type": "string"},
+            "source": {"type": "string"}
+          }}}
+        }
+      },
+      "ClaudiaPromptCreateResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "queue_item_id": {"type": "string"},
+          "queue_position": {"type": "integer"}
+        }
+      },
+      "ClaudiaPromptGetResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "prompt": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "name": {"type": "string"},
+            "content": {"type": "string"},
+            "source": {"type": "string"}
+          }}
         }
       },
       "ClaudiaPromptExecuteResponse": {
@@ -472,11 +628,36 @@
           "queue_position": {"type": "integer"}
         }
       },
+      "ClaudiaQueueResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "queue": {"type": "object", "properties": {
+            "active": {"type": "object"},
+            "pending": {"type": "array", "items": {"type": "object"}},
+            "position": {"type": "integer"}
+          }}
+        }
+      },
+      "ClaudiaExecutionsResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "executions": {"type": "array", "items": {"type": "object"}}
+        }
+      },
       "ClaudiaExecutionGetResponse": {
         "type": "object",
         "properties": {
           "message": {"type": "string"},
-          "execution": {"type": "object"}
+          "execution": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "status": {"type": "string"},
+            "prompt": {"type": "object"},
+            "output": {"type": "string"},
+            "git_diff": {"type": "string"},
+            "costs": {"type": "object"}
+          }}
         }
       },
       "HealthResponse": {

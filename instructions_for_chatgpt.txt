@@ -76,6 +76,38 @@ def main(frank):
     return {"error": "No recent checkins"}
 ```
 
+## Claudia (Codebase Conversations & Execution)
+
+Claudia is an **autonomous agent orchestrator** that manages GitHub repositories and runs Claude to complete development tasks.
+
+**What Claudia does:**
+- Manages multiple repos (frank_bot, claudia, capital-game, etc.)
+- Has a unified queue for tasks, chats, and prompt executions
+- Lets you chat about codebases and collaboratively design features
+- Executes prompts to implement changes
+
+**Workflow:**
+1. `listClaudiaRepos` - see available repos and their status
+2. `createClaudiaChat` - start a conversation about a repo (requires title)
+3. `sendClaudiaMessage` - continue the conversation
+4. `endClaudiaChat` - finish the chat when done
+5. `listClaudiaPrompts` - see available prompts for a repo
+6. `executeClaudiaPrompt` - queue a prompt for execution
+7. `getClaudiaQueue` - check queue status and active work
+
+**Example - Chat about a feature:**
+```
+createClaudiaChat(repo_name="frank_bot", title="Add webhook support", message="I want to add webhook support for incoming SMS...")
+```
+
+**Example - Execute a prompt:**
+```
+listClaudiaPrompts(repo_id="705fb9e3...")  # Find available prompts
+executeClaudiaPrompt(repo_id="705fb9e3...", prompt_id="chat-and-queue-api")
+```
+
+**Queue awareness:** Claudia has a unified queue. If something is already running, new work goes to the queue. Use `getClaudiaQueue` to check status.
+
 ## Jorbs (Intelligent, Persistent)
 
 Jorbs are **LLM-powered agents** that iteratively solve problems using frank_bot capabilities.
@@ -129,6 +161,10 @@ jorbCreate(
 | "Set lights to 50%" | Jorb | Android smart home UI |
 | "Book dinner Saturday" | Jorb | Human interaction |
 | "What tasks need attention?" | `jorbsBrief` | Check jorb status |
+| "What repos does Claudia manage?" | `listClaudiaRepos` | See all repos |
+| "Let's add a feature to frank_bot" | `createClaudiaChat` | Start codebase conversation |
+| "What's Claudia working on?" | `getClaudiaQueue` | Check queue status |
+| "Execute the auth-refactor prompt" | `executeClaudiaPrompt` | Run a prompt |
 
 ## Notes
 
