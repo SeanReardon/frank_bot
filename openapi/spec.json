@@ -110,7 +110,7 @@
     },
     "/actions/jorbs/api/learn": {
       "get": {
-        "operationId": "jorbsApiLearn",
+        "operationId": "jorbApiLearn",
         "summary": "Learn Jorbs system (CALL FIRST)",
         "description": "Returns comprehensive docs about autonomous tasks (jorbs). Learn lifecycle, contacts format, personalities, auto-pause rules.",
         "responses": {"200": {"description": "Jorbs documentation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JorbsApiLearnResponse"}}}}},
@@ -147,7 +147,7 @@
     },
     "/actions/jorbs/brief": {
       "get": {
-        "operationId": "jorbsBrief",
+        "operationId": "jorbBriefGet",
         "summary": "Get jorbs overview + pending decisions",
         "description": "Quick briefing on all jorb activity. Shows pending approvals, recent completions, activity summary.",
         "responses": {"200": {"description": "Briefing", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JorbsBriefResponse"}}}}},
@@ -190,7 +190,7 @@
     },
     "/actions/claudia/repos": {
       "get": {
-        "operationId": "listClaudiaRepos",
+        "operationId": "claudiaRepoList",
         "summary": "List Claudia-managed repositories",
         "description": "See all repos Claudia manages with their status, model, and queue info.",
         "responses": {"200": {"description": "List of repos", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaReposResponse"}}}}},
@@ -199,7 +199,7 @@
     },
     "/actions/claudia/chat/create": {
       "get": {
-        "operationId": "createClaudiaChat",
+        "operationId": "claudiaChatCreate",
         "summary": "Start chat with Claudia about a repo",
         "description": "Create a new chat session. Requires repo_name and title. Optionally include initial message.",
         "parameters": [
@@ -213,7 +213,7 @@
     },
     "/actions/claudia/repos/{repo_id}/chats": {
       "get": {
-        "operationId": "listClaudiaChats",
+        "operationId": "claudiaChatList",
         "summary": "List chats for a repo",
         "parameters": [
           {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
@@ -225,7 +225,7 @@
     },
     "/actions/claudia/repos/{repo_id}/chats/{chat_id}": {
       "get": {
-        "operationId": "getClaudiaChat",
+        "operationId": "claudiaChatGet",
         "summary": "Get chat with all messages",
         "parameters": [
           {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
@@ -237,7 +237,7 @@
     },
     "/actions/claudia/repos/{repo_id}/chats/{chat_id}/message": {
       "get": {
-        "operationId": "sendClaudiaMessage",
+        "operationId": "claudiaMessageSend",
         "summary": "Send message in chat",
         "parameters": [
           {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
@@ -250,7 +250,7 @@
     },
     "/actions/claudia/repos/{repo_id}/chats/{chat_id}/end": {
       "get": {
-        "operationId": "endClaudiaChat",
+        "operationId": "claudiaChatEnd",
         "summary": "End a chat session",
         "parameters": [
           {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
@@ -262,7 +262,7 @@
     },
     "/actions/claudia/repos/{repo_id}/prompts": {
       "get": {
-        "operationId": "listClaudiaPrompts",
+        "operationId": "claudiaPromptList",
         "summary": "List prompts for a repo",
         "parameters": [{"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}}],
         "responses": {"200": {"description": "List of prompts", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptsResponse"}}}}},
@@ -271,7 +271,7 @@
     },
     "/actions/claudia/repos/{repo_id}/prompts/create": {
       "get": {
-        "operationId": "createClaudiaPrompt",
+        "operationId": "claudiaPromptCreate",
         "summary": "Create prompt from completed chat",
         "description": "Queue prompt generation from a completed chat conversation.",
         "parameters": [
@@ -284,7 +284,7 @@
     },
     "/actions/claudia/repos/{repo_id}/prompts/{prompt_id}": {
       "get": {
-        "operationId": "getClaudiaPrompt",
+        "operationId": "claudiaPromptGet",
         "summary": "Get prompt details",
         "parameters": [
           {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
@@ -296,7 +296,7 @@
     },
     "/actions/claudia/repos/{repo_id}/prompts/{prompt_id}/execute": {
       "get": {
-        "operationId": "executeClaudiaPrompt",
+        "operationId": "claudiaPromptExecute",
         "summary": "Execute a prompt",
         "description": "Queue prompt for direct execution by Claude.",
         "parameters": [
@@ -309,7 +309,7 @@
     },
     "/actions/claudia/repos/{repo_id}/queue": {
       "get": {
-        "operationId": "getClaudiaQueue",
+        "operationId": "claudiaQueueGet",
         "summary": "Get queue status for a repo",
         "description": "See pending and active tasks in the queue.",
         "parameters": [{"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}}],
@@ -319,7 +319,7 @@
     },
     "/actions/claudia/executions": {
       "get": {
-        "operationId": "listClaudiaExecutions",
+        "operationId": "claudiaExecutionList",
         "summary": "List executions",
         "parameters": [
           {"in": "query", "name": "repo_id", "schema": {"type": "string"}},
@@ -332,7 +332,7 @@
     },
     "/actions/claudia/executions/{execution_id}": {
       "get": {
-        "operationId": "getClaudiaExecution",
+        "operationId": "claudiaExecutionGet",
         "summary": "Get execution details",
         "description": "Full execution details including prompt, output, git diff, costs.",
         "parameters": [{"in": "path", "name": "execution_id", "required": true, "schema": {"type": "string"}}],
@@ -344,14 +344,14 @@
       "get": {
         "operationId": "health",
         "summary": "Quick health check",
-        "description": "Returns OK if server is running. Fast, no auth required. Use getDiagnostics for detailed subsystem status.",
+        "description": "Returns OK if server is running. Fast, no auth required. Use diagnosticsGet for detailed subsystem status.",
         "responses": {"200": {"description": "Health status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthResponse"}}}}},
         "security": []
       }
     },
     "/diagnostics": {
       "get": {
-        "operationId": "getDiagnostics",
+        "operationId": "diagnosticsGet",
         "summary": "Comprehensive system diagnostics",
         "description": "Detailed status of ALL subsystems: Android phone (connected?), Jorbs (active counts), Scripts (task stats), Claudia (connectivity), background services. Call this to understand full system state.",
         "responses": {"200": {"description": "Full diagnostics", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiagnosticsResponse"}}}}},

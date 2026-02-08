@@ -127,6 +127,14 @@ def create_starlette_app() -> Starlette:
     @app.on_event("startup")
     async def startup_event():
         logger.info("Starlette app started - Actions endpoints configured")
+
+        # Store main event loop for FrankAPI script threads.
+        # Scripts run in a ThreadPoolExecutor and need to submit coroutines
+        # back to this loop (required for Telethon and other loop-bound clients).
+        import asyncio
+        from meta.api import set_main_loop
+        set_main_loop(asyncio.get_running_loop())
+
         # Start the background event loop for jorb system
         try:
             await start_background_loop()

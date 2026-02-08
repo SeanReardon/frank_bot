@@ -2,14 +2,47 @@
 FrankAPI - Synchronous scripting API for Frank Bot.
 
 Provides namespace-based access to Frank Bot actions for use in scripts.
-Each namespace wraps the corresponding async action handlers with
-synchronous methods using asyncio.run().
+Each namespace wraps the corresponding async action handlers, submitting
+coroutines to the main event loop via run_coroutine_threadsafe().
+
+This avoids creating new event loops (which breaks Telethon and other
+libraries that bind to a specific loop at connection time).
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Coroutine, TypeVar
+
+T = TypeVar("T")
+
+# Reference to the main event loop (set during app startup).
+# Scripts run in a ThreadPoolExecutor, so they cannot just asyncio.run()
+# because that creates a *new* loop -- which conflicts with services like
+# Telethon that bind to the loop they were initialised on.
+_main_loop: asyncio.AbstractEventLoop | None = None
+
+
+def set_main_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """Store the main event loop for use by script threads."""
+    global _main_loop
+    _main_loop = loop
+
+
+def _run_async(coro: Coroutine[Any, Any, T]) -> T:
+    """
+    Run an async coroutine from a synchronous (thread-pool) context.
+
+    If the main event loop has been registered (normal server operation),
+    the coroutine is submitted to that loop via run_coroutine_threadsafe().
+    Otherwise falls back to asyncio.run() for standalone/test usage.
+    """
+    if _main_loop is not None and _main_loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, _main_loop)
+        # 600s matches the default script timeout in meta/executor.py
+        return future.result(timeout=600)
+    # Fallback for standalone execution (tests, CLI)
+    return asyncio.run(coro)
 
 
 class CalendarNamespace:
@@ -56,7 +89,7 @@ class CalendarNamespace:
             "calendar_id": calendar_id,
             "calendar_name": calendar_name,
         }
-        return asyncio.run(get_events_action(args))
+        return _run_async(get_events_action(args))
 
     def create(
         self,
@@ -101,7 +134,7 @@ class CalendarNamespace:
             "calendar_id": calendar_id,
             "calendar_name": calendar_name,
         }
-        return asyncio.run(create_event_action(args))
+        return _run_async(create_event_action(args))
 
     def list(
         self,
@@ -125,7 +158,7 @@ class CalendarNamespace:
             "include_access_role": include_access_role,
             "primary_only": primary_only,
         }
-        return asyncio.run(get_calendars_action(args))
+        return _run_async(get_calendars_action(args))
 
 
 class ContactsNamespace:
@@ -157,7 +190,7 @@ class ContactsNamespace:
             "query": query,
             "max_results": max_results,
         }
-        return asyncio.run(search_contacts_action(args))
+        return _run_async(search_contacts_action(args))
 
 
 class SMSNamespace:
@@ -188,7 +221,7 @@ class SMSNamespace:
             "recipient": recipient,
             "message": message,
         }
-        return asyncio.run(send_sms_action(args))
+        return _run_async(send_sms_action(args))
 
 
 class SwarmNamespace:
@@ -247,7 +280,7 @@ class SwarmNamespace:
             "max_results": max_results,
             "stale_minutes": stale_minutes,
         }
-        return asyncio.run(search_checkins_action(args))
+        return _run_async(search_checkins_action(args))
 
 
 class UPSNamespace:
@@ -266,7 +299,7 @@ class UPSNamespace:
         """
         from actions.ups import get_ups_status_action
 
-        return asyncio.run(get_ups_status_action())
+        return _run_async(get_ups_status_action())
 
 
 class TimeNamespace:
@@ -296,7 +329,7 @@ class TimeNamespace:
 
         # Note: get_time_action doesn't currently support timezone parameter
         # but the namespace signature includes it for future compatibility
-        return asyncio.run(get_time_action())
+        return _run_async(get_time_action())
 
 
 class TelegramNamespace:
@@ -328,7 +361,7 @@ class TelegramNamespace:
             "recipient": recipient,
             "text": text,
         }
-        return asyncio.run(send_telegram_message(args))
+        return _run_async(send_telegram_message(args))
 
     def messages(
         self,
@@ -351,7 +384,7 @@ class TelegramNamespace:
             "chat": chat,
             "limit": limit,
         }
-        return asyncio.run(get_telegram_messages(args))
+        return _run_async(get_telegram_messages(args))
 
     def chats(
         self,
@@ -371,7 +404,7 @@ class TelegramNamespace:
         args = {
             "limit": limit,
         }
-        return asyncio.run(list_telegram_chats(args))
+        return _run_async(list_telegram_chats(args))
 
 
 class AndroidNamespace:
@@ -412,7 +445,7 @@ class AndroidNamespace:
             "goal": goal,
             "app": app,
         }
-        return asyncio.run(task_do_action(args))
+        return _run_async(task_do_action(args))
 
     def task_get(
         self,
@@ -432,7 +465,7 @@ class AndroidNamespace:
         args = {
             "task_id": task_id,
         }
-        return asyncio.run(task_get_action(args))
+        return _run_async(task_get_action(args))
 
     def task_cancel(
         self,
@@ -452,7 +485,7 @@ class AndroidNamespace:
         args = {
             "task_id": task_id,
         }
-        return asyncio.run(task_cancel_action(args))
+        return _run_async(task_cancel_action(args))
 
 
 class FrankAPI:
@@ -531,4 +564,5 @@ __all__ = [
     "TimeNamespace",
     "TelegramNamespace",
     "AndroidNamespace",
+    "set_main_loop",
 ]

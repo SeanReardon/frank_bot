@@ -100,7 +100,7 @@ async def health_action(
     """
     Quick health check. Returns OK if server is running.
 
-    Use getDiagnostics for detailed subsystem status.
+    Use diagnosticsGet for detailed subsystem status.
     """
     all_stats = stats.get_all_stats()
     server = all_stats.get("server", {})

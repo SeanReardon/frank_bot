@@ -16,7 +16,7 @@ from telethon.tl.types import User
 from services.agent_runner import AgentRunner, IncomingEvent
 from services.jorb_storage import JorbContact, JorbStorage
 from services.message_buffer import BufferedEvent, MessageBuffer
-from services.telegram_client import TelegramClientService
+from services.telegram_client import DispatchContext, TelegramClientService
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,10 @@ async def _is_jorb_contact(username: str | None, name: str | None) -> bool:
     return False
 
 
-async def _handle_telegram_message(event: events.NewMessage.Event) -> None:
+async def _handle_telegram_message(
+    event: events.NewMessage.Event,
+    context: DispatchContext | None = None,
+) -> None:
     """
     Handle an incoming Telegram message event.
 
@@ -123,6 +126,7 @@ async def _handle_telegram_message(event: events.NewMessage.Event) -> None:
 
     Args:
         event: Telethon NewMessage.Event
+        context: DispatchContext with metadata (is_self_sent, is_human_intervention)
     """
     # Get sender info
     sender = await event.get_sender()

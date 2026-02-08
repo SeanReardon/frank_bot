@@ -809,7 +809,7 @@ async def api_learn_action(
         "operations": {
             "jorbCreate": "Start a new task with name, plan, contacts",
             "jorbGet": "Get full details including messages, checkpoints",
-            "jorbsBrief": "Quick overview of all activity + pending decisions",
+            "jorbBriefGet": "Quick overview of all activity + pending decisions",
             "jorbApprove": "Approve/reject a paused task's pending action",
             "jorbCancel": "Stop a task (with optional reason)",
         },

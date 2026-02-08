@@ -653,9 +653,9 @@ async def api_learn_action(
             "actual code changes."
         ),
         "workflow": [
-            "1. claudiaReposList - See available repositories",
+            "1. claudiaRepoList - See available repositories",
             "2. claudiaChatCreate - Start a conversation about a feature",
-            "3. claudiaChatMessage - Discuss and refine the approach",
+            "3. claudiaMessageSend - Discuss and refine the approach",
             "4. claudiaChatEnd - Finish the conversation",
             "5. claudiaPromptExecute - Execute the resulting prompt",
         ],
@@ -671,10 +671,10 @@ async def api_learn_action(
             "status": "Check execution status and results",
         },
         "operations": {
-            "claudiaReposList": "List all Claudia-managed repositories",
+            "claudiaRepoList": "List all Claudia-managed repositories",
             "claudiaChatCreate": "Start chat (repo_name, title, message?)",
             "claudiaChatGet": "Get chat with all messages (repo_id, chat_id)",
-            "claudiaChatMessage": "Send message (repo_id, chat_id, message)",
+            "claudiaMessageSend": "Send message (repo_id, chat_id, message)",
             "claudiaChatEnd": "End chat, generate prompt (repo_id, chat_id)",
             "claudiaPromptExecute": "Execute prompt (repo_id, prompt_id)",
             "claudiaExecutionGet": "Get execution result (execution_id)",

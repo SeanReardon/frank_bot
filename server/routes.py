@@ -237,7 +237,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def get_diagnostics_handler(request: Request):
         await _require_api_key(request)
-        stats.get_endpoint_stats("getDiagnostics").record_call()
+        stats.get_endpoint_stats("diagnosticsGet").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(get_diagnostics_action)
         return await responder(payload)
@@ -359,7 +359,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
     # Jorb endpoints - read-only endpoints are public for web dashboard
     # Write operations (approve, cancel) require Stytch session
     async def jorbs_api_learn_handler(request: Request):
-        stats.get_endpoint_stats("jorbsApiLearn").record_call()
+        stats.get_endpoint_stats("jorbApiLearn").record_call()
         responder = _build_responder(jorbs_api_learn_action)
         return await responder({})
 
@@ -411,7 +411,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         return await responder(payload)
 
     async def jorbs_brief_handler(request: Request):
-        stats.get_endpoint_stats("jorbsBrief").record_call()
+        stats.get_endpoint_stats("jorbBriefGet").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(brief_me_action)
         return await responder(payload)
@@ -446,7 +446,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def claudia_repos_handler(request: Request):
         await _require_api_key(request)
-        stats.get_endpoint_stats("claudiaRepos").record_call()
+        stats.get_endpoint_stats("claudiaRepoList").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(list_claudia_repos_action)
         return await responder(payload)
@@ -460,7 +460,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def claudia_chats_list_handler(request: Request):
         await _require_api_key(request)
-        stats.get_endpoint_stats("claudiaChatsList").record_call()
+        stats.get_endpoint_stats("claudiaChatList").record_call()
         repo_id = request.path_params.get("repo_id", "")
         payload = dict(request.query_params)
         payload["repo_id"] = repo_id
@@ -480,7 +480,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def claudia_chat_message_handler(request: Request):
         await _require_api_key(request)
-        stats.get_endpoint_stats("claudiaChatMessage").record_call()
+        stats.get_endpoint_stats("claudiaMessageSend").record_call()
         repo_id = request.path_params.get("repo_id", "")
         chat_id = request.path_params.get("chat_id", "")
         payload = dict(request.query_params)
@@ -502,7 +502,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def claudia_prompts_list_handler(request: Request):
         await _require_api_key(request)
-        stats.get_endpoint_stats("claudiaPromptsList").record_call()
+        stats.get_endpoint_stats("claudiaPromptList").record_call()
         repo_id = request.path_params.get("repo_id", "")
         payload = dict(request.query_params)
         payload["repo_id"] = repo_id
@@ -542,7 +542,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def claudia_executions_list_handler(request: Request):
         await _require_api_key(request)
-        stats.get_endpoint_stats("claudiaExecutionsList").record_call()
+        stats.get_endpoint_stats("claudiaExecutionList").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(list_claudia_executions_action)
         return await responder(payload)
@@ -558,7 +558,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
 
     async def claudia_queue_handler(request: Request):
         await _require_api_key(request)
-        stats.get_endpoint_stats("claudiaQueue").record_call()
+        stats.get_endpoint_stats("claudiaQueueGet").record_call()
         repo_id = request.path_params.get("repo_id", "")
         payload = dict(request.query_params)
         payload["repo_id"] = repo_id
