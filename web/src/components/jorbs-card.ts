@@ -504,7 +504,7 @@ export class JorbsCard extends LitElement {
 
     try {
       const response = await api.getJorbs({ status: this._statusFilter });
-      this._jorbs = response.jorbs;
+      this._jorbs = response.jorbs ?? [];
     } catch (err) {
       this._error = err instanceof Error ? err.message : 'Failed to fetch jorbs';
     } finally {
@@ -745,6 +745,7 @@ export class JorbsCard extends LitElement {
     const messages = this._jorbMessages.get(jorb.id);
     const isLoadingMessages = this._loadingMessages.has(jorb.id);
     const isActionInProgress = this._actionInProgress.has(jorb.id);
+    const contacts = jorb.contacts ?? [];
 
     return html`
       <div class="jorb-item ${jorb.status === 'paused' ? 'paused' : ''}">
@@ -767,7 +768,7 @@ export class JorbsCard extends LitElement {
             </div>
             <div class="jorb-meta">
               <span title="Last updated">${this._formatRelativeTime(jorb.updated_at)}</span>
-              <span title="Contacts">${jorb.contacts.length} contact${jorb.contacts.length !== 1 ? 's' : ''}</span>
+              <span title="Contacts">${contacts.length} contact${contacts.length !== 1 ? 's' : ''}</span>
               ${jorb.awaiting ? html`<span title="Awaiting">⏳ ${jorb.awaiting}</span>` : nothing}
             </div>
           </div>
@@ -836,7 +837,7 @@ export class JorbsCard extends LitElement {
 
             <h4>Contacts</h4>
             <div class="contacts-list">
-              ${jorb.contacts.length > 0 ? jorb.contacts.map(contact => html`
+              ${contacts.length > 0 ? contacts.map(contact => html`
                 <span class="contact-tag">
                   <span class="channel-icon">${this._getChannelIcon(contact.channel)}</span>
                   ${contact.name || contact.identifier}

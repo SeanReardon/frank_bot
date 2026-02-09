@@ -330,7 +330,7 @@ export class JobsCard extends LitElement {
     try {
       const statusParam = this._statusFilter === 'all' ? undefined : this._statusFilter;
       const response = await api.getJobs(statusParam);
-      this._jobs = response.jobs;
+      this._jobs = response.jobs ?? [];
     } catch (err) {
       this._error = err instanceof Error ? err.message : 'Failed to fetch jobs';
     } finally {
