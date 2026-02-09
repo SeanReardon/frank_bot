@@ -741,23 +741,23 @@ export class JorbsCard extends LitElement {
   }
 
   private _renderJorb(jorb: Jorb) {
-    const isExpanded = this._expandedJorbId === jorb.id;
-    const messages = this._jorbMessages.get(jorb.id);
-    const isLoadingMessages = this._loadingMessages.has(jorb.id);
-    const isActionInProgress = this._actionInProgress.has(jorb.id);
+    const isExpanded = this._expandedJorbId === jorb.jorb_id;
+    const messages = this._jorbMessages.get(jorb.jorb_id);
+    const isLoadingMessages = this._loadingMessages.has(jorb.jorb_id);
+    const isActionInProgress = this._actionInProgress.has(jorb.jorb_id);
     const contacts = jorb.contacts ?? [];
 
     return html`
       <div class="jorb-item ${jorb.status === 'paused' ? 'paused' : ''}">
         <div
           class="jorb-header"
-          @click=${() => this._toggleExpand(jorb.id)}
+          @click=${() => this._toggleExpand(jorb.jorb_id)}
           role="button"
           tabindex="0"
           @keydown=${(e: KeyboardEvent) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
-              this._toggleExpand(jorb.id);
+              this._toggleExpand(jorb.jorb_id);
             }
           }}
         >
@@ -867,7 +867,7 @@ export class JorbsCard extends LitElement {
                 class="button button-secondary button-sm view-thread-btn"
                 @click=${(e: Event) => {
                   e.stopPropagation();
-                  this._handleViewThread(jorb.id);
+                  this._handleViewThread(jorb.jorb_id);
                 }}
               >
                 View Full Thread →
@@ -877,7 +877,7 @@ export class JorbsCard extends LitElement {
             `}
 
             <div class="jorb-id">
-              <strong>Jorb ID:</strong> ${jorb.id}<br>
+              <strong>Jorb ID:</strong> ${jorb.jorb_id}<br>
               <strong>Created:</strong> ${this._formatDate(jorb.created_at)}
             </div>
           </div>
@@ -899,8 +899,8 @@ export class JorbsCard extends LitElement {
           <input
             type="text"
             placeholder="Decision or instructions..."
-            .value=${this._approvalInput.get(jorb.id) || ''}
-            @input=${(e: Event) => this._handleApprovalInputChange(jorb.id, e)}
+            .value=${this._approvalInput.get(jorb.jorb_id) || ''}
+            @input=${(e: Event) => this._handleApprovalInputChange(jorb.jorb_id, e)}
             @click=${(e: Event) => e.stopPropagation()}
           />
           <div class="approval-buttons">
@@ -908,7 +908,7 @@ export class JorbsCard extends LitElement {
               class="button button-primary button-sm"
               @click=${(e: Event) => {
                 e.stopPropagation();
-                this._handleApprove(jorb.id);
+                this._handleApprove(jorb.jorb_id);
               }}
               ?disabled=${isActionInProgress}
             >
@@ -918,7 +918,7 @@ export class JorbsCard extends LitElement {
               class="button button-danger button-sm"
               @click=${(e: Event) => {
                 e.stopPropagation();
-                this._handleCancel(jorb.id);
+                this._handleCancel(jorb.jorb_id);
               }}
               ?disabled=${isActionInProgress}
             >

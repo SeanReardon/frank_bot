@@ -11,7 +11,7 @@
 import { LitElement, html, css, unsafeCSS, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import * as api from '../lib/api.js';
-import type { SystemStatusResponse } from '../lib/api.js';
+import type { SystemStatusResponse, AndroidPhoneStatus } from '../lib/api.js';
 
 // Import tokens CSS
 import tokensCSS from '../styles/tokens.css?inline';
@@ -258,6 +258,65 @@ export class SystemStatusCard extends LitElement {
     .needs-attention {
       color: var(--kente-orange);
     }
+
+    .phone-section {
+      margin-top: var(--spacing-md);
+      padding: var(--spacing-md);
+      background: var(--color-surface-hover);
+      border-radius: var(--border-radius-sm);
+      border-left: 2px solid var(--kente-blue);
+    }
+
+    .phone-section.disconnected {
+      border-left-color: var(--kente-orange);
+    }
+
+    .phone-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--spacing-sm);
+    }
+
+    .phone-header h4 {
+      margin: 0;
+      font-size: var(--font-size-base);
+      color: var(--kente-gold-light);
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+    }
+
+    .phone-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--spacing-md);
+      font-size: var(--font-size-sm);
+    }
+
+    .phone-stat {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+    }
+
+    .phone-stat-value {
+      font-weight: 600;
+    }
+
+    .phone-stat-label {
+      color: var(--color-text-muted);
+    }
+
+    .phone-error {
+      font-size: var(--font-size-sm);
+      color: var(--kente-orange);
+      margin-top: var(--spacing-xs);
+    }
+
+    .battery-good { color: var(--kente-green); }
+    .battery-mid { color: var(--kente-orange); }
+    .battery-low { color: var(--kente-red); }
   `;
 
   @state() private _status: SystemStatusResponse | null = null;
@@ -309,6 +368,64 @@ export class SystemStatusCard extends LitElement {
             </div>
           `)}
         </div>
+      </div>
+    `;
+  }
+
+  private _getBatteryClass(level: number | null | undefined): string {
+    if (level === null || level === undefined) return '';
+    if (level > 50) return 'battery-good';
+    if (level > 20) return 'battery-mid';
+    return 'battery-low';
+  }
+
+  private _renderPhone(phone: AndroidPhoneStatus) {
+    const connected = phone.connected;
+
+    return html`
+      <div class="phone-section ${connected ? '' : 'disconnected'}">
+        <div class="phone-header">
+          <h4>
+            📱 Android Phone
+            <span class="status-badge ${connected ? 'success' : 'warning'}">
+              ${connected ? '✓ Connected' : '✗ Offline'}
+            </span>
+          </h4>
+        </div>
+        ${connected ? html`
+          <div class="phone-stats">
+            ${phone.device_model ? html`
+              <div class="phone-stat">
+                <span class="phone-stat-label">Device:</span>
+                <span class="phone-stat-value">${phone.device_model}</span>
+              </div>
+            ` : nothing}
+            ${phone.android_version ? html`
+              <div class="phone-stat">
+                <span class="phone-stat-label">Android:</span>
+                <span class="phone-stat-value">${phone.android_version}</span>
+              </div>
+            ` : nothing}
+            ${phone.battery_level !== null && phone.battery_level !== undefined ? html`
+              <div class="phone-stat">
+                <span class="phone-stat-label">Battery:</span>
+                <span class="phone-stat-value ${this._getBatteryClass(phone.battery_level)}">
+                  ${phone.battery_level}%
+                </span>
+              </div>
+            ` : nothing}
+            ${phone.wifi_ssid ? html`
+              <div class="phone-stat">
+                <span class="phone-stat-label">WiFi:</span>
+                <span class="phone-stat-value">${phone.wifi_ssid}</span>
+              </div>
+            ` : nothing}
+          </div>
+        ` : html`
+          ${phone.error ? html`
+            <div class="phone-error">${phone.error}</div>
+          ` : nothing}
+        `}
       </div>
     `;
   }
@@ -378,6 +495,8 @@ export class SystemStatusCard extends LitElement {
           ]
         )}
       </div>
+
+      ${this._status.android_phone ? this._renderPhone(this._status.android_phone) : nothing}
 
       <div class="jorbs-summary">
         <h4>📋 Active Jorbs</h4>

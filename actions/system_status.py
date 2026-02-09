@@ -84,6 +84,27 @@ async def get_system_status_action(
         "needs_attention": jorb_counts["paused"],
     }
 
+    # Android phone status (via ADB)
+    try:
+        from actions.android_phone import android_phone_health_action
+        phone_health = await android_phone_health_action()
+    except Exception as exc:
+        logger.warning("Failed to get phone health: %s", exc)
+        phone_health = {
+            "connected": False,
+            "error": str(exc),
+        }
+
+    phone_status = {
+        "connected": phone_health.get("connected", False),
+        "device_model": phone_health.get("device_model"),
+        "android_version": phone_health.get("android_version"),
+        "battery_level": phone_health.get("battery_level"),
+        "wifi_ssid": phone_health.get("wifi_ssid"),
+        "error": phone_health.get("error"),
+        "description": "Android phone connected via ADB for automation",
+    }
+
     # Overall health
     all_configured = (
         switchboard_status["configured"]
@@ -103,6 +124,10 @@ async def get_system_status_action(
     lines.append(f"🤖 Agent Runner: {'✓' if agent_status['configured'] else '✗'} ({AGENT_MODEL})")
     lines.append(f"✈️ Telegram Router: {'✓' if telegram_router.get('initialized') else '✗'}")
     lines.append(f"📨 Message Buffer: {buffer_status['pending_messages']} pending")
+    phone_icon = "✓" if phone_status["connected"] else "✗"
+    bat = phone_status.get("battery_level")
+    bat_str = f" {bat}%" if bat is not None else ""
+    lines.append(f"📱 Android Phone: {phone_icon}{bat_str}")
     lines.append("")
     lines.append(f"📋 Open Jorbs: {jorbs_status['total_open']} ({jorbs_status['needs_attention']} need attention)")
 
@@ -114,6 +139,7 @@ async def get_system_status_action(
         "telegram_router": telegram_router,
         "message_buffer": buffer_status,
         "jorbs": jorbs_status,
+        "android_phone": phone_status,
     }
 
 

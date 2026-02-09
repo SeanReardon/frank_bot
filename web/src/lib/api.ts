@@ -373,7 +373,7 @@ export interface JorbCheckpoint {
 }
 
 export interface Jorb {
-  id: string;
+  jorb_id: string;
   name: string;
   status: JorbStatus;
   original_plan: string;
@@ -634,6 +634,16 @@ export interface SystemJorbsStatus {
   needs_attention: number;
 }
 
+export interface AndroidPhoneStatus {
+  connected: boolean;
+  device_model?: string | null;
+  android_version?: string | null;
+  battery_level?: number | null;
+  wifi_ssid?: string | null;
+  error?: string | null;
+  description: string;
+}
+
 export interface SystemStatusResponse {
   message: string;
   healthy: boolean;
@@ -642,6 +652,7 @@ export interface SystemStatusResponse {
   telegram_router: SystemComponentStatus;
   message_buffer: SystemComponentStatus;
   jorbs: SystemJorbsStatus;
+  android_phone?: AndroidPhoneStatus;
 }
 
 /**
