@@ -1990,6 +1990,22 @@ class AgentRunner:
                     message_sent=False,
                 )
 
+            elif action.type == "script" and action.script:
+                # Execute the kickoff script (e.g. frank.android.task_do(...))
+                logger.info("Kickoff executing script for jorb %s", jorb.id)
+                await self._execute_script(jorb, action.script)
+
+                # Enter the main processing loop so the LLM can see the
+                # script result and continue iterating (poll, interpret,
+                # issue more scripts) until the task is done or paused.
+                loop_result = await self.process_jorb_event(jorb)
+                return KickoffResult(
+                    jorb_id=jorb.id,
+                    success=loop_result.success,
+                    action_taken=f"script+{loop_result.action_taken}",
+                    message_sent=loop_result.message_sent,
+                )
+
             # Update jorb status to running
             update_fields: dict[str, Any] = {"status": "running"}
             if session_response.progress:
