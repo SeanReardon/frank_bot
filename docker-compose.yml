@@ -58,6 +58,9 @@ services:
 
       # Version (default if not in .env)
       APP_VERSION: "${APP_VERSION:-0.3.0}"
+    # USB passthrough for Android phone (ADB over USB)
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
     volumes:
       # Mount Google credentials (read-only for security)
       - ./google-credentials.json:/app/secrets/google-credentials.json:ro

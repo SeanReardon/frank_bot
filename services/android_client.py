@@ -1,8 +1,17 @@
 """
-Android device control service via ADB over network.
+Android device control service via ADB.
 
-Provides low-level ADB commands for controlling an Android device
-connected via ADB TCP/IP (wireless debugging).
+Provides low-level ADB commands for controlling an Android device.
+Supports both USB and TCP/IP (wireless debugging) transports.
+
+Transport selection:
+  - USB: Set ANDROID_DEVICE_SERIAL env var to the USB serial
+    (e.g., "48151FDKD001UD"). Requires USB passthrough to container.
+  - TCP/IP: Set ANDROID_ADB_HOST (default 10.0.0.95) and
+    ANDROID_ADB_PORT (default 5555).
+
+USB is preferred when available -- it doesn't require WiFi and
+survives network changes.
 """
 
 from __future__ import annotations
@@ -58,31 +67,68 @@ class UIElement:
 
 class AndroidClient:
     """
-    Client for controlling an Android device via ADB over TCP/IP.
-    
-    Uses the standard ADB command-line tool to communicate with the device.
+    Client for controlling an Android device via ADB.
+
+    Supports USB and TCP/IP transports. USB is selected when
+    ANDROID_DEVICE_SERIAL is set; otherwise falls back to TCP/IP.
     """
 
     def __init__(
         self,
         host: str | None = None,
         port: int | None = None,
+        serial: str | None = None,
         timeout: int = DEFAULT_ADB_TIMEOUT,
     ):
-        self._host = host or os.getenv("ANDROID_ADB_HOST", DEFAULT_ADB_HOST)
-        self._port = port or int(os.getenv("ANDROID_ADB_PORT", str(DEFAULT_ADB_PORT)))
+        self._usb_serial = serial or os.getenv(
+            "ANDROID_DEVICE_SERIAL", ""
+        )
+        self._use_usb = bool(self._usb_serial)
+
+        if self._use_usb:
+            self._device_serial = self._usb_serial
+            self._host = None
+            self._port = None
+            logger.info(
+                "ADB transport: USB (serial=%s)",
+                self._usb_serial,
+            )
+        else:
+            self._host = host or os.getenv(
+                "ANDROID_ADB_HOST", DEFAULT_ADB_HOST
+            )
+            self._port = port or int(
+                os.getenv(
+                    "ANDROID_ADB_PORT",
+                    str(DEFAULT_ADB_PORT),
+                )
+            )
+            self._device_serial = (
+                f"{self._host}:{self._port}"
+            )
+            logger.info(
+                "ADB transport: TCP/IP (%s)",
+                self._device_serial,
+            )
+
         self._timeout = timeout
-        self._device_serial = f"{self._host}:{self._port}"
         self._connected = False
 
     @property
     def device_serial(self) -> str:
-        """Return the device serial (host:port)."""
+        """Return the device serial."""
         return self._device_serial
+
+    @property
+    def is_usb(self) -> bool:
+        """Whether using USB transport."""
+        return self._use_usb
 
     @property
     def is_configured(self) -> bool:
         """Check if the service has required configuration."""
+        if self._use_usb:
+            return bool(self._usb_serial)
         return bool(self._host and self._port)
 
     async def _run_adb(self, *args: str, timeout: int | None = None) -> ADBResult:
@@ -162,20 +208,41 @@ class AndroidClient:
 
     async def connect(self) -> ADBResult:
         """
-        Connect to the Android device via ADB TCP/IP.
-        
-        Returns:
-            ADBResult indicating connection success
+        Connect to the Android device.
+
+        For USB transport this is a no-op (always connected).
+        For TCP/IP this issues ``adb connect``.
         """
-        result = await self._run_adb("connect", self._device_serial)
-        if result.success or "already connected" in result.output.lower():
+        if self._use_usb:
+            self._connected = True
+            return ADBResult(
+                success=True,
+                output="USB device (always connected)",
+            )
+
+        result = await self._run_adb(
+            "connect", self._device_serial
+        )
+        if (
+            result.success
+            or "already connected" in result.output.lower()
+        ):
             self._connected = True
             result.success = True
         return result
 
     async def disconnect(self) -> ADBResult:
         """Disconnect from the Android device."""
-        result = await self._run_adb("disconnect", self._device_serial)
+        if self._use_usb:
+            self._connected = False
+            return ADBResult(
+                success=True,
+                output="USB device (no disconnect needed)",
+            )
+
+        result = await self._run_adb(
+            "disconnect", self._device_serial
+        )
         self._connected = False
         return result
 
