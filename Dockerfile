@@ -26,10 +26,21 @@ WORKDIR /app
 ARG GIT_COMMIT=unknown
 ENV GIT_COMMIT=$GIT_COMMIT
 
-# Install Android Debug Bridge (adb) for phone automation
+# Install Android Debug Bridge (adb) and curl for downloads
 RUN apt-get update && apt-get install -y --no-install-recommends \
     android-tools-adb \
+    curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install gnirehtet for USB reverse tethering (phone internet via USB)
+RUN curl -sL -o /tmp/gnirehtet.zip \
+    "https://github.com/Genymobile/gnirehtet/releases/download/v2.5.1/gnirehtet-rust-linux64-v2.5.1.zip" \
+    && unzip -o /tmp/gnirehtet.zip -d /tmp \
+    && cp /tmp/gnirehtet-rust-linux64/gnirehtet /usr/local/bin/gnirehtet \
+    && cp /tmp/gnirehtet-rust-linux64/gnirehtet.apk /app/gnirehtet.apk \
+    && chmod +x /usr/local/bin/gnirehtet \
+    && rm -rf /tmp/gnirehtet*
 
 # Configure environment
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -45,8 +56,11 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code
 COPY . .
 
+# Make entrypoint executable
+RUN chmod +x /app/scripts/entrypoint.sh
+
 # Expose port for HTTP transport
 EXPOSE 8000
 
-# Run the server
-CMD ["python", "app.py"]
+# Entrypoint starts gnirehtet relay then launches the app
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
