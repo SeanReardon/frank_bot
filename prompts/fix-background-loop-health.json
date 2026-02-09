@@ -1,0 +1,26 @@
+{
+  "$schema": "https://claudia.contrived.com/schemas/prompt.schema.json",
+  "id": "fix-background-loop-health",
+  "title": "Fix Background Loop Health Check and Initial Tick",
+  "description": "Ensure background_loop performs an initial tick on startup, records activity timestamps, and health summary accurately reflects running state",
+  "authors": [
+    {
+      "name": "User",
+      "type": "human"
+    },
+    {
+      "name": "Claude",
+      "type": "model"
+    }
+  ],
+  "createdAt": "2026-02-09T12:00:00Z",
+  "status": "ready",
+  "tags": [
+    "background-loop",
+    "health-check",
+    "scheduler",
+    "diagnostics"
+  ],
+  "content": "# Fix Background Loop Health Check and Initial Tick\n\n## Problem\n\nDiagnostics show `background_loop` flagged ❌ even though heartbeat/digest/maintenance tasks are registered. All execution timestamps (`last_digest_date`, `last_activity_at`, weekly/monthly checks) are null, suggesting the loop never ticks or never records state.\n\n## Investigation Areas\n\n### 1. Scheduler Startup\n- Read `services/background_loop.py` and understand `BackgroundLoopService.start()`\n- Read `server/app.py` to see how the background loop is started during app startup\n- Verify tasks are actually created and running (not just registered)\n- Check if there's a race condition where health checks run before the loop starts\n\n### 2. First-Tick Execution\n- The heartbeat loop sleeps for `HEARTBEAT_INTERVAL_SECONDS` (3600s = 1 hour) before its first tick\n- The maintenance loop also sleeps for `MAINTENANCE_CHECK_INTERVAL_SECONDS` (3600s) before first tick\n- The digest loop checks every 60 seconds but only acts at the configured digest time\n- **All timestamps remain null until the first actual tick completes**\n- Fix: Perform an initial tick immediately on startup before entering the periodic sleep loop, so that timestamps are populated and health checks pass right away\n\n### 3. Health Criteria in Diagnostics\n- Read `actions/diagnostics.py` — specifically `_check_background_loop()` and `get_background_loop_status()`\n- Determine what conditions cause the ❌ flag\n- If the health check requires non-null timestamps to show ✅, the loop must record them on startup\n- If the health check only looks at `task.done()` status, there may be a different issue (tasks crashed silently)\n\n## Required Changes\n\n### A. Add Initial Tick on Startup\nIn `BackgroundLoopService`, after creating the async tasks, perform an immediate first tick for each loop:\n- Run heartbeat checks (stale jorbs, expired jorbs, context reset) once immediately\n- Record `_last_activity_at` timestamp after first tick\n- For digest: don't send immediately, but set `_last_digest_date` check so the field is non-null\n- For maintenance: run a lightweight check or just record the current timestamp so the field is populated\n\n### B. Add `last_activity_at` Tracking\n- Add a `_last_activity_at` field to `BackgroundLoopService` that updates every time any loop tick completes\n- Include this in `get_background_loop_status()` return value\n- Use this in health checks as a \"loop is alive\" indicator\n\n### C. Fix Health Check Logic\n- Update `_check_background_loop()` in diagnostics to use robust health criteria:\n  - Tasks exist and are not done (not crashed)\n  - `last_activity_at` is recent (within 2x the expected interval)\n  - Don't require digest/maintenance timestamps since those only populate at specific times\n- Return ✅ when the loop is genuinely running, even if no digest or maintenance has fired yet\n\n### D. Add Logging\n- Add `logger.info()` calls at key points:\n  - When background loop starts and tasks are created\n  - When each loop tick begins and completes\n  - When health check evaluates status\n- This helps debug future issues where the loop appears stuck\n\n## Files to Modify\n- `services/background_loop.py` — initial tick, `last_activity_at` tracking, logging\n- `actions/diagnostics.py` — health check criteria\n\n## Testing\n- Run existing tests: `pytest tests/test_background_loop.py tests/test_background_loop_maintenance.py`\n- Add a test that verifies `get_background_loop_status()` returns healthy state after `start()` completes\n- Add a test that verifies `last_activity_at` is set after the first tick\n- Verify diagnostics show ✅ for background_loop when the service is running\n\n## Success Criteria\n1. After `BackgroundLoopService.start()`, all health-relevant timestamps are non-null\n2. Diagnostics show `background_loop` as ✅ when the service is running\n3. `get_background_loop_status()` includes `last_activity_at` with a recent timestamp\n4. Logging provides visibility into loop lifecycle (start, tick, health evaluation)",
+  "executions": []
+}
