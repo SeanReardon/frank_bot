@@ -73,17 +73,11 @@ services:
       # Persist ADB keys (so Android phone stays authorized across rebuilds)
       - ./adb-keys:/root/.android
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
-        ]
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     networks:
       - frank-bot
       - concordia  # Access to Vault (concordia-vault:8200)
