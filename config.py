@@ -97,6 +97,7 @@ class Settings:
     claudia_api_url: str | None
     claudia_api_key: str | None
     # Android phone settings
+    android_device_serial: str
     android_adb_host: str
     android_adb_port: int
     android_llm_model: str
@@ -131,6 +132,7 @@ def _load_secrets() -> dict[str, str | None]:
         "openai_api_key": None,
         "claudia_api_url": None,
         "claudia_api_key": None,
+        "android_device_serial": None,
         "android_adb_host": None,
         "android_adb_port": None,
         "actions_api_key": None,
@@ -191,8 +193,15 @@ def _load_secrets() -> dict[str, str | None]:
         from services.vault_client import get_android_credentials
         android_creds = get_android_credentials()
         if android_creds:
-            secrets["android_adb_host"] = android_creds.get("adb_host")
-            secrets["android_adb_port"] = android_creds.get("adb_port")
+            secrets["android_device_serial"] = (
+                android_creds.get("device_serial")
+            )
+            secrets["android_adb_host"] = (
+                android_creds.get("adb_host")
+            )
+            secrets["android_adb_port"] = (
+                android_creds.get("adb_port")
+            )
 
         # Actions API credentials
         from services.vault_client import get_actions_credentials
@@ -235,10 +244,18 @@ def _load_secrets() -> dict[str, str | None]:
         secrets["claudia_api_url"] = os.getenv("CLAUDIA_API_URL")
     if not secrets["claudia_api_key"]:
         secrets["claudia_api_key"] = os.getenv("CLAUDIA_API_KEY")
+    if not secrets["android_device_serial"]:
+        secrets["android_device_serial"] = os.getenv(
+            "ANDROID_DEVICE_SERIAL", ""
+        )
     if not secrets["android_adb_host"]:
-        secrets["android_adb_host"] = os.getenv("ANDROID_ADB_HOST", "10.0.0.95")
+        secrets["android_adb_host"] = os.getenv(
+            "ANDROID_ADB_HOST", "10.0.0.95"
+        )
     if not secrets["android_adb_port"]:
-        secrets["android_adb_port"] = os.getenv("ANDROID_ADB_PORT", "5555")
+        secrets["android_adb_port"] = os.getenv(
+            "ANDROID_ADB_PORT", "5555"
+        )
     if not secrets["actions_api_key"]:
         secrets["actions_api_key"] = os.getenv("ACTIONS_API_KEY")
 
@@ -340,6 +357,7 @@ def get_settings() -> Settings:
         claudia_api_url=secrets["claudia_api_url"],
         claudia_api_key=secrets["claudia_api_key"],
         # Android phone settings
+        android_device_serial=secrets["android_device_serial"] or "",
         android_adb_host=secrets["android_adb_host"] or "10.0.0.95",
         android_adb_port=int(secrets["android_adb_port"] or "5555"),
         android_llm_model=os.getenv("ANDROID_LLM_MODEL", "gpt-5.2"),

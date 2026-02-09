@@ -95,14 +95,23 @@ async def get_system_status_action(
             "error": str(exc),
         }
 
+    # Determine transport type from the client
+    from services.android_client import get_android_client
+    adb_client = get_android_client()
+    transport = "usb" if adb_client.is_usb else "tcp"
+
     phone_status = {
         "connected": phone_health.get("connected", False),
+        "transport": transport,
+        "device_serial": adb_client.device_serial,
         "device_model": phone_health.get("device_model"),
         "android_version": phone_health.get("android_version"),
         "battery_level": phone_health.get("battery_level"),
         "wifi_ssid": phone_health.get("wifi_ssid"),
         "error": phone_health.get("error"),
-        "description": "Android phone connected via ADB for automation",
+        "description": (
+            f"Android phone via {transport.upper()} ADB"
+        ),
     }
 
     # Overall health

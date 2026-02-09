@@ -392,8 +392,16 @@ export class SystemStatusCard extends LitElement {
     return 'battery-low';
   }
 
+  private _getTransportLabel(transport?: string): string {
+    if (transport === 'usb') return 'USB';
+    if (transport === 'tcp') return 'WiFi';
+    return 'Unknown';
+  }
+
   private _renderPhone(phone: AndroidPhoneStatus) {
     const connected = phone.connected;
+    const transport = phone.transport || 'tcp';
+    const transportLabel = this._getTransportLabel(transport);
 
     return html`
       <div class="phone-section ${connected ? '' : 'disconnected'}">
@@ -401,7 +409,7 @@ export class SystemStatusCard extends LitElement {
           <h4>
             📱 Android Phone
             <span class="status-badge ${connected ? 'success' : 'warning'}">
-              ${connected ? '✓ Connected' : '✗ Offline'}
+              ${connected ? `✓ ${transportLabel}` : '✗ Offline'}
             </span>
           </h4>
         </div>

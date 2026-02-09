@@ -119,8 +119,9 @@ resource "vault_kv_secret_v2" "android" {
   mount = "secret"
   name  = "frank-bot/android"
   data_json = jsonencode({
-    adb_host = var.android_adb_host
-    adb_port = var.android_adb_port
+    device_serial = var.android_device_serial
+    adb_host      = var.android_adb_host
+    adb_port      = var.android_adb_port
   })
 
   lifecycle {

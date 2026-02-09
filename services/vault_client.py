@@ -270,8 +270,9 @@ def get_android_credentials() -> dict[str, str] | None:
     Get Android phone automation credentials from Vault.
 
     Returns dict with:
-        - adb_host: IP address of the Android device
-        - adb_port: ADB TCP port
+        - device_serial: USB serial (preferred transport)
+        - adb_host: IP address for ADB over TCP (fallback)
+        - adb_port: ADB TCP port (fallback)
 
     Returns None if Vault is unavailable.
     """

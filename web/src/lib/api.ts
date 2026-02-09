@@ -636,6 +636,8 @@ export interface SystemJorbsStatus {
 
 export interface AndroidPhoneStatus {
   connected: boolean;
+  transport?: 'usb' | 'tcp';
+  device_serial?: string;
   device_model?: string | null;
   android_version?: string | null;
   battery_level?: number | null;

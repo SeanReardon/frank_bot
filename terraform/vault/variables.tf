@@ -110,9 +110,16 @@ variable "claudia_api_key" {
 }
 
 # Android phone automation
+variable "android_device_serial" {
+  type        = string
+  description = "USB serial of the Android device (from adb devices)"
+  sensitive   = true
+  default     = ""
+}
+
 variable "android_adb_host" {
   type        = string
-  description = "IP address of the Android device for ADB over TCP"
+  description = "IP address of the Android device for ADB over TCP (fallback)"
   default     = "10.0.0.95"
 }
 
