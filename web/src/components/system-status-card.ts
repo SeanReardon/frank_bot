@@ -322,10 +322,23 @@ export class SystemStatusCard extends LitElement {
   @state() private _status: SystemStatusResponse | null = null;
   @state() private _loading = true;
   @state() private _error: string | null = null;
+  private _refreshInterval: number | null = null;
 
   connectedCallback() {
     super.connectedCallback();
     this._fetchStatus();
+    // Auto-refresh every 60 seconds
+    this._refreshInterval = window.setInterval(() => {
+      this._fetchStatus();
+    }, 60000);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._refreshInterval !== null) {
+      window.clearInterval(this._refreshInterval);
+      this._refreshInterval = null;
+    }
   }
 
   private async _fetchStatus() {
