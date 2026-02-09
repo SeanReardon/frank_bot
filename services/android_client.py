@@ -554,33 +554,70 @@ class AndroidClient:
                     pass
         return None
 
+    async def is_wifi_enabled(self) -> bool | None:
+        """
+        Check whether WiFi is enabled on the device.
+
+        Returns:
+            True if WiFi is on, False if off, None if unknown
+        """
+        result = await self._run_adb(
+            "shell", "settings", "get", "global", "wifi_on"
+        )
+        if not result.success:
+            return None
+        val = result.output.strip()
+        if val == "1":
+            return True
+        if val == "0":
+            return False
+        return None
+
     async def get_wifi_ssid(self) -> str | None:
         """
         Get the current WiFi SSID the device is connected to.
 
-        Returns:
-            WiFi SSID string or None if not connected or unavailable
+        Returns None if WiFi is off or not connected.
         """
-        result = await self._run_adb("shell", "dumpsys", "wifi")
+        # Check if WiFi is enabled first
+        enabled = await self.is_wifi_enabled()
+        if enabled is False:
+            return None
+
+        result = await self._run_adb(
+            "shell", "dumpsys", "wifi"
+        )
         if not result.success:
             return None
 
-        # Look for SSID in the output
-        # Format varies by Android version, try multiple patterns
+        # Check if Wi-Fi is actually disabled in dumpsys
         for line in result.output.splitlines():
-            line = line.strip()
+            stripped = line.strip()
+            if stripped == "Wi-Fi is disabled":
+                return None
+
+        # Parse SSID from dumpsys output
+        for line in result.output.splitlines():
+            stripped = line.strip()
             # Pattern: "SSID: MyNetwork"
-            if "SSID:" in line and "null" not in line.lower():
-                parts = line.split("SSID:")
+            if "SSID:" in stripped and "null" not in stripped.lower():
+                parts = stripped.split("SSID:")
                 if len(parts) > 1:
-                    ssid = parts[1].strip().strip('"').split(",")[0].strip()
+                    ssid = (
+                        parts[1]
+                        .strip()
+                        .strip('"')
+                        .split(",")[0]
+                        .strip()
+                        .strip('"')
+                    )
                     if ssid and ssid != "<unknown ssid>":
                         return ssid
             # Pattern: 'mWifiInfo SSID: "MyNetwork"'
-            if "mWifiInfo" in line and "SSID" in line:
-                if '"' in line:
+            if "mWifiInfo" in stripped and "SSID" in stripped:
+                if '"' in stripped:
                     try:
-                        ssid = line.split('"')[1]
+                        ssid = stripped.split('"')[1]
                         if ssid and ssid != "<unknown ssid>":
                             return ssid
                     except IndexError:

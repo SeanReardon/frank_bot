@@ -168,7 +168,8 @@ async def android_phone_health_action(
     # Get battery level
     battery_level = await client.get_battery_level()
 
-    # Get WiFi SSID
+    # Get WiFi state
+    wifi_enabled = await client.is_wifi_enabled()
     wifi_ssid = await client.get_wifi_ssid()
 
     result = {
@@ -176,6 +177,7 @@ async def android_phone_health_action(
         "device_model": device_info.get("model"),
         "android_version": device_info.get("android_version"),
         "battery_level": battery_level,
+        "wifi_enabled": wifi_enabled,
         "wifi_ssid": wifi_ssid,
     }
 

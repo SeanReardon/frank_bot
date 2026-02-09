@@ -641,6 +641,7 @@ export interface AndroidPhoneStatus {
   device_model?: string | null;
   android_version?: string | null;
   battery_level?: number | null;
+  wifi_enabled?: boolean | null;
   wifi_ssid?: string | null;
   error?: string | null;
   description: string;

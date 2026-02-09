@@ -435,12 +435,12 @@ export class SystemStatusCard extends LitElement {
                 </span>
               </div>
             ` : nothing}
-            ${phone.wifi_ssid ? html`
-              <div class="phone-stat">
-                <span class="phone-stat-label">WiFi:</span>
-                <span class="phone-stat-value">${phone.wifi_ssid}</span>
-              </div>
-            ` : nothing}
+            <div class="phone-stat">
+              <span class="phone-stat-label">WiFi:</span>
+              <span class="phone-stat-value">
+                ${phone.wifi_enabled === false ? 'Off' : phone.wifi_ssid || 'On'}
+              </span>
+            </div>
           </div>
         ` : html`
           ${phone.error ? html`
