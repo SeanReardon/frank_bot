@@ -16,10 +16,18 @@ from typing import Any
 import hvac
 
 
-# Vault configuration from environment
-VAULT_ADDR = os.environ.get("VAULT_ADDR", "")
-VAULT_ROLE_ID = os.environ.get("VAULT_ROLE_ID", "")
-VAULT_SECRET_ID = os.environ.get("VAULT_SECRET_ID", "")
+def _get_vault_env() -> tuple[str, str, str]:
+    """
+    Read Vault connection env vars.
+
+    IMPORTANT: These are read dynamically (not at import time) so that:
+    - `.env` loading via python-dotenv works (app.py calls load_dotenv())
+    - tests can monkeypatch env vars safely
+    """
+    addr = os.environ.get("VAULT_ADDR", "").strip()
+    role_id = os.environ.get("VAULT_ROLE_ID", "").strip()
+    secret_id = os.environ.get("VAULT_SECRET_ID", "").strip()
+    return addr, role_id, secret_id
 
 # Retry configuration
 MAX_RETRIES = 3
@@ -36,7 +44,8 @@ logger = logging.getLogger(__name__)
 
 def vault_enabled() -> bool:
     """Check if Vault is configured."""
-    return bool(VAULT_ADDR and VAULT_ROLE_ID and VAULT_SECRET_ID)
+    addr, role_id, secret_id = _get_vault_env()
+    return bool(addr and role_id and secret_id)
 
 
 def _sleep_with_backoff(attempt: int) -> None:
@@ -67,7 +76,8 @@ def _get_vault_client(retry: bool = True) -> hvac.Client | None:
         # Token expired or connection lost, clear and re-authenticate
         _vault_client = None
 
-    if not vault_enabled():
+    addr, role_id, secret_id = _get_vault_env()
+    if not (addr and role_id and secret_id):
         logger.debug("Vault credentials not configured, skipping Vault")
         return None
 
@@ -76,10 +86,10 @@ def _get_vault_client(retry: bool = True) -> hvac.Client | None:
 
     for attempt in range(max_attempts):
         try:
-            client = hvac.Client(url=VAULT_ADDR)
+            client = hvac.Client(url=addr)
             client.auth.approle.login(
-                role_id=VAULT_ROLE_ID,
-                secret_id=VAULT_SECRET_ID,
+                role_id=role_id,
+                secret_id=secret_id,
             )
 
             if client.is_authenticated():
@@ -220,7 +230,8 @@ def get_swarm_credentials() -> dict[str, str] | None:
 
     Returns dict with:
         - oauth_token: Swarm OAuth token
-        - api_key: Foursquare API key
+        - api_key: Foursquare API key (preferred key name)
+        - foursquare_key: Foursquare API key (legacy key name)
 
     Returns None if Vault is unavailable.
     """
@@ -232,7 +243,7 @@ def get_telegram_bot_credentials() -> dict[str, str] | None:
     Get Telegram Bot credentials from Vault.
 
     Returns dict with:
-        - bot_token: Telegram bot token
+        - token: Telegram bot token
         - chat_id: Default chat ID for notifications
 
     Returns None if Vault is unavailable.
@@ -250,6 +261,23 @@ def get_openai_credentials() -> dict[str, str] | None:
     Returns None if Vault is unavailable.
     """
     return get_secret("frank-bot/openai")
+
+
+def get_email_credentials() -> dict[str, str] | None:
+    """
+    Get SMTP/email credentials from Vault.
+
+    Returns dict with:
+        - smtp_host: SMTP server hostname
+        - smtp_port: SMTP server port (string or int)
+        - smtp_user: SMTP username (from address)
+        - smtp_password: SMTP password / app password
+        - digest_email_to: Default recipient for daily digest + alerts
+        - digest_time: Daily digest time (e.g., "08:00")
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/email")
 
 
 def get_claudia_credentials() -> dict[str, str] | None:
@@ -273,6 +301,7 @@ def get_android_credentials() -> dict[str, str] | None:
         - device_serial: USB serial (preferred transport)
         - adb_host: IP address for ADB over TCP (fallback)
         - adb_port: ADB TCP port (fallback)
+        - llm_api_key: Optional API key override for Android automation LLM
 
     Returns None if Vault is unavailable.
     """
@@ -301,6 +330,7 @@ __all__ = [
     "get_swarm_credentials",
     "get_telegram_bot_credentials",
     "get_openai_credentials",
+    "get_email_credentials",
     "get_claudia_credentials",
     "get_android_credentials",
     "get_actions_credentials",

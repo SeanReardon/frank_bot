@@ -150,8 +150,10 @@ class TelegramClientService:
             
             if not self.is_configured:
                 raise ValueError(
-                    "Telegram is not configured. Set TELEGRAM_API_ID, "
-                    "TELEGRAM_API_HASH, and TELEGRAM_PHONE."
+                    "Telegram is not configured. "
+                    "Configure Vault secret `secret/frank-bot/telegram` "
+                    "(api_id, api_hash, phone), or for local/dev runs without "
+                    "Vault set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
                 )
             
             # Disconnect old client if exists but not connected
@@ -456,8 +458,12 @@ class TelegramClientService:
                 success=False,
                 message_id=None,
                 recipient=recipient,
-                error="Telegram is not configured. Check TELEGRAM_API_ID, "
-                "TELEGRAM_API_HASH, and TELEGRAM_PHONE.",
+                error=(
+                    "Telegram is not configured. Configure Vault secret "
+                    "`secret/frank-bot/telegram` (api_id, api_hash, phone), "
+                    "or for local/dev runs without Vault set TELEGRAM_API_ID, "
+                    "TELEGRAM_API_HASH, and TELEGRAM_PHONE."
+                ),
             )
 
         tg_stats = stats.get_service_stats("telegram")
@@ -868,7 +874,12 @@ class TelegramClientService:
         if not self._api_id or not self._api_hash:
             return TelegramAuthResult(
                 status="error",
-                error="Telegram API credentials not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH.",
+                error=(
+                    "Telegram API credentials not configured. "
+                    "Configure Vault secret `secret/frank-bot/telegram` "
+                    "(api_id, api_hash, phone), or for local/dev runs without "
+                    "Vault set TELEGRAM_API_ID and TELEGRAM_API_HASH."
+                ),
             )
 
         try:

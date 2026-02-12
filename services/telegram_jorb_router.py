@@ -14,7 +14,7 @@ from telethon import events
 from telethon.tl.types import User
 
 from services.agent_runner import AgentRunner, IncomingEvent
-from services.jorb_storage import JorbContact, JorbStorage
+from services.jorb_storage import JorbStorage
 from services.message_buffer import BufferedEvent, MessageBuffer
 from services.telegram_client import DispatchContext, TelegramClientService
 
@@ -39,7 +39,10 @@ async def _on_telegram_buffer_flush(event: BufferedEvent) -> None:
         _agent_runner = AgentRunner()
 
     if not _agent_runner.is_configured:
-        logger.warning("AgentRunner not configured (no OPENAI_API_KEY), skipping jorb processing")
+        logger.warning(
+            "AgentRunner not configured (missing OpenAI API key; "
+            "Vault: `secret/frank-bot/openai`), skipping jorb processing"
+        )
         return
 
     # Convert BufferedEvent to IncomingEvent
@@ -61,14 +64,15 @@ async def _on_telegram_buffer_flush(event: BufferedEvent) -> None:
     try:
         result = await _agent_runner.process_incoming_message(incoming_event)
         logger.info(
-            "AgentRunner result for Telegram from %s: jorb=%s, action=%s, success=%s",
+            "AgentRunner result for Telegram from %s: "
+            "jorb=%s, action=%s, success=%s",
             event.sender,
             result.jorb_id,
             result.action_taken,
             result.success,
         )
     except Exception as exc:
-        logger.error("Error processing Telegram message through AgentRunner: %s", exc)
+        logger.error("Error processing Telegram message via AgentRunner: %s", exc)
 
 
 def _get_message_buffer() -> MessageBuffer:
@@ -126,7 +130,7 @@ async def _handle_telegram_message(
 
     Args:
         event: Telethon NewMessage.Event
-        context: DispatchContext with metadata (is_self_sent, is_human_intervention)
+        context: DispatchContext metadata (is_self_sent, is_human_intervention)
     """
     # Get sender info
     sender = await event.get_sender()
@@ -139,10 +143,13 @@ async def _handle_telegram_message(
     if sender is None:
         logger.info("Skipping message with no sender")
         return
-    
-    # Accept both User and bots (bots are also User type in Telethon but have bot=True)
+
+    # Accept both User and bots (bots are also User type in Telethon)
     if not isinstance(sender, User):
-        logger.info("Skipping message - sender is not User type: %s", type(sender).__name__)
+        logger.info(
+            "Skipping message - sender is not User type: %s",
+            type(sender).__name__,
+        )
         return
 
     # Extract sender details
@@ -153,6 +160,15 @@ async def _handle_telegram_message(
 
     # Use username as identifier, falling back to user ID
     sender_identifier = f"@{username}" if username else str(sender.id)
+
+    # Control-plane policy: only allow messages from explicitly allowed usernames
+    from services.telegram_allowlist import is_allowed_username
+    if not is_allowed_username(username):
+        logger.info(
+            "Skipping Telegram message from %s (not in allowlist)",
+            sender_identifier,
+        )
+        return
 
     # Check if sender is in any jorb's contacts
     is_jorb_participant = await _is_jorb_contact(username, name)
@@ -270,8 +286,12 @@ def get_router_status() -> dict:
 
     return {
         "initialized": _is_initialized,
-        "telegram_configured": _telegram_service.is_configured if _telegram_service else False,
-        "agent_configured": _agent_runner.is_configured if _agent_runner else False,
+        "telegram_configured": (
+            _telegram_service.is_configured if _telegram_service else False
+        ),
+        "agent_configured": (
+            _agent_runner.is_configured if _agent_runner else False
+        ),
         "pending_messages": sum(
             _message_buffer.get_pending_count(key.split(":")[1], "telegram")
             for key in getattr(_message_buffer, "_buffers", {}).keys()

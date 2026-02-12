@@ -29,10 +29,8 @@ from actions.scripts import (
 )
 from config import Settings
 from meta.introspection import generate_meta_documentation
-from server.stytch_middleware import (
-    StytchSessionValidator,
-    _load_stytch_credentials,
-)
+from server.stytch_middleware import get_stytch_session
+from starlette.exceptions import HTTPException
 
 
 def build_meta_routes(settings: Settings) -> list[Route]:
@@ -47,16 +45,21 @@ def build_meta_routes(settings: Settings) -> list[Route]:
             if provided == settings.actions_api_key:
                 return None
 
-        project_id, secret = _load_stytch_credentials()
-        if project_id and secret:
-            session_token = request.cookies.get("stytch_session_token")
-            if session_token:
-                validator = StytchSessionValidator(project_id, secret)
-                session_data = await validator.validate_session(session_token)
-                if session_data:
-                    return None
+        if settings.stytch_project_id and settings.stytch_secret:
+            try:
+                await get_stytch_session(
+                    request,
+                    project_id=settings.stytch_project_id,
+                    secret=settings.stytch_secret,
+                )
+                return None
+            except HTTPException as exc:
+                return JSONResponse(
+                    {"detail": exc.detail},
+                    status_code=exc.status_code,
+                )
 
-        if not settings.actions_api_key and not project_id:
+        if not settings.actions_api_key and not settings.stytch_project_id:
             return None
 
         return JSONResponse(
@@ -64,7 +67,11 @@ def build_meta_routes(settings: Settings) -> list[Route]:
             status_code=401,
         )
 
-    async def _build_responder(action_func, request: Request, use_body: bool = False):
+    async def _build_responder(
+        action_func,
+        request: Request,
+        use_body: bool = False,
+    ):
         """Build a response from an action function."""
         auth_error = await _require_auth(request)
         if auth_error:

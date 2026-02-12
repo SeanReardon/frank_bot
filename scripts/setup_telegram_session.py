@@ -10,11 +10,14 @@ Usage:
     poetry run python scripts/setup_telegram_session.py
 
 Requirements:
-    Set the following environment variables (or .env file):
-    - TELEGRAM_API_ID: Your Telegram API ID from https://my.telegram.org
-    - TELEGRAM_API_HASH: Your Telegram API hash from https://my.telegram.org
-    - TELEGRAM_PHONE: Your phone number in E.164 format (e.g., +15551234567)
-    - TELEGRAM_SESSION_NAME: (optional) Session name (default: frank_bot)
+    Prefer storing Telegram credentials in Concordia Vault at
+    `secret/frank-bot/telegram` (managed by `terraform/vault/`).
+
+    For one-off local setup, you can also provide (or be prompted for):
+    - TELEGRAM_API_ID
+    - TELEGRAM_API_HASH
+    - TELEGRAM_PHONE
+    - TELEGRAM_SESSION_NAME (optional, default: frank_bot)
 
 The script will:
 1. Connect to Telegram using your API credentials
@@ -70,42 +73,58 @@ async def setup_session() -> None:
     print("Messages will be sent from your account.")
     print()
 
+    # Prefer Vault-backed settings (via config.py) over raw env vars.
+    # This keeps secrets out of `.env` and centralizes them in Concordia.
+    from config import get_settings
+    settings = get_settings()
+
     # Get credentials
-    api_id_str = get_env_or_prompt(
-        "TELEGRAM_API_ID",
-        "Enter your Telegram API ID (from https://my.telegram.org): "
-    )
+    api_id_str = str(settings.telegram_api_id) if settings.telegram_api_id else ""
+    if not api_id_str:
+        api_id_str = get_env_or_prompt(
+            "TELEGRAM_API_ID",
+            "Enter your Telegram API ID (from https://my.telegram.org): ",
+        )
     try:
         api_id = int(api_id_str)
     except ValueError:
         print("Error: API ID must be a number")
         sys.exit(1)
 
-    api_hash = get_env_or_prompt(
-        "TELEGRAM_API_HASH",
-        "Enter your Telegram API Hash: "
-    )
+    api_hash = settings.telegram_api_hash or ""
+    if not api_hash:
+        api_hash = get_env_or_prompt(
+            "TELEGRAM_API_HASH",
+            "Enter your Telegram API Hash: ",
+        )
     if not api_hash:
         print("Error: API Hash is required")
         sys.exit(1)
 
-    phone = get_env_or_prompt(
-        "TELEGRAM_PHONE",
-        "Enter your phone number (E.164 format, e.g., +15551234567): "
-    )
+    phone = settings.telegram_phone or ""
+    if not phone:
+        phone = get_env_or_prompt(
+            "TELEGRAM_PHONE",
+            "Enter your phone number (E.164 format, e.g., +15551234567): ",
+        )
     if not phone:
         print("Error: Phone number is required")
         sys.exit(1)
 
-    session_name = os.getenv("TELEGRAM_SESSION_NAME", "frank_bot")
-    session_path = ROOT / f"{session_name}.session"
+    session_name = os.getenv(
+        "TELEGRAM_SESSION_NAME",
+        settings.telegram_session_name or "frank_bot",
+    )
+    data_dir = os.getenv("DATA_DIR", str(ROOT))
+    session_base_path = Path(data_dir) / session_name
+    session_path = session_base_path.with_suffix(".session")
 
     print()
     print(f"Session file will be created at: {session_path}")
     print()
 
     # Create client
-    client = TelegramClient(str(ROOT / session_name), api_id, api_hash)
+    client = TelegramClient(str(session_base_path), api_id, api_hash)
 
     try:
         await client.connect()
@@ -187,11 +206,9 @@ async def setup_session() -> None:
             print("IMPORTANT: Keep the .session file secure - it provides access to")
             print("your Telegram account without needing the verification code again.")
             print()
-            print("Add these to your .env file (if not already set):")
-            print(f"  TELEGRAM_API_ID={api_id}")
-            print(f"  TELEGRAM_API_HASH={api_hash}")
-            print(f"  TELEGRAM_PHONE={phone}")
-            print(f"  TELEGRAM_SESSION_NAME={session_name}")
+            print("Next: ensure Telegram credentials are stored in Vault at")
+            print("  secret/frank-bot/telegram")
+            print("and that the service has VAULT_ADDR / VAULT_ROLE_ID / VAULT_SECRET_ID set.")
         else:
             print("Error: Authentication failed. Please check your credentials and try again.")
             sys.exit(1)

@@ -98,7 +98,7 @@ from actions.claudia import (
     get_claudia_queue_action,
 )
 from server.sms_webhook import sms_webhook_handler
-from server.stytch_middleware import require_stytch_session
+from server.stytch_middleware import require_stytch_session, get_stytch_session
 from config import Settings
 from services.stats import stats
 from services.rate_limiter import get_android_rate_limiter
@@ -133,6 +133,34 @@ def build_action_routes(settings: Settings) -> list[Route]:
                 status_code=401,
                 detail="Missing or invalid X-API-Key header",
             )
+
+    async def _require_api_key_or_stytch_session(request: Request) -> None:
+        """
+        Require either:
+        - X-API-Key (ChatGPT / API clients), or
+        - Stytch session (web dashboard on contrived.com)
+        """
+        if settings.actions_api_key:
+            provided = request.headers.get("x-api-key")
+            if provided == settings.actions_api_key:
+                return
+
+        if settings.stytch_project_id and settings.stytch_secret:
+            await get_stytch_session(
+                request,
+                project_id=settings.stytch_project_id,
+                secret=settings.stytch_secret,
+            )
+            return
+
+        # Local/dev: allow when no auth configured
+        if not settings.actions_api_key and not settings.stytch_project_id:
+            return
+
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized - provide X-API-Key or session",
+        )
 
     async def _check_android_rate_limit(
         request: Request,
@@ -285,14 +313,16 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(list_telegram_chats)
         return await responder(payload)
 
-    # Telegram status endpoint (public - no API key required for web dashboard)
+    # Telegram status endpoint (web dashboard - requires Stytch session)
+    @require_stytch_session
     async def telegram_status_handler(request: Request):
         stats.get_endpoint_stats("telegramStatus").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(get_telegram_status)
         return await responder(payload)
 
-    # Telegram test endpoint (public - allows testing from ChatGPT)
+    # Telegram test endpoint (web dashboard - requires Stytch session)
+    @require_stytch_session
     async def telegram_test_handler(request: Request):
         stats.get_endpoint_stats("telegramTest").record_call()
         payload = dict(request.query_params)
@@ -334,7 +364,8 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(verify_telegram_2fa)
         return await responder(payload)
 
-    # Telegram Bot status endpoint (public - no API key required for web dashboard)
+    # Telegram Bot status endpoint (web dashboard)
+    @require_stytch_session
     async def telegram_bot_status_handler(request: Request):
         stats.get_endpoint_stats("telegramBotStatus").record_call()
         payload = dict(request.query_params)
@@ -349,34 +380,37 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(test_telegram_bot)
         return await responder(payload)
 
-    # SMS messages endpoint for web dashboard (public - no API key required)
+    # SMS messages endpoint for web dashboard
+    @require_stytch_session
     async def sms_messages_web_handler(request: Request):
         stats.get_endpoint_stats("smsMessagesWeb").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(get_sms_messages_action)
         return await responder(payload)
 
-    # Jorb endpoints - read-only endpoints are public for web dashboard
-    # Write operations (approve, cancel) require Stytch session
+    # Jorb endpoints
     async def jorbs_api_learn_handler(request: Request):
+        await _require_api_key_or_stytch_session(request)
         stats.get_endpoint_stats("jorbApiLearn").record_call()
         responder = _build_responder(jorbs_api_learn_action)
         return await responder({})
 
     async def jorbs_list_handler(request: Request):
+        await _require_api_key_or_stytch_session(request)
         stats.get_endpoint_stats("jorbsList").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(list_jorbs_action)
         return await responder(payload)
 
     async def jorbs_create_handler(request: Request):
-        await _require_api_key(request)
+        await _require_api_key_or_stytch_session(request)
         stats.get_endpoint_stats("jorbsCreate").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(create_jorb_action)
         return await responder(payload)
 
     async def jorbs_get_handler(request: Request):
+        await _require_api_key_or_stytch_session(request)
         stats.get_endpoint_stats("jorbsGet").record_call()
         jorb_id = request.path_params.get("id", "")
         payload = dict(request.query_params)
@@ -385,6 +419,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         return await responder(payload)
 
     async def jorbs_messages_handler(request: Request):
+        await _require_api_key_or_stytch_session(request)
         stats.get_endpoint_stats("jorbsMessages").record_call()
         jorb_id = request.path_params.get("id", "")
         payload = dict(request.query_params)
@@ -393,7 +428,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         return await responder(payload)
 
     async def jorbs_approve_handler(request: Request):
-        await _require_api_key(request)
+        await _require_api_key_or_stytch_session(request)
         stats.get_endpoint_stats("jorbsApprove").record_call()
         jorb_id = request.path_params.get("id", "")
         payload = dict(request.query_params)
@@ -402,7 +437,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         return await responder(payload)
 
     async def jorbs_cancel_handler(request: Request):
-        await _require_api_key(request)
+        await _require_api_key_or_stytch_session(request)
         stats.get_endpoint_stats("jorbsCancel").record_call()
         jorb_id = request.path_params.get("id", "")
         payload = dict(request.query_params)
@@ -411,12 +446,14 @@ def build_action_routes(settings: Settings) -> list[Route]:
         return await responder(payload)
 
     async def jorbs_brief_handler(request: Request):
+        await _require_api_key_or_stytch_session(request)
         stats.get_endpoint_stats("jorbBriefGet").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(brief_me_action)
         return await responder(payload)
 
     async def jorbs_stats_handler(request: Request):
+        await _require_api_key_or_stytch_session(request)
         stats.get_endpoint_stats("jorbsStats").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(get_jorbs_stats_action)
@@ -430,7 +467,8 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(generate_sean_md_action)
         return await responder(payload)
 
-    # System status endpoint (public - for web dashboard)
+    # System status endpoint (web dashboard)
+    @require_stytch_session
     async def system_status_handler(request: Request):
         stats.get_endpoint_stats("systemStatus").record_call()
         payload = dict(request.query_params)
@@ -826,7 +864,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/messages/telegram/send", telegram_send_handler, methods=["GET"]),
         Route("/actions/messages/telegram/get", telegram_messages_handler, methods=["GET"]),
         Route("/actions/chats/telegram/list", telegram_chats_handler, methods=["GET"]),
-        # Telegram dashboard endpoints (public - no API key required)
+        # Telegram dashboard endpoints (requires Stytch session)
         Route("/telegram/status", telegram_status_handler, methods=["GET"]),
         Route("/telegram/test", telegram_test_handler, methods=["GET"]),
         # Telegram auth endpoints (protected by Stytch session)
@@ -838,7 +876,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         # Telegram Bot status and test endpoints
         Route("/telegram-bot/status", telegram_bot_status_handler, methods=["GET"]),
         Route("/telegram-bot/test", telegram_bot_test_handler, methods=["POST"]),
-        # SMS messages endpoint for web dashboard (no API key required)
+        # SMS messages endpoint for web dashboard (requires Stytch session)
         Route("/sms/messages", sms_messages_web_handler, methods=["GET"]),
         # Jorb endpoints
         Route("/actions/jorbs/api/learn", jorbs_api_learn_handler, methods=["GET"]),

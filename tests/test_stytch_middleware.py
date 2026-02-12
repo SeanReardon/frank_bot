@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette.testclient import TestClient
 
 from server.stytch_middleware import (
     StytchSessionValidator,
@@ -143,7 +142,7 @@ class TestRequireStytchSession:
             response = await handler(request)
 
             assert response.status_code == 500
-            assert b"not configured" in response.body
+            assert b"not configured" in response.body.lower()
 
     @pytest.mark.asyncio
     async def test_missing_session_cookie(self) -> None:
@@ -161,7 +160,7 @@ class TestRequireStytchSession:
             response = await handler(request)
 
             assert response.status_code == 401
-            assert b"missing session" in response.body
+            assert b"missing" in response.body.lower()
 
     @pytest.mark.asyncio
     async def test_invalid_session_token(self) -> None:
@@ -187,7 +186,7 @@ class TestRequireStytchSession:
                 response = await handler(request)
 
                 assert response.status_code == 401
-                assert b"invalid or expired" in response.body
+                assert b"invalid or expired" in response.body.lower()
 
     @pytest.mark.asyncio
     async def test_valid_session_token(self) -> None:
@@ -207,6 +206,7 @@ class TestRequireStytchSession:
             "user_id": "user-test-456",
             "started_at": "2026-01-29T10:00:00Z",
             "expires_at": "2026-01-29T22:00:00Z",
+            "member_email": "sean@contrived.com",
         }
 
         with patch("server.stytch_middleware.get_settings", return_value=mock_settings):

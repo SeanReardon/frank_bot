@@ -32,9 +32,16 @@ services:
       - 10.0.0.1
     ports:
       - "127.0.0.1:8000:8000"
-    env_file:
-      - .env
     environment:
+      # Vault connection (AppRole). These are the only "secret-ish" env vars
+      # we expect to come from `.env` / host environment.
+      VAULT_ADDR: "${VAULT_ADDR:-}"
+      VAULT_ROLE_ID: "${VAULT_ROLE_ID:-}"
+      VAULT_SECRET_ID: "${VAULT_SECRET_ID:-}"
+
+      # Public origin used in manifests + OpenAPI servers[]
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-http://localhost:8000}"
+
       # Container-specific settings (not from .env)
       LOG_LEVEL: "INFO"
       DEFAULT_TIMEZONE: "America/Chicago"

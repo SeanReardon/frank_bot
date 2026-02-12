@@ -11,49 +11,69 @@ Credentials are loaded from:
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
+import os
 from typing import Callable, Awaitable
 
 import httpx
+from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from config import get_settings
-from services.vault_client import get_stytch_credentials, vault_enabled
 
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1)
 def _load_stytch_credentials() -> tuple[str | None, str | None]:
     """
-    Load Stytch credentials from Vault or environment variables.
+    Load Stytch credentials from Settings (Vault-first).
     
     Returns:
         Tuple of (project_id, secret), or (None, None) if not configured.
     """
-    # Try Vault first
-    if vault_enabled():
-        logger.info("Loading Stytch credentials from Vault...")
-        creds = get_stytch_credentials()
-        if creds:
-            project_id = creds.get("project_id")
-            secret = creds.get("secret")
-            if project_id and secret:
-                logger.info("Stytch credentials loaded from Vault")
-                return project_id, secret
-            logger.warning("Stytch credentials in Vault are incomplete")
-        else:
-            logger.warning("Failed to load Stytch credentials from Vault")
-    
-    # Fall back to environment variables
     settings = get_settings()
     if settings.stytch_project_id and settings.stytch_secret:
-        logger.info("Using Stytch credentials from environment variables")
         return settings.stytch_project_id, settings.stytch_secret
     
-    logger.warning("No Stytch credentials configured")
     return None, None
+
+
+def _extract_session_token(request: Request) -> str | None:
+    """
+    Extract a Stytch session token from the request.
+
+    Web embed commonly passes this via:
+    - Cookie: `stytch_session_token`
+    - Header: `Authorization: Bearer <token>`
+    """
+    token = request.cookies.get("stytch_session_token")
+    if isinstance(token, str) and token.strip():
+        return token.strip()
+
+    auth_header = request.headers.get("authorization")
+    if not isinstance(auth_header, str):
+        auth_header = ""
+    if auth_header.lower().startswith("bearer "):
+        candidate = auth_header[7:].strip()
+        return candidate or None
+
+    return None
+
+
+def _allowed_email_domains() -> set[str]:
+    raw = os.getenv("STYTCH_ALLOWED_EMAIL_DOMAINS", "contrived.com")
+    domains = {d.strip().lower() for d in raw.split(",") if d.strip()}
+    return domains or {"contrived.com"}
+
+
+def _email_domain_ok(email: str | None) -> bool:
+    if not email:
+        return False
+    if "@" not in email:
+        return False
+    domain = email.rsplit("@", 1)[-1].strip().lower()
+    return domain in _allowed_email_domains()
+
 
 # Stytch API base URLs
 STYTCH_API_BASE = "https://api.stytch.com"
@@ -99,11 +119,19 @@ class StytchSessionValidator:
 
                 if response.status_code == 200:
                     data = response.json()
+                    session = data.get("session") or {}
+                    member = data.get("member") or {}
+                    organization = data.get("organization") or {}
                     return {
-                        "session_id": data.get("session", {}).get("session_id"),
-                        "user_id": data.get("session", {}).get("user_id"),
-                        "started_at": data.get("session", {}).get("started_at"),
-                        "expires_at": data.get("session", {}).get("expires_at"),
+                        "session_id": session.get("session_id"),
+                        "user_id": session.get("user_id"),
+                        "started_at": session.get("started_at"),
+                        "expires_at": session.get("expires_at"),
+                        "member_id": member.get("member_id") or session.get("member_id"),
+                        "member_email": member.get("email_address") or member.get("email"),
+                        "organization_id": organization.get("organization_id")
+                        or session.get("organization_id"),
+                        "organization_slug": organization.get("organization_slug"),
                     }
                 else:
                     logger.warning(
@@ -116,6 +144,42 @@ class StytchSessionValidator:
             except httpx.RequestError as exc:
                 logger.error("Stytch API request failed: %s", exc)
                 return None
+
+
+async def get_stytch_session(
+    request: Request,
+    *,
+    project_id: str | None = None,
+    secret: str | None = None,
+) -> dict:
+    """
+    Authenticate the request with a valid Stytch session.
+
+    On success, attaches the session to `request.state.stytch_session` and
+    returns the session dict.
+
+    Raises HTTPException on failure.
+    """
+    project_id = project_id or _load_stytch_credentials()[0]
+    secret = secret or _load_stytch_credentials()[1]
+
+    if not project_id or not secret:
+        raise HTTPException(status_code=500, detail="Stytch authentication not configured")
+
+    session_token = _extract_session_token(request)
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Missing Stytch session token")
+
+    validator = StytchSessionValidator(project_id, secret)
+    session_data = await validator.validate_session(session_token)
+    if not session_data:
+        raise HTTPException(status_code=401, detail="Invalid or expired Stytch session")
+
+    if not _email_domain_ok(session_data.get("member_email")):
+        raise HTTPException(status_code=403, detail="Forbidden (not a contrived.com session)")
+
+    request.state.stytch_session = session_data
+    return session_data
 
 
 def require_stytch_session(
@@ -133,40 +197,10 @@ def require_stytch_session(
             return JSONResponse({"data": "protected"})
     """
     async def wrapper(request: Request) -> JSONResponse:
-        # Load credentials (cached)
-        project_id, secret = _load_stytch_credentials()
-
-        # Check if Stytch is configured
-        if not project_id or not secret:
-            logger.warning("Stytch not configured - rejecting protected request")
-            return JSONResponse(
-                {"error": "Authentication not configured"},
-                status_code=500,
-            )
-
-        # Get session token from cookie
-        session_token = request.cookies.get("stytch_session_token")
-
-        if not session_token:
-            return JSONResponse(
-                {"error": "Unauthorized - missing session token"},
-                status_code=401,
-            )
-
-        # Validate with Stytch
-        validator = StytchSessionValidator(project_id, secret)
-
-        session_data = await validator.validate_session(session_token)
-
-        if not session_data:
-            return JSONResponse(
-                {"error": "Unauthorized - invalid or expired session"},
-                status_code=401,
-            )
-
-        # Store session data on request state for downstream handlers
-        request.state.stytch_session = session_data
-
+        try:
+            await get_stytch_session(request)
+        except HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
         return await handler(request)
 
     return wrapper
@@ -174,5 +208,6 @@ def require_stytch_session(
 
 __all__ = [
     "StytchSessionValidator",
+    "get_stytch_session",
     "require_stytch_session",
 ]

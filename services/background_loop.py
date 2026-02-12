@@ -76,6 +76,8 @@ class BackgroundLoopService:
         self._last_digest_date: str | None = None
         self._last_monthly_maintenance: str | None = None
         self._last_weekly_health_check: str | None = None
+        self._started_at: str | None = None
+        self._last_tick_at: str | None = None
 
     @property
     def is_running(self) -> bool:
@@ -90,7 +92,10 @@ class BackgroundLoopService:
             Dict with status information
         """
         return {
+            "status": "ok" if self._running else "stopped",
             "running": self._running,
+            "started_at": self._started_at,
+            "last_tick_at": self._last_tick_at,
             "telegram_router": get_router_status(),
             "heartbeat_task_running": (
                 self._heartbeat_task is not None and not self._heartbeat_task.done()
@@ -126,6 +131,8 @@ class BackgroundLoopService:
         logger.info("Starting jorb background loop...")
 
         self._running = True
+        self._started_at = datetime.now(timezone.utc).isoformat()
+        self._last_tick_at = self._started_at
         self._shutdown_event = asyncio.Event()
 
         # Initialize Telegram router for message listening
@@ -243,6 +250,13 @@ class BackgroundLoopService:
 
         while self._running:
             try:
+                # Run heartbeat first, then sleep (ensures immediate first tick)
+                await self._run_heartbeat()
+                self._last_tick_at = datetime.now(timezone.utc).isoformat()
+
+                if not self._running:
+                    break
+
                 # Wait for interval or shutdown
                 if self._shutdown_event:
                     try:
@@ -253,12 +267,7 @@ class BackgroundLoopService:
                         # Shutdown was requested
                         break
                     except asyncio.TimeoutError:
-                        pass  # Timeout expired, run heartbeat
-
-                if not self._running:
-                    break
-
-                await self._run_heartbeat()
+                        pass  # Timeout expired, loop again
 
             except asyncio.CancelledError:
                 logger.debug("Heartbeat loop cancelled")
@@ -346,6 +355,12 @@ class BackgroundLoopService:
 
         while self._running:
             try:
+                # Check digest time first, then sleep (ensures immediate first check)
+                await self._check_digest_time()
+
+                if not self._running:
+                    break
+
                 # Wait for check interval or shutdown
                 if self._shutdown_event:
                     try:
@@ -356,12 +371,7 @@ class BackgroundLoopService:
                         # Shutdown was requested
                         break
                     except asyncio.TimeoutError:
-                        pass  # Timeout expired, check digest time
-
-                if not self._running:
-                    break
-
-                await self._check_digest_time()
+                        pass  # Timeout expired, loop again
 
             except asyncio.CancelledError:
                 logger.debug("Digest loop cancelled")
@@ -461,6 +471,12 @@ class BackgroundLoopService:
 
         while self._running:
             try:
+                # Check schedules first, then sleep (ensures immediate first check)
+                await self._check_maintenance_schedules()
+
+                if not self._running:
+                    break
+
                 # Wait for interval or shutdown
                 if self._shutdown_event:
                     try:
@@ -471,12 +487,7 @@ class BackgroundLoopService:
                         # Shutdown was requested
                         break
                     except asyncio.TimeoutError:
-                        pass  # Timeout expired, check maintenance time
-
-                if not self._running:
-                    break
-
-                await self._check_maintenance_schedules()
+                        pass  # Timeout expired, loop again
 
             except asyncio.CancelledError:
                 logger.debug("Maintenance loop cancelled")

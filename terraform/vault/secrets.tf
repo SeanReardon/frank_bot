@@ -64,7 +64,10 @@ resource "vault_kv_secret_v2" "swarm" {
   mount = "secret"
   name  = "frank-bot/swarm"
   data_json = jsonencode({
-    oauth_token   = var.swarm_oauth_token
+    oauth_token    = var.swarm_oauth_token
+    # Prefer `api_key` to match `services/vault_client.py` + `config.py`.
+    # Keep `foursquare_key` for backwards compatibility with older deployments.
+    api_key        = var.foursquare_api_key
     foursquare_key = var.foursquare_api_key
   })
 
@@ -122,6 +125,7 @@ resource "vault_kv_secret_v2" "android" {
     device_serial = var.android_device_serial
     adb_host      = var.android_adb_host
     adb_port      = var.android_adb_port
+    llm_api_key   = var.android_llm_api_key
   })
 
   lifecycle {
@@ -135,6 +139,24 @@ resource "vault_kv_secret_v2" "actions" {
   name  = "frank-bot/actions"
   data_json = jsonencode({
     api_key = var.actions_api_key
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}
+
+# Email / SMTP credentials (daily digest + notifications)
+resource "vault_kv_secret_v2" "email" {
+  mount = "secret"
+  name  = "frank-bot/email"
+  data_json = jsonencode({
+    smtp_host       = var.smtp_host
+    smtp_port       = var.smtp_port
+    smtp_user       = var.smtp_user
+    smtp_password   = var.smtp_password
+    digest_email_to = var.digest_email_to
+    digest_time     = var.digest_time
   })
 
   lifecycle {

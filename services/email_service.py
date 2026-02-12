@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import html
 import logging
-import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
@@ -578,9 +577,9 @@ Final Status:
         Get the configured digest send time.
 
         Returns:
-            Time string like "08:00" from DIGEST_TIME env var
+            Time string like "08:00" (from Settings; default "08:00")
         """
-        return os.getenv("DIGEST_TIME", "08:00")
+        return get_settings().digest_time
 
 
 __all__ = [

@@ -42,7 +42,9 @@ async def send_telegram_message(
     if not service.is_configured:
         raise ValueError(
             "Telegram is not configured. "
-            "Please set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
+            "Configure Vault secret `secret/frank-bot/telegram` "
+            "(api_id, api_hash, phone), or for local/dev runs without Vault set "
+            "TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
         )
 
     result = await service.send_message(recipient, text)
@@ -94,7 +96,9 @@ async def get_telegram_messages(
     if not service.is_configured:
         raise ValueError(
             "Telegram is not configured. "
-            "Please set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
+            "Configure Vault secret `secret/frank-bot/telegram` "
+            "(api_id, api_hash, phone), or for local/dev runs without Vault set "
+            "TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
         )
 
     messages = await service.get_messages(chat, limit=limit, mutual_contacts_only=mutual_contacts_only)
@@ -146,7 +150,9 @@ async def list_telegram_chats(
     if not service.is_configured:
         raise ValueError(
             "Telegram is not configured. "
-            "Please set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
+            "Configure Vault secret `secret/frank-bot/telegram` "
+            "(api_id, api_hash, phone), or for local/dev runs without Vault set "
+            "TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
         )
 
     dialogs = await service.get_dialogs(limit=limit)
@@ -230,7 +236,12 @@ async def test_telegram_connection(
     if not service.is_configured:
         return {
             "connected": False,
-            "error": "Telegram is not configured. Set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE.",
+            "error": (
+                "Telegram is not configured. "
+                "Configure Vault secret `secret/frank-bot/telegram` "
+                "(api_id, api_hash, phone), or for local/dev runs without "
+                "Vault set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
+            ),
         }
 
     try:

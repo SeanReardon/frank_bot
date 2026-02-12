@@ -66,7 +66,11 @@ class TestCreateJorbAction:
     async def test_create_with_contacts_json(self, mock_storage):
         """Test creating a jorb with contacts as JSON string."""
         contacts = [
-            {"identifier": "@magic", "channel": "telegram", "name": "Magic"},
+            {
+                "identifier": "@SeanReardon",
+                "channel": "telegram",
+                "name": "Sean",
+            },
             {"identifier": "+15551234567", "channel": "sms"},
         ]
 
@@ -78,16 +82,16 @@ class TestCreateJorbAction:
         })
 
         assert len(result["contacts"]) == 2
-        assert result["contacts"][0]["identifier"] == "@magic"
+        assert result["contacts"][0]["identifier"] == "@SeanReardon"
         assert result["contacts"][0]["channel"] == "telegram"
-        assert result["contacts"][0]["name"] == "Magic"
+        assert result["contacts"][0]["name"] == "Sean"
         assert result["contacts"][1]["identifier"] == "+15551234567"
         assert result["contacts"][1]["channel"] == "sms"
 
     async def test_create_with_contacts_list(self, mock_storage):
         """Test creating a jorb with contacts as list."""
         contacts = [
-            {"identifier": "@magic", "channel": "telegram"},
+            {"identifier": "@SeanReardon", "channel": "telegram"},
         ]
 
         result = await create_jorb_action({
@@ -98,6 +102,20 @@ class TestCreateJorbAction:
         })
 
         assert len(result["contacts"]) == 1
+
+    async def test_rejects_unallowed_telegram_contact(self, mock_storage):
+        """Telegram contacts are restricted to an allowlist."""
+        contacts = [
+            {"identifier": "@NotAllowedUser", "channel": "telegram"},
+        ]
+
+        with pytest.raises(ValueError, match="Telegram contacts are restricted"):
+            await create_jorb_action({
+                "name": "Test",
+                "plan": "Plan",
+                "contacts": contacts,
+                "start_immediately": False,
+            })
 
     async def test_create_missing_name(self, mock_storage):
         """Test that missing name raises error."""

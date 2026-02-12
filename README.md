@@ -10,7 +10,9 @@ Frank Bot exposes Google Calendar and Google Contacts helpers over HTTPS via Ope
 ```bash
 docker build -t frank-bot .
 docker run \
-  -e ACTIONS_API_KEY="super-secret" \
+  -e VAULT_ADDR="http://concordia-vault:8200" \
+  -e VAULT_ROLE_ID="your-role-id" \
+  -e VAULT_SECRET_ID="your-secret-id" \
   -e PUBLIC_BASE_URL="https://example.com" \
   -p 8000:8000 \
   frank-bot
@@ -126,6 +128,9 @@ frank_bot/
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `VAULT_ADDR` | _unset_ | Vault address (Concordia) |
+| `VAULT_ROLE_ID` | _unset_ | Vault AppRole role_id |
+| `VAULT_SECRET_ID` | _unset_ | Vault AppRole secret_id |
 | `HOST` / `PORT` | `0.0.0.0` / `8000` | HTTP bind address |
 | `LOG_FILE` / `LOG_LEVEL` | `app.log` / `DEBUG` | Logging controls |
 | `DEFAULT_TIMEZONE` | `America/Chicago` | Default timezone for day-based calendar queries |
@@ -133,7 +138,7 @@ frank_bot/
 | `GOOGLE_CREDENTIALS_FILE` | _unset_ | Path to `credentials.json` |
 | `GOOGLE_CALENDAR_SCOPES` | calendar scope | Comma-separated scopes |
 | `GOOGLE_CONTACTS_SCOPES` | contacts scope | Comma-separated scopes |
-| `ACTIONS_API_KEY` | _unset_ | Optional API key required via `X-API-Key` header |
+| `ACTIONS_API_KEY` | _unset_ | Dev fallback only (use Vault: `secret/frank-bot/actions`) |
 | `PUBLIC_BASE_URL` | `http://localhost:8000` | Public URL used inside manifests & OpenAPI |
 | `ACTIONS_NAME_FOR_HUMAN` | `Frank Bot` | Manifest/OpenAPI metadata |
 | `ACTIONS_NAME_FOR_MODEL` | `frank_bot` | Manifest/OpenAPI metadata |
@@ -143,7 +148,7 @@ frank_bot/
 | `ACTIONS_CONTACT_EMAIL` | _unset_ | Manifest contact email |
 | `ACTIONS_LEGAL_URL` | _unset_ | Terms/Privacy URL in manifest |
 | `ACTIONS_OPENAPI_PATH` | `openapi/spec.json` | Path to the OpenAPI document |
-| `SWARM_OAUTH_TOKEN` | _unset_ | OAuth token for Swarm/Foursquare API access |
+| `SWARM_OAUTH_TOKEN` | _unset_ | Dev fallback only (use Vault: `secret/frank-bot/swarm`) |
 | `SWARM_API_VERSION` | `20240501` | API version parameter passed to Swarm endpoints |
 | `APP_VERSION` | `0.5.0` | Version string used in metadata |
 
@@ -179,11 +184,11 @@ Helpful discovery endpoints:
 - `GET /.well-known/actions.json` – lightweight manifest for Assistants
 - `GET /health` – health probe
 
-When `ACTIONS_API_KEY` is set, every Actions route expects `X-API-Key: <value>`. Leave it unset for local testing, but always enable it (or place the server behind another auth layer) before exposing the service publicly.
+When the Actions API key is configured (Vault: `secret/frank-bot/actions`), every Actions route expects `X-API-Key: <value>`. For local/dev runs without Vault, you can set `ACTIONS_API_KEY` as an environment variable fallback.
 
 ### Swarm integration
 
-Set `SWARM_OAUTH_TOKEN` (and optionally `SWARM_API_VERSION`) to enable the Swarm-powered action `list_my_swarm_checkins`, which returns your current Swarm location plus the most recent venues you've visited. Tokens come from https://developer.foursquare.com/ after authorizing the Swarm app; if the token is missing the endpoint will return a descriptive error. The `get_my_time` action uses `DEFAULT_TIMEZONE`, so set that env var to your home location (default `America/Chicago`).
+Configure Swarm/Foursquare credentials in Vault at `secret/frank-bot/swarm` (keys: `oauth_token`, `api_key`). For local/dev runs without Vault, `SWARM_OAUTH_TOKEN` (and optionally `SWARM_API_VERSION`) can be used as a fallback.
 
 ### Telegram integration
 
@@ -196,13 +201,9 @@ Frank Bot can send and receive Telegram messages using your personal Telegram ac
    - Go to "API development tools"
    - Create an application to get your `api_id` and `api_hash`
 
-2. **Set environment variables** in your `.env` file:
-   ```
-   TELEGRAM_API_ID=your_api_id
-   TELEGRAM_API_HASH=your_api_hash
-   TELEGRAM_PHONE=+15551234567
-   TELEGRAM_SESSION_NAME=frank_bot  # optional, default: frank_bot
-   ```
+2. **Store API credentials in Vault** at `secret/frank-bot/telegram` (keys: `api_id`, `api_hash`, `phone`).
+   - The service reads them via `services/vault_client.py` (AppRole)
+   - `TELEGRAM_SESSION_NAME` is non-secret and can remain default (`frank_bot`) or be set via env if needed
 
 3. **Run the setup script** to authenticate:
    ```bash
@@ -238,19 +239,19 @@ Jorbs are long-lived autonomous tasks that Frank Bot can execute on your behalf.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | _unset_ | OpenAI API key for gpt-5.2 model |
+| `OPENAI_API_KEY` | _unset_ | Dev fallback only (Vault: `secret/frank-bot/openai`) |
 | `JORBS_DB_PATH` | `./data/jorbs.db` | SQLite database for jorb storage |
 | `JORBS_PROGRESS_LOG` | `./data/jorbs_progress.txt` | Progress log for context resets |
 | `AGENT_SPEND_LIMIT` | `100.0` | Max spending (USD) before requiring approval |
 | `CONTEXT_RESET_DAYS` | `3` | Days before context is reset |
 | `DEBOUNCE_TELEGRAM_SECONDS` | `60` | Telegram message debounce window |
 | `DEBOUNCE_SMS_SECONDS` | `30` | SMS message debounce window |
-| `SMTP_HOST` | _unset_ | SMTP server for email notifications |
+| `SMTP_HOST` | _unset_ | Dev fallback only (Vault: `secret/frank-bot/email`) |
 | `SMTP_PORT` | `587` | SMTP port |
-| `SMTP_USER` | _unset_ | SMTP username |
-| `SMTP_PASSWORD` | _unset_ | SMTP password |
-| `DIGEST_EMAIL_TO` | _unset_ | Email address for daily digest |
-| `DIGEST_TIME` | `08:00` | Time to send daily digest (24h format) |
+| `SMTP_USER` | _unset_ | Dev fallback only (Vault: `secret/frank-bot/email`) |
+| `SMTP_PASSWORD` | _unset_ | Dev fallback only (Vault: `secret/frank-bot/email`) |
+| `DIGEST_EMAIL_TO` | _unset_ | Dev fallback only (Vault: `secret/frank-bot/email`) |
+| `DIGEST_TIME` | `08:00` | Dev fallback only (Vault: `secret/frank-bot/email`) |
 
 **Available endpoints:**
 - `GET /jorbs` - List all jorbs
@@ -277,16 +278,12 @@ Frank Bot can control an Android phone via ADB over the network, enabling LLM-in
    - Note the IP address and port shown
    - Pair your computer using `adb pair <ip>:<pairing-port>`
 
-2. **Set environment variables** in your `.env` file:
-   ```
-   ANDROID_ADB_HOST=10.0.0.95    # Your device's IP address
-   ANDROID_ADB_PORT=5555         # ADB port (usually 5555)
-   ```
+2. **Store Android connection config in Vault** at `secret/frank-bot/android` (keys: `device_serial`, `adb_host`, `adb_port`).
 
 3. **For LLM-in-the-loop automation**, also configure:
    ```
    ANDROID_LLM_MODEL=gpt-5.2     # Vision-capable model
-   ANDROID_LLM_API_KEY=sk-...    # Optional, uses OPENAI_API_KEY if not set
+   ANDROID_LLM_API_KEY=sk-...    # Dev fallback only (prefer Vault); uses OpenAI key if unset
    ```
 
 **Environment variables:**
@@ -296,7 +293,7 @@ Frank Bot can control an Android phone via ADB over the network, enabling LLM-in
 | `ANDROID_ADB_HOST` | `10.0.0.95` | Android device IP address |
 | `ANDROID_ADB_PORT` | `5555` | ADB TCP port |
 | `ANDROID_LLM_MODEL` | `gpt-5.2` | Vision-capable LLM for automation |
-| `ANDROID_LLM_API_KEY` | _unset_ | API key for LLM (falls back to OPENAI_API_KEY) |
+| `ANDROID_LLM_API_KEY` | _unset_ | Dev fallback only (prefer Vault; falls back to OpenAI key) |
 | `ANDROID_MAINTENANCE_CRON` | `0 3 1 * *` | Monthly maintenance schedule |
 | `ANDROID_HEALTH_CHECK_CRON` | `0 4 * * 0` | Weekly health check schedule |
 

@@ -141,7 +141,9 @@ async def generate_sean_md_action(
     if not telegram.is_configured:
         raise ValueError(
             "Telegram is not configured. "
-            "Please set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
+            "Configure Vault secret `secret/frank-bot/telegram` "
+            "(api_id, api_hash, phone), or for local/dev runs without Vault set "
+            "TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
         )
 
     # Step 1: Initialize style analyzer and fetch messages
@@ -182,7 +184,9 @@ async def generate_sean_md_action(
         if not bot.is_configured:
             raise ValueError(
                 "Telegram Bot is not configured. "
-                "Please set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID."
+                "Configure Vault secret `secret/frank-bot/telegram-bot` "
+                "(token, chat_id), or for local/dev runs without Vault set "
+                "TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_CHAT_ID."
             )
         
         # Split content if it exceeds Telegram's limit

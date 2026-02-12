@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse
 
 from services.agent_runner import AgentRunner, IncomingEvent
 from services.contact_lookup import ContactLookup
-from services.jorb_storage import JorbContact, JorbStorage
+from services.jorb_storage import JorbStorage
 from services.message_buffer import BufferedEvent, MessageBuffer
 from services.sms_compliance import (
     HELP_RESPONSE,
@@ -55,7 +55,10 @@ async def _on_sms_buffer_flush(event: BufferedEvent) -> None:
         _agent_runner = AgentRunner()
 
     if not _agent_runner.is_configured:
-        logger.warning("AgentRunner not configured (no OPENAI_API_KEY), skipping jorb processing")
+        logger.warning(
+            "AgentRunner not configured (missing OpenAI API key; "
+            "Vault: `secret/frank-bot/openai`), skipping jorb processing"
+        )
         return
 
     # Convert BufferedEvent to IncomingEvent

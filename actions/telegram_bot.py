@@ -50,7 +50,12 @@ async def test_telegram_bot(
     if not bot.is_configured:
         return {
             "success": False,
-            "error": "Telegram bot is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_CHAT_ID.",
+            "error": (
+                "Telegram bot is not configured. "
+                "Configure Vault secret `secret/frank-bot/telegram-bot` "
+                "(token, chat_id), or for local/dev runs without Vault set "
+                "TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_CHAT_ID."
+            ),
         }
 
     result = await bot.send_notification(

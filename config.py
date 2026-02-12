@@ -14,6 +14,7 @@ from functools import lru_cache
 from services.vault_client import (
     vault_enabled,
     get_claudia_credentials,
+    get_email_credentials,
     get_google_credentials,
     get_openai_credentials,
     get_stytch_credentials,
@@ -115,6 +116,11 @@ def _load_secrets() -> dict[str, str | None]:
 
     Returns a dict with all secret values.
     """
+    vault_is_enabled = vault_enabled()
+    allow_env_secret_fallback = (
+        os.getenv("ALLOW_ENV_SECRET_FALLBACK", "false").lower() == "true"
+    )
+
     secrets: dict[str, str | None] = {
         "google_client_id": None,
         "google_client_secret": None,
@@ -132,13 +138,21 @@ def _load_secrets() -> dict[str, str | None]:
         "openai_api_key": None,
         "claudia_api_url": None,
         "claudia_api_key": None,
+        # Email/SMTP (daily digest)
+        "smtp_host": None,
+        "smtp_port": None,
+        "smtp_user": None,
+        "smtp_password": None,
+        "digest_email_to": None,
+        "digest_time": None,
         "android_device_serial": None,
         "android_adb_host": None,
         "android_adb_port": None,
+        "android_llm_api_key": None,
         "actions_api_key": None,
     }
 
-    if vault_enabled():
+    if vault_is_enabled:
         logger.info("Loading secrets from Vault")
 
         # Google credentials
@@ -157,7 +171,11 @@ def _load_secrets() -> dict[str, str | None]:
         swarm_creds = get_swarm_credentials()
         if swarm_creds:
             secrets["swarm_oauth_token"] = swarm_creds.get("oauth_token")
-            secrets["foursquare_api_key"] = swarm_creds.get("api_key")
+            # Support both key names (terraform previously used `foursquare_key`)
+            secrets["foursquare_api_key"] = (
+                swarm_creds.get("api_key")
+                or swarm_creds.get("foursquare_key")
+            )
 
         # Telegram credentials
         telegram_creds = get_telegram_credentials()
@@ -183,6 +201,18 @@ def _load_secrets() -> dict[str, str | None]:
         if openai_creds:
             secrets["openai_api_key"] = openai_creds.get("api_key")
 
+        # Email/SMTP credentials (daily digest + notifications)
+        email_creds = get_email_credentials()
+        if email_creds:
+            secrets["smtp_host"] = email_creds.get("smtp_host")
+            smtp_port = email_creds.get("smtp_port")
+            if smtp_port is not None:
+                secrets["smtp_port"] = str(smtp_port)
+            secrets["smtp_user"] = email_creds.get("smtp_user")
+            secrets["smtp_password"] = email_creds.get("smtp_password")
+            secrets["digest_email_to"] = email_creds.get("digest_email_to")
+            secrets["digest_time"] = email_creds.get("digest_time")
+
         # Claudia credentials
         claudia_creds = get_claudia_credentials()
         if claudia_creds:
@@ -202,6 +232,9 @@ def _load_secrets() -> dict[str, str | None]:
             secrets["android_adb_port"] = (
                 android_creds.get("adb_port")
             )
+            secrets["android_llm_api_key"] = (
+                android_creds.get("llm_api_key")
+            )
 
         # Actions API credentials
         from services.vault_client import get_actions_credentials
@@ -211,53 +244,108 @@ def _load_secrets() -> dict[str, str | None]:
     else:
         logger.info("Vault not configured, using environment variables")
 
-    # Fallback to environment variables for any missing values
-    if not secrets["google_client_id"]:
-        secrets["google_client_id"] = os.getenv("GOOGLE_CLIENT_ID")
-    if not secrets["google_client_secret"]:
-        secrets["google_client_secret"] = os.getenv("GOOGLE_CLIENT_SECRET")
-    if not secrets["stytch_project_id"]:
-        secrets["stytch_project_id"] = os.getenv("STYTCH_PROJECT_ID")
-    if not secrets["stytch_secret"]:
-        secrets["stytch_secret"] = os.getenv("STYTCH_SECRET")
-    if not secrets["swarm_oauth_token"]:
-        secrets["swarm_oauth_token"] = os.getenv("SWARM_OAUTH_TOKEN")
-    if not secrets["foursquare_api_key"]:
-        secrets["foursquare_api_key"] = os.getenv("FOURSQUARE_API_KEY")
-    if not secrets["telegram_api_id"]:
-        secrets["telegram_api_id"] = os.getenv("TELEGRAM_API_ID")
-    if not secrets["telegram_api_hash"]:
-        secrets["telegram_api_hash"] = os.getenv("TELEGRAM_API_HASH")
-    if not secrets["telegram_phone"]:
-        secrets["telegram_phone"] = os.getenv("TELEGRAM_PHONE")
-    if not secrets["telegram_bot_token"]:
-        secrets["telegram_bot_token"] = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not secrets["telegram_bot_chat_id"]:
-        secrets["telegram_bot_chat_id"] = os.getenv("TELEGRAM_BOT_CHAT_ID")
-    if not secrets["telnyx_api_key"]:
-        secrets["telnyx_api_key"] = os.getenv("TELNYX_LET_FOOD_INTO_CIVIC_KEY")
-    if not secrets["telnyx_phone_number"]:
-        secrets["telnyx_phone_number"] = os.getenv("TELNYX_PHONE_NUMBER")
-    if not secrets["openai_api_key"]:
-        secrets["openai_api_key"] = os.getenv("OPENAI_API_KEY")
-    if not secrets["claudia_api_url"]:
-        secrets["claudia_api_url"] = os.getenv("CLAUDIA_API_URL")
-    if not secrets["claudia_api_key"]:
-        secrets["claudia_api_key"] = os.getenv("CLAUDIA_API_KEY")
-    if not secrets["android_device_serial"]:
-        secrets["android_device_serial"] = os.getenv(
-            "ANDROID_DEVICE_SERIAL", ""
-        )
-    if not secrets["android_adb_host"]:
-        secrets["android_adb_host"] = os.getenv(
-            "ANDROID_ADB_HOST", "10.0.0.95"
-        )
-    if not secrets["android_adb_port"]:
-        secrets["android_adb_port"] = os.getenv(
-            "ANDROID_ADB_PORT", "5555"
-        )
-    if not secrets["actions_api_key"]:
-        secrets["actions_api_key"] = os.getenv("ACTIONS_API_KEY")
+    # Env secret fallback:
+    # - Allowed when Vault is NOT configured (local/dev)
+    # - Optionally allowed with Vault via ALLOW_ENV_SECRET_FALLBACK=true
+    if (not vault_is_enabled) or allow_env_secret_fallback:
+        if not secrets["google_client_id"]:
+            secrets["google_client_id"] = os.getenv("GOOGLE_CLIENT_ID")
+        if not secrets["google_client_secret"]:
+            secrets["google_client_secret"] = os.getenv("GOOGLE_CLIENT_SECRET")
+        if not secrets["stytch_project_id"]:
+            secrets["stytch_project_id"] = os.getenv("STYTCH_PROJECT_ID")
+        if not secrets["stytch_secret"]:
+            secrets["stytch_secret"] = os.getenv("STYTCH_SECRET")
+        if not secrets["swarm_oauth_token"]:
+            secrets["swarm_oauth_token"] = os.getenv("SWARM_OAUTH_TOKEN")
+        if not secrets["foursquare_api_key"]:
+            secrets["foursquare_api_key"] = os.getenv("FOURSQUARE_API_KEY")
+        if not secrets["telegram_api_id"]:
+            secrets["telegram_api_id"] = os.getenv("TELEGRAM_API_ID")
+        if not secrets["telegram_api_hash"]:
+            secrets["telegram_api_hash"] = os.getenv("TELEGRAM_API_HASH")
+        if not secrets["telegram_phone"]:
+            secrets["telegram_phone"] = os.getenv("TELEGRAM_PHONE")
+        if not secrets["telegram_bot_token"]:
+            secrets["telegram_bot_token"] = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not secrets["telegram_bot_chat_id"]:
+            secrets["telegram_bot_chat_id"] = os.getenv("TELEGRAM_BOT_CHAT_ID")
+        if not secrets["telnyx_api_key"]:
+            secrets["telnyx_api_key"] = os.getenv("TELNYX_LET_FOOD_INTO_CIVIC_KEY")
+        if not secrets["telnyx_phone_number"]:
+            secrets["telnyx_phone_number"] = os.getenv("TELNYX_PHONE_NUMBER")
+        if not secrets["openai_api_key"]:
+            secrets["openai_api_key"] = os.getenv("OPENAI_API_KEY")
+        if not secrets["claudia_api_url"]:
+            secrets["claudia_api_url"] = os.getenv("CLAUDIA_API_URL")
+        if not secrets["claudia_api_key"]:
+            secrets["claudia_api_key"] = os.getenv("CLAUDIA_API_KEY")
+        if not secrets["smtp_host"]:
+            secrets["smtp_host"] = os.getenv("SMTP_HOST")
+        if not secrets["smtp_port"]:
+            secrets["smtp_port"] = os.getenv("SMTP_PORT")
+        if not secrets["smtp_user"]:
+            secrets["smtp_user"] = os.getenv("SMTP_USER")
+        if not secrets["smtp_password"]:
+            secrets["smtp_password"] = os.getenv("SMTP_PASSWORD")
+        if not secrets["digest_email_to"]:
+            secrets["digest_email_to"] = os.getenv("DIGEST_EMAIL_TO")
+        if not secrets["digest_time"]:
+            secrets["digest_time"] = os.getenv("DIGEST_TIME")
+        if not secrets["android_llm_api_key"]:
+            secrets["android_llm_api_key"] = os.getenv("ANDROID_LLM_API_KEY")
+        if not secrets["android_device_serial"]:
+            secrets["android_device_serial"] = os.getenv(
+                "ANDROID_DEVICE_SERIAL", ""
+            )
+        if not secrets["android_adb_host"]:
+            secrets["android_adb_host"] = os.getenv(
+                "ANDROID_ADB_HOST", "10.0.0.95"
+            )
+        if not secrets["android_adb_port"]:
+            secrets["android_adb_port"] = os.getenv(
+                "ANDROID_ADB_PORT", "5555"
+            )
+        if not secrets["actions_api_key"]:
+            secrets["actions_api_key"] = os.getenv("ACTIONS_API_KEY")
+    else:
+        # Vault is configured and env secret fallback is disabled.
+        # If any secret env vars are present, log a warning (they will be ignored).
+        secret_env_vars = [
+            "GOOGLE_CLIENT_ID",
+            "GOOGLE_CLIENT_SECRET",
+            "STYTCH_PROJECT_ID",
+            "STYTCH_SECRET",
+            "SWARM_OAUTH_TOKEN",
+            "FOURSQUARE_API_KEY",
+            "TELEGRAM_API_ID",
+            "TELEGRAM_API_HASH",
+            "TELEGRAM_PHONE",
+            "TELEGRAM_BOT_TOKEN",
+            "TELEGRAM_BOT_CHAT_ID",
+            "TELNYX_LET_FOOD_INTO_CIVIC_KEY",
+            "TELNYX_PHONE_NUMBER",
+            "OPENAI_API_KEY",
+            "CLAUDIA_API_URL",
+            "CLAUDIA_API_KEY",
+            "SMTP_HOST",
+            "SMTP_PORT",
+            "SMTP_USER",
+            "SMTP_PASSWORD",
+            "DIGEST_EMAIL_TO",
+            "DIGEST_TIME",
+            "ANDROID_LLM_API_KEY",
+            "ANDROID_DEVICE_SERIAL",
+            "ANDROID_ADB_HOST",
+            "ANDROID_ADB_PORT",
+            "ACTIONS_API_KEY",
+        ]
+        present = [k for k in secret_env_vars if os.getenv(k)]
+        if present:
+            logger.warning(
+                "Vault is configured; ignoring secret env vars: %s",
+                ", ".join(present),
+            )
 
     return secrets
 
@@ -277,6 +365,14 @@ def get_settings() -> Settings:
             telegram_api_id = int(secrets["telegram_api_id"])
         except (ValueError, TypeError):
             pass
+
+    smtp_port_raw = secrets.get("smtp_port") or "587"
+    try:
+        smtp_port = int(str(smtp_port_raw))
+    except (ValueError, TypeError):
+        smtp_port = 587
+
+    digest_time = (secrets.get("digest_time") or "08:00").strip() or "08:00"
 
     return Settings(
         app_version=os.getenv("APP_VERSION", "0.4.0"),
@@ -347,12 +443,12 @@ def get_settings() -> Settings:
         debounce_telegram_seconds=int(os.getenv("DEBOUNCE_TELEGRAM_SECONDS", "60")),
         debounce_sms_seconds=int(os.getenv("DEBOUNCE_SMS_SECONDS", "30")),
         # Email/SMTP settings for jorb notifications
-        smtp_host=os.getenv("SMTP_HOST"),
-        smtp_port=int(os.getenv("SMTP_PORT", "587")),
-        smtp_user=os.getenv("SMTP_USER"),
-        smtp_password=os.getenv("SMTP_PASSWORD"),
-        digest_email_to=os.getenv("DIGEST_EMAIL_TO"),
-        digest_time=os.getenv("DIGEST_TIME", "08:00"),
+        smtp_host=secrets.get("smtp_host"),
+        smtp_port=smtp_port,
+        smtp_user=secrets.get("smtp_user"),
+        smtp_password=secrets.get("smtp_password"),
+        digest_email_to=secrets.get("digest_email_to"),
+        digest_time=digest_time,
         # Claudia integration
         claudia_api_url=secrets["claudia_api_url"],
         claudia_api_key=secrets["claudia_api_key"],
@@ -361,7 +457,7 @@ def get_settings() -> Settings:
         android_adb_host=secrets["android_adb_host"] or "10.0.0.95",
         android_adb_port=int(secrets["android_adb_port"] or "5555"),
         android_llm_model=os.getenv("ANDROID_LLM_MODEL", "gpt-5.2"),
-        android_llm_api_key=os.getenv("ANDROID_LLM_API_KEY"),
+        android_llm_api_key=secrets.get("android_llm_api_key"),
         android_maintenance_cron=os.getenv("ANDROID_MAINTENANCE_CRON", "0 3 1 * *"),
         android_health_check_cron=os.getenv("ANDROID_HEALTH_CHECK_CRON", "0 4 * * 0"),
         android_rate_limit_minute=int(os.getenv("ANDROID_RATE_LIMIT_MINUTE", "10")),

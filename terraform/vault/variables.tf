@@ -129,9 +129,56 @@ variable "android_adb_port" {
   default     = "5555"
 }
 
+variable "android_llm_api_key" {
+  type        = string
+  description = "Optional API key override for Android phone automation LLM"
+  sensitive   = true
+  default     = ""
+}
+
 # Actions API authentication
 variable "actions_api_key" {
   type        = string
   description = "API key for authenticating requests to frank-bot (X-API-Key header)"
   sensitive   = true
+}
+
+# Email / SMTP (daily digest + notifications)
+variable "smtp_host" {
+  type        = string
+  description = "SMTP server hostname (e.g., smtp.gmail.com)"
+  default     = ""
+}
+
+variable "smtp_port" {
+  type        = string
+  description = "SMTP server port (e.g., 587)"
+  default     = "587"
+}
+
+variable "smtp_user" {
+  type        = string
+  description = "SMTP username / from-address"
+  sensitive   = true
+  default     = ""
+}
+
+variable "smtp_password" {
+  type        = string
+  description = "SMTP password / app password"
+  sensitive   = true
+  default     = ""
+}
+
+variable "digest_email_to" {
+  type        = string
+  description = "Default recipient email for digests/alerts"
+  sensitive   = true
+  default     = ""
+}
+
+variable "digest_time" {
+  type        = string
+  description = "Daily digest time (UTC, HH:MM, 24h)"
+  default     = "08:00"
 }

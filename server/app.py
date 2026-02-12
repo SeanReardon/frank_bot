@@ -15,9 +15,6 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from config import get_settings
-
-# Git commit injected at build time
-GIT_COMMIT = os.environ.get("GIT_COMMIT", "dev")
 from server.manifests import (
     build_actions_manifest,
     build_ai_plugin_manifest,
@@ -31,6 +28,9 @@ from services.background_loop import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Git commit injected at build time
+GIT_COMMIT = os.environ.get("GIT_COMMIT", "dev")
 
 # Favicon path - project root contains favicon.png
 FAVICON_PATH = Path(__file__).parent.parent / "favicon.png"
@@ -58,7 +58,11 @@ def create_starlette_app() -> Starlette:
         return JSONResponse({
             "api": {
                 "commit": GIT_COMMIT,
-                "commit_url": f"https://github.com/SeanReardon/frank_bot/commit/{GIT_COMMIT}" if GIT_COMMIT != "dev" else None,
+                "commit_url": (
+                    f"https://github.com/SeanReardon/frank_bot/commit/{GIT_COMMIT}"
+                    if GIT_COMMIT != "dev"
+                    else None
+                ),
             },
         })
 
@@ -116,9 +120,15 @@ def create_starlette_app() -> Starlette:
 
     app = Starlette(routes=routes)
 
+    # Web dashboard uses cookie/session auth; keep CORS tight to contrived.com (+ localhost for dev).
+    cors_allow_origin_regex = os.environ.get(
+        "CORS_ALLOW_ORIGIN_REGEX",
+        r"^https?://([a-z0-9-]+\.)*contrived\.com(:\d+)?$|^http://localhost(:\d+)?$|^http://127\.0\.0\.1(:\d+)?$",
+    )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[],
+        allow_origin_regex=cors_allow_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

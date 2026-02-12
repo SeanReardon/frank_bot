@@ -42,8 +42,10 @@ class SwarmService:
         token = settings.swarm_oauth_token
         if not token:
             raise ValueError(
-                "SWARM_OAUTH_TOKEN is not configured. "
-                "Set it in your environment to enable Swarm tools."
+                "Swarm is not configured. "
+                "Configure Vault secret `secret/frank-bot/swarm` "
+                "(oauth_token, api_key), or for local/dev runs without Vault "
+                "set SWARM_OAUTH_TOKEN."
             )
         self.oauth_token = token
         self.api_version = settings.swarm_api_version

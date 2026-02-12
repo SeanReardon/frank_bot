@@ -111,7 +111,10 @@ async def main() -> int:
     telegram = TelegramClientService()
     if not telegram.is_configured:
         print("Error: Telegram is not configured.")
-        print("Please set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE.")
+        print(
+            "Configure Vault secret `secret/frank-bot/telegram` (api_id, api_hash, phone), "
+            "or for local/dev runs without Vault set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_PHONE."
+        )
         return 1
 
     # Parse before_date

@@ -58,6 +58,15 @@ def _parse_contacts(contacts_arg: Any) -> list[JorbContact]:
         if c["channel"] not in ("sms", "telegram", "email"):
             raise ValueError(f"contact[{i}] has invalid channel: {c['channel']}")
 
+        if c["channel"] == "telegram":
+            from services.telegram_allowlist import is_allowed_username
+
+            if not is_allowed_username(c["identifier"]):
+                raise ValueError(
+                    "Telegram contacts are restricted. "
+                    "Only @SeanReardon is allowed."
+                )
+
         contacts.append(JorbContact(
             identifier=c["identifier"],
             channel=c["channel"],
@@ -146,7 +155,12 @@ async def create_jorb_action(
         else:
             kickoff_result = {
                 "success": False,
-                "error": "AgentRunner not configured (missing OPENAI_API_KEY)",
+                "error": (
+                    "AgentRunner not configured (missing OpenAI API key). "
+                    "Configure Vault secret `secret/frank-bot/openai` "
+                    "(api_key), or for local/dev runs without Vault set "
+                    "OPENAI_API_KEY."
+                ),
             }
 
     response = {
@@ -465,7 +479,12 @@ async def approve_jorb_action(
     else:
         kickoff_result = {
             "success": False,
-            "error": "AgentRunner not configured (missing OPENAI_API_KEY)",
+            "error": (
+                "AgentRunner not configured (missing OpenAI API key). "
+                "Configure Vault secret `secret/frank-bot/openai` "
+                "(api_key), or for local/dev runs without Vault set "
+                "OPENAI_API_KEY."
+            ),
         }
 
     response = {
@@ -780,7 +799,11 @@ async def api_learn_action(
                 "start_immediately": "Begin right away (default: true)",
             },
             "contacts_format": [
-                {"identifier": "@user", "channel": "telegram", "name": "Jo"},
+                {
+                    "identifier": "@SeanReardon",
+                    "channel": "telegram",
+                    "name": "Sean",
+                },
                 {"identifier": "+15551234567", "channel": "sms"},
                 {"identifier": "email@example.com", "channel": "email"},
             ],

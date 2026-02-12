@@ -8,7 +8,6 @@ import pytest
 from services.telegram_jorb_router import (
     _handle_telegram_message,
     _is_jorb_contact,
-    _get_message_buffer,
     initialize_telegram_jorb_router,
     shutdown_telegram_jorb_router,
     get_router_status,
@@ -118,9 +117,9 @@ class TestHandleTelegramMessage:
 
     def _make_mock_event(
         self,
-        username: str | None = "testuser",
-        first_name: str = "Test",
-        last_name: str | None = "User",
+        username: str | None = "SeanReardon",
+        first_name: str = "Sean",
+        last_name: str | None = "Reardon",
         user_id: int = 12345,
         text: str = "Hello",
         is_mutual: bool = True,
@@ -165,8 +164,8 @@ class TestHandleTelegramMessage:
                 mock_buffer.buffer_message.assert_called_once()
                 call_kwargs = mock_buffer.buffer_message.call_args.kwargs
                 assert call_kwargs["channel"] == "telegram"
-                assert call_kwargs["sender"] == "@testuser"
-                assert call_kwargs["sender_name"] == "Test User"
+                assert call_kwargs["sender"] == "@SeanReardon"
+                assert call_kwargs["sender_name"] == "Sean Reardon"
                 assert call_kwargs["content"] == "Hello"
 
     async def test_skips_non_jorb_contacts(self):
@@ -186,8 +185,8 @@ class TestHandleTelegramMessage:
                 # Buffer should NOT be called
                 mock_buffer.buffer_message.assert_not_called()
 
-    async def test_uses_user_id_when_no_username(self):
-        """Falls back to user ID when no username available."""
+    async def test_skips_when_no_username(self):
+        """Allowlist requires usernames; messages without usernames are skipped."""
         event = self._make_mock_event(username=None, user_id=98765)
 
         with patch("services.telegram_jorb_router._is_jorb_contact", new_callable=AsyncMock) as mock_check:
@@ -200,8 +199,7 @@ class TestHandleTelegramMessage:
 
                 await _handle_telegram_message(event)
 
-                call_kwargs = mock_buffer.buffer_message.call_args.kwargs
-                assert call_kwargs["sender"] == "98765"
+                mock_buffer.buffer_message.assert_not_called()
 
     async def test_skips_empty_text(self):
         """Messages with no text are skipped."""

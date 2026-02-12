@@ -54,12 +54,20 @@ npx @redocly/cli lint openapi/spec.json
 
 ## Environment Variables
 
-Key variables (see README.md for complete list):
-- `PUBLIC_BASE_URL` - Public URL for manifests
-- `ACTIONS_API_KEY` - Optional API key for auth
-- `GOOGLE_CREDENTIALS_FILE` / `GOOGLE_TOKEN_FILE` - Google OAuth
-- `SWARM_OAUTH_TOKEN` - Foursquare/Swarm API
-- `TELNYX_API_KEY` - SMS messaging
+**Vault-first:** Secrets live in Concordia Vault under `secret/frank-bot/*`,
+managed by this repo’s `terraform/vault/`.
+
+**Minimal `.env`:** only the Vault AppRole connection info:
+- `VAULT_ADDR`
+- `VAULT_ROLE_ID`
+- `VAULT_SECRET_ID`
+
+Non-secret config commonly set via environment / compose:
+- `PUBLIC_BASE_URL` - Public URL for manifests/OpenAPI servers
+- `GOOGLE_TOKEN_FILE` / `GOOGLE_CREDENTIALS_FILE` - Google OAuth files (state/files, not Vault)
+
+Dev-only fallbacks (avoid in prod; prefer Vault):
+- `ACTIONS_API_KEY`, `OPENAI_API_KEY`, `SWARM_OAUTH_TOKEN`, `TELNYX_*`, `TELEGRAM_*`, `SMTP_*`
 
 ## What NOT to Modify
 

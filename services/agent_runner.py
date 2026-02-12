@@ -403,7 +403,9 @@ class AgentRunner:
         """
         if not self._api_key:
             raise AgentRunnerError(
-                "OpenAI API key not configured. Set OPENAI_API_KEY environment variable."
+                "OpenAI API key not configured. "
+                "Configure Vault secret `secret/frank-bot/openai` (api_key), "
+                "or for local/dev runs without Vault set OPENAI_API_KEY."
             )
 
         # Check if openai is available

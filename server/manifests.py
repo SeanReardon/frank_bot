@@ -64,7 +64,8 @@ def build_actions_manifest(settings: Settings) -> dict[str, Any]:
     }
     if not settings.actions_api_key:
         manifest["auth"]["note"] = (
-            "Set ACTIONS_API_KEY to enforce authentication."
+            "Configure the Actions API key "
+            "(Vault: `secret/frank-bot/actions`) to enforce authentication."
         )
     return manifest
 

@@ -141,13 +141,19 @@ class ClaudiaClient:
 
         if not self.api_url:
             raise ValueError(
-                "CLAUDIA_API_URL is not configured. "
-                "Set it in your environment to enable Claudia."
+                "Claudia is not configured. "
+                "Configure Vault secret `secret/frank-bot/claudia` "
+                "(api_url, api_key)."
+            )
+
+        if not self.api_key:
+            raise ValueError(
+                "Claudia is not configured. "
+                "Configure Vault secret `secret/frank-bot/claudia` (api_key)."
             )
 
         self.session = requests.Session()
-        if self.api_key:
-            self.session.headers["X-API-Key"] = self.api_key
+        self.session.headers["X-API-Key"] = self.api_key
         self.session.headers["Content-Type"] = "application/json"
 
     # ------------------------------------------------------------------ #
