@@ -44,6 +44,48 @@ def _calculate_token_cost(input_tokens: int, output_tokens: int) -> float:
     return round(input_cost + output_cost, 6)
 
 
+def _parse_json_object_from_model(content: str) -> dict[str, Any]:
+    """
+    Parse a JSON object from an LLM response string.
+
+    We request `response_format={"type": "json_object"}`, but in practice the
+    model can still occasionally return trailing text or multiple JSON objects.
+    This helper is tolerant: it parses the first JSON object and ignores
+    trailing data (with a warning).
+    """
+    raw = (content or "").strip()
+    if not raw:
+        raise ValueError("Empty response from jorb session")
+
+    # Defensive: strip common fenced-code wrappers if they appear.
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        raw = "\n".join(lines).strip()
+
+    # Try to start parsing from the first JSON object.
+    start = raw.find("{")
+    if start > 0:
+        raw = raw[start:]
+
+    decoder = json.JSONDecoder()
+    obj, idx = decoder.raw_decode(raw)
+    if not isinstance(obj, dict):
+        raise ValueError(f"Expected JSON object, got {type(obj).__name__}")
+
+    trailing = raw[idx:].strip()
+    if trailing:
+        logger.warning(
+            "Trailing data after JSON object from model (ignored): %s",
+            trailing[:200],
+        )
+
+    return obj
+
+
 @dataclass
 class JorbAction:
     """An action decided by the jorb session."""
@@ -466,7 +508,7 @@ class JorbSession:
             if not content_str:
                 raise ValueError("Empty response from jorb session")
 
-            result = json.loads(content_str)
+            result = _parse_json_object_from_model(content_str)
 
             # Extract token usage
             tokens_used = 0
@@ -495,10 +537,11 @@ class JorbSession:
             return response_obj
 
         except Exception as e:
-            logger.error("Jorb session error: %s", e)
+            logger.exception("Jorb session error: %s", e)
             return JorbSessionResponse(
                 reasoning=f"Session error: {e}",
                 action=JorbAction(type="no_action"),
+                progress=JorbProgress(note=f"Session error: {e}"),
             )
 
     def _is_catch_up_jorb(self) -> bool:
@@ -632,7 +675,7 @@ class JorbSession:
             if not content_str:
                 raise ValueError("Empty response from kickoff")
 
-            result = json.loads(content_str)
+            result = _parse_json_object_from_model(content_str)
 
             # Extract token usage
             tokens_used = 0
@@ -651,10 +694,11 @@ class JorbSession:
             return response_obj
 
         except Exception as e:
-            logger.error("Jorb kickoff error: %s", e)
+            logger.exception("Jorb kickoff error: %s", e)
             return JorbSessionResponse(
                 reasoning=f"Kickoff error: {e}",
                 action=JorbAction(type="no_action"),
+                progress=JorbProgress(note=f"Kickoff error: {e}"),
             )
 
     def _record_learning(self, learning_text: str) -> None:

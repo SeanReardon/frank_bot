@@ -3,20 +3,16 @@ Tests for AgentRunner script execution, agent loop, rate limiting,
 and integration flows (frank_bot-00114 through frank_bot-00117).
 """
 
-import json
 import os
 import tempfile
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from services.agent_runner import (
     AgentRunner,
-    AgentRunnerError,
     IncomingEvent,
-    JorbPolicy,
-    ProcessingResult,
     SCRIPT_EXECUTION_TIMEOUT,
     MAX_ITERATIONS_PER_HOUR,
     MAX_ITERATIONS_PER_DAY,
@@ -24,13 +20,10 @@ from services.agent_runner import (
 from services.jorb_storage import (
     Jorb,
     JorbContact,
-    JorbMessage,
     JorbStorage,
-    JorbWithMessages,
 )
 from services.jorb_session import (
     JorbAction,
-    JorbProgress,
     JorbSessionResponse,
 )
 
@@ -134,6 +127,39 @@ class TestExecuteScript:
         script_results = await storage.get_script_results(jorb.id)
         assert len(script_results) == 1
         assert script_results[0]["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_execute_script_with_main_loop_does_not_deadlock(self, runner, storage, sample_jorb):
+        """
+        When FrankAPI is configured to submit coroutines to the running event loop,
+        script execution must NOT block that loop (otherwise deadlock).
+        """
+        # Create the jorb in storage
+        await storage.create_jorb(
+            name=sample_jorb.name,
+            plan=sample_jorb.original_plan,
+        )
+        jorbs = await storage.list_jorbs()
+        jorb = jorbs[0]
+
+        import asyncio
+        import meta.api as frank_api
+
+        # Simulate normal server startup behavior
+        frank_api.set_main_loop(asyncio.get_running_loop())
+        try:
+            result = await runner._execute_script(
+                jorb,
+                "frank.system.hello('world')",
+                timeout=2,
+            )
+        finally:
+            # Avoid leaking loop state across tests
+            frank_api._main_loop = None  # type: ignore[attr-defined]
+
+        assert result["success"] is True
+        assert isinstance(result["result"], dict)
+        assert result["result"].get("message") == "hello world"
 
     @pytest.mark.asyncio
     async def test_execute_script_error_captured(self, runner, storage, sample_jorb):
@@ -504,7 +530,7 @@ class TestAgentLoop:
         ), patch(
             "meta.api.FrankAPI", return_value=mock_api
         ):
-            result = await runner.process_jorb_event(jorb)
+            _ = await runner.process_jorb_event(jorb)
 
         # Second session creation should have the script results from first execution
         assert len(sessions_created) == 2

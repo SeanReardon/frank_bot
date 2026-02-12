@@ -11,11 +11,11 @@ Each jorb has its own dedicated LLM session with personality and full history.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import traceback
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Any, Literal
@@ -887,19 +887,24 @@ class AgentRunner:
                 exec(script_str, namespace)
                 return namespace.get("result")
 
-        executor = ThreadPoolExecutor(max_workers=1)
         try:
-            future = executor.submit(_run_script)
             try:
-                result_value = future.result(timeout=timeout)
+                # IMPORTANT: Do NOT block the main asyncio event loop while
+                # running scripts. Scripts frequently call FrankAPI methods
+                # which submit coroutines back to the main loop via
+                # run_coroutine_threadsafe() (see meta/api.py). If we block the
+                # main loop waiting for the script thread, we deadlock.
+                result_value = await asyncio.wait_for(
+                    asyncio.to_thread(_run_script),
+                    timeout=timeout,
+                )
                 result_dict = {
                     "script": script_str[:500],
                     "result": result_value,
                     "success": True,
                     "timestamp": timestamp,
                 }
-            except FuturesTimeoutError:
-                future.cancel()
+            except asyncio.TimeoutError:
                 result_dict = {
                     "script": script_str[:500],
                     "result": None,
@@ -918,7 +923,9 @@ class AgentRunner:
                     "timestamp": timestamp,
                 }
         finally:
-            executor.shutdown(wait=False)
+            # No explicit executor lifecycle; asyncio.to_thread uses the loop's
+            # default executor.
+            pass
 
         # Store the result
         try:
@@ -1124,7 +1131,28 @@ class AgentRunner:
                 script_result = await self._execute_script(jwm.jorb, action.script)
 
                 if action.await_reply:
-                    # Async: script sent a message, wait for human reply
+                    # Async: script SHOULD have sent a message, so wait for human reply.
+                    # If the script failed (timeout/exception), do NOT set awaiting.
+                    # Instead, continue the loop so the LLM sees the failure in
+                    # SCRIPT_RESULTS and can retry / change approach / pause.
+                    if not script_result.get("success", False):
+                        logger.warning(
+                            "Async script failed for jorb %s; not awaiting reply. error=%s",
+                            jorb_id,
+                            script_result.get("error"),
+                        )
+                        continue
+
+                    # Some FrankAPI calls return a structured dict with success=false.
+                    result_value = script_result.get("result")
+                    if isinstance(result_value, dict) and result_value.get("success") is False:
+                        logger.warning(
+                            "Async script returned success=false for jorb %s; not awaiting reply. result=%s",
+                            jorb_id,
+                            result_value,
+                        )
+                        continue
+
                     await self.update_jorb_status(
                         jorb_id=jorb_id,
                         status="running",
