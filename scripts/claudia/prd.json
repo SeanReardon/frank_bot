@@ -1940,6 +1940,160 @@
       "priority": 117,
       "passes": true,
       "notes": "Depends on frank_bot-00115 (agent loop), frank_bot-00116 (rate limiting). These tests validate the end-to-end flow described in prompts/unified-jorbs-design.md examples (hotel booking, thermostat). Mock the OpenAI API to return predetermined JSON responses."
+    },
+    {
+      "id": "frank_bot-00118",
+      "title": "Add TelegramBotListener class with getUpdates long-polling",
+      "acceptanceCriteria": [
+        "TelegramBotListener class added to services/telegram_bot.py with __init__(on_message), start_polling(), stop_polling(), _poll_loop(), _get_updates(), _process_update()",
+        "_get_updates() calls GET /bot{token}/getUpdates with offset and timeout=3, parses JSON response, updates offset to max(update_id)+1",
+        "_process_update() extracts message text, sender username, and chat_id from update dict",
+        "_process_update() checks sender against telegram_allowlist and silently drops non-allowlisted senders",
+        "_process_update() does NOT apply _is_jorb_contact() gate — all allowlisted messages pass through",
+        "start_polling() sets _running=True and creates asyncio task for _poll_loop()",
+        "stop_polling() sets _running=False and cancels the poll task",
+        "Unit tests verify polling loop processes updates and respects allowlist"
+      ],
+      "priority": 118,
+      "passes": false,
+      "notes": "No blocking dependencies on new tasks. Uses existing TelegramBot class in same file for httpx client pattern. This is the foundation for Piece 1 — blocks frank_bot-00119, frank_bot-00120, frank_bot-00121."
+    },
+    {
+      "id": "frank_bot-00119",
+      "title": "Create telegram_bot_router.py with MessageBuffer and flush callback",
+      "acceptanceCriteria": [
+        "New file services/telegram_bot_router.py created, mirroring telegram_jorb_router.py pattern",
+        "Module-level MessageBuffer instance for debouncing bot messages",
+        "Flush callback _on_bot_message_flush(event) creates IncomingEvent with channel='telegram_bot' and calls AgentRunner.process_incoming_message()",
+        "initialize_telegram_bot_router() creates TelegramBotListener with the flush callback and starts polling",
+        "shutdown_telegram_bot_router() stops polling and flushes pending messages",
+        "get_bot_router_status() returns dict with initialized, configured, pending message counts",
+        "No _is_jorb_contact() gate — bot messages from allowlisted senders go straight to Switchboard",
+        "Unit tests verify flush callback creates correct IncomingEvent with channel='telegram_bot'"
+      ],
+      "priority": 119,
+      "passes": false,
+      "notes": "Depends on frank_bot-00118 (TelegramBotListener). Mirrors telegram_jorb_router.py but without the jorb contact gate. Blocks frank_bot-00120."
+    },
+    {
+      "id": "frank_bot-00120",
+      "title": "Wire bot listener into BackgroundLoopService lifecycle",
+      "acceptanceCriteria": [
+        "BackgroundLoopService.start() calls initialize_telegram_bot_router() after Telethon router init",
+        "BackgroundLoopService.stop() calls shutdown_telegram_bot_router()",
+        "BackgroundLoopService.get_status() includes bot listener status from get_bot_router_status()",
+        "Existing Telethon listener continues working unchanged",
+        "Bot listener failure does not prevent other services from starting (graceful degradation)",
+        "Unit tests verify bot router is initialized on start and shut down on stop"
+      ],
+      "priority": 120,
+      "passes": false,
+      "notes": "Depends on frank_bot-00119 (telegram_bot_router). Wires new bot listener into existing lifecycle alongside Telethon router."
+    },
+    {
+      "id": "frank_bot-00121",
+      "title": "Add telegram_bot reply channel to agent_runner._send_message()",
+      "acceptanceCriteria": [
+        "agent_runner._send_message() handles channel='telegram_bot' by routing through TelegramBot.send_notification() (bot API), not Telethon",
+        "Bot replies use the chat_id from the original incoming event",
+        "Responses to bot-originated messages go back through the bot, not Telethon",
+        "Existing 'telegram' (Telethon) and 'sms' channels continue working unchanged",
+        "Unit tests verify channel='telegram_bot' routes through bot API"
+      ],
+      "priority": 121,
+      "passes": false,
+      "notes": "Depends on frank_bot-00118 (TelegramBotListener exists). Can be developed in parallel with frank_bot-00119/00120. Ensures bot reply channel is distinct from Telethon."
+    },
+    {
+      "id": "frank_bot-00122",
+      "title": "Add DiagnosticsNamespace and SystemNamespace to FrankAPI",
+      "acceptanceCriteria": [
+        "DiagnosticsNamespace class with full() and health() methods wrapping diagnostics actions via _run_async()",
+        "SystemNamespace class with status(), server(), and hello(name) methods wrapping system actions via _run_async()",
+        "Both namespaces added to FrankAPI.__init__() as _diagnostics and _system with @property accessors",
+        "frank.diagnostics.full() returns comprehensive diagnostics dict",
+        "frank.diagnostics.health() returns quick health check dict",
+        "frank.system.status() returns orchestration machinery status dict",
+        "frank.system.server() returns server uptime info dict",
+        "Unit tests verify each method calls the correct underlying action"
+      ],
+      "priority": 122,
+      "passes": false,
+      "notes": "No dependencies on new tasks — follows existing namespace pattern in meta/api.py. Blocks frank_bot-00127 (api_learn_action update)."
+    },
+    {
+      "id": "frank_bot-00123",
+      "title": "Add JorbsNamespace to FrankAPI",
+      "acceptanceCriteria": [
+        "JorbsNamespace class with list(status), get(jorb_id, include_messages, message_limit), create(name, plan, contacts, personality, start_immediately), approve(jorb_id, decision), cancel(jorb_id, reason), stats(status), brief(hours), messages(jorb_id, limit, offset)",
+        "All methods wrap corresponding actions from actions/jorbs.py via _run_async()",
+        "Namespace added to FrankAPI.__init__() as _jorbs with @property accessor",
+        "frank.jorbs.list() returns open jorbs by default",
+        "frank.jorbs.create(name=..., plan=...) creates a new jorb",
+        "frank.jorbs.brief(hours=24) returns activity summary",
+        "Unit tests verify each method calls the correct underlying action with correct arguments"
+      ],
+      "priority": 123,
+      "passes": false,
+      "notes": "No dependencies on new tasks — follows existing namespace pattern. Blocks frank_bot-00127 (api_learn_action update)."
+    },
+    {
+      "id": "frank_bot-00124",
+      "title": "Add ClaudiaNamespace to FrankAPI",
+      "acceptanceCriteria": [
+        "ClaudiaNamespace class with repos(), chat_create(repo_name, title, message), chat_get(repo_id, chat_id), chat_send(repo_id, chat_id, message), chat_end(repo_id, chat_id), prompts(repo_id), prompt_get(repo_id, prompt_id), prompt_execute(repo_id, prompt_id), queue(repo_id), executions(repo_id, status, limit), execution_get(execution_id)",
+        "All methods wrap corresponding actions from actions/claudia.py via _run_async()",
+        "Namespace added to FrankAPI.__init__() as _claudia with @property accessor",
+        "frank.claudia.repos() returns list of repos",
+        "frank.claudia.chat_create('frank_bot', 'Fix bug', message='...') creates a chat session",
+        "Unit tests verify each method calls the correct underlying action with correct arguments"
+      ],
+      "priority": 124,
+      "passes": false,
+      "notes": "No dependencies on new tasks — follows existing namespace pattern. Blocks frank_bot-00127 (api_learn_action update)."
+    },
+    {
+      "id": "frank_bot-00125",
+      "title": "Add StyleNamespace to FrankAPI",
+      "acceptanceCriteria": [
+        "StyleNamespace class with generate(chat_id, dry_run, before_date) wrapping generate_sean_md_action via _run_async()",
+        "Namespace added to FrankAPI.__init__() as _style with @property accessor",
+        "frank.style.generate(dry_run=True) returns style generation result dict",
+        "Unit tests verify generate() calls the correct underlying action with correct arguments"
+      ],
+      "priority": 125,
+      "passes": false,
+      "notes": "No dependencies on new tasks — follows existing namespace pattern. Blocks frank_bot-00127 (api_learn_action update)."
+    },
+    {
+      "id": "frank_bot-00126",
+      "title": "Verify Switchboard catch-up behavior with telegram_bot channel",
+      "acceptanceCriteria": [
+        "Switchboard in agent_runner.py treats channel='telegram_bot' identically to 'telegram' for routing decisions",
+        "Unmatched messages from trusted senders create catch-up jorbs that ask for context (might_be_new_jorb=true path)",
+        "Review switchboard_system.md prompt — if needed, tweak to be more comfortable saying 'I don't recognize this' rather than force-matching",
+        "Integration test: send a message with channel='telegram_bot' from a trusted sender with no matching jorb → verify catch-up jorb is created",
+        "Existing Switchboard behavior for 'telegram' and 'sms' channels unchanged"
+      ],
+      "priority": 126,
+      "passes": false,
+      "notes": "Depends on frank_bot-00119 (telegram_bot_router creates IncomingEvent with channel='telegram_bot') and frank_bot-00121 (bot reply channel). Validates end-to-end Switchboard behavior for the new channel."
+    },
+    {
+      "id": "frank_bot-00127",
+      "title": "Update api_learn_action to document new FrankAPI namespaces",
+      "acceptanceCriteria": [
+        "api_learn_action in actions/scripts.py documents diagnostics namespace (full, health methods)",
+        "api_learn_action documents system namespace (status, server, hello methods)",
+        "api_learn_action documents jorbs namespace (list, get, create, approve, cancel, stats, brief, messages methods)",
+        "api_learn_action documents claudia namespace (repos, chat_create, chat_get, chat_send, chat_end, prompts, prompt_get, prompt_execute, queue, executions, execution_get methods)",
+        "api_learn_action documents style namespace (generate method)",
+        "frank.learn() output includes examples and signatures for all new namespaces",
+        "Existing namespace documentation unchanged"
+      ],
+      "priority": 127,
+      "passes": false,
+      "notes": "Depends on frank_bot-00122, frank_bot-00123, frank_bot-00124, frank_bot-00125 (all new namespaces must exist). Ensures jorb sessions discover new capabilities via frank.learn()."
     }
   ]
 }
