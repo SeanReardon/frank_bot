@@ -70,7 +70,7 @@ class TelegramBot:
         self,
         text: str,
         *,
-        parse_mode: str = "HTML",
+        parse_mode: str | None = "HTML",
         chat_id: str | None = None,
     ) -> NotificationResult:
         """
@@ -104,13 +104,16 @@ class TelegramBot:
             url = f"{TELEGRAM_BOT_API_BASE}/bot{self._token}/sendMessage"
 
             async with httpx.AsyncClient(timeout=30.0) as client:
+                payload: dict[str, Any] = {
+                    "chat_id": target_chat,
+                    "text": text,
+                }
+                # Telegram parse_mode is optional; omit when None to send plain text.
+                if parse_mode:
+                    payload["parse_mode"] = parse_mode
                 response = await client.post(
                     url,
-                    json={
-                        "chat_id": target_chat,
-                        "text": text,
-                        "parse_mode": parse_mode,
-                    },
+                    json=payload,
                 )
 
             elapsed_ms = (time.time() - start) * 1000

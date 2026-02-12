@@ -17,7 +17,7 @@ import asyncio
 import logging
 import signal
 from datetime import datetime, timezone, time as dt_time
-from typing import Any, Callable, Coroutine
+from typing import Any
 
 from services.agent_runner import AgentRunner
 from services.context_reset import ContextResetService
@@ -27,6 +27,11 @@ from services.telegram_jorb_router import (
     get_router_status,
     initialize_telegram_jorb_router,
     shutdown_telegram_jorb_router,
+)
+from services.telegram_bot_router import (
+    get_bot_router_status,
+    initialize_telegram_bot_router,
+    shutdown_telegram_bot_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,6 +102,7 @@ class BackgroundLoopService:
             "started_at": self._started_at,
             "last_tick_at": self._last_tick_at,
             "telegram_router": get_router_status(),
+            "telegram_bot_router": get_bot_router_status(),
             "heartbeat_task_running": (
                 self._heartbeat_task is not None and not self._heartbeat_task.done()
             ),
@@ -142,6 +148,15 @@ class BackgroundLoopService:
         else:
             logger.warning(
                 "Telegram router not initialized (may not be configured)"
+            )
+
+        # Initialize Telegram *bot* router for inbound messages to @Seans_frank_bot
+        bot_initialized = await initialize_telegram_bot_router()
+        if bot_initialized:
+            logger.info("Telegram bot router initialized")
+        else:
+            logger.warning(
+                "Telegram bot router not initialized (may not be configured)"
             )
 
         # Start heartbeat task
@@ -195,6 +210,7 @@ class BackgroundLoopService:
 
         # Shutdown Telegram router
         await shutdown_telegram_jorb_router()
+        await shutdown_telegram_bot_router()
 
         logger.info("Jorb background loop stopped")
 

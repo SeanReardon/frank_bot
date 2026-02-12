@@ -4,8 +4,7 @@ Tests for the Background Event Loop service.
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,8 +14,6 @@ from services.background_loop import (
     start_background_loop,
     stop_background_loop,
     get_background_loop_status,
-    HEARTBEAT_INTERVAL_SECONDS,
-    DIGEST_CHECK_INTERVAL_SECONDS,
 )
 
 
@@ -77,6 +74,10 @@ class TestBackgroundLoopService:
             "services.background_loop.initialize_telegram_jorb_router",
             new_callable=AsyncMock,
             return_value=False,
+        ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
             await background_service.start()
 
@@ -97,7 +98,14 @@ class TestBackgroundLoopService:
             new_callable=AsyncMock,
             return_value=False,
         ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
+            new_callable=AsyncMock,
+            return_value=False,
+        ), patch(
             "services.background_loop.shutdown_telegram_jorb_router",
+            new_callable=AsyncMock,
+        ), patch(
+            "services.background_loop.shutdown_telegram_bot_router",
             new_callable=AsyncMock,
         ):
             await background_service.start()
@@ -112,6 +120,10 @@ class TestBackgroundLoopService:
         """Test starting twice logs a warning."""
         with patch(
             "services.background_loop.initialize_telegram_jorb_router",
+            new_callable=AsyncMock,
+            return_value=False,
+        ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
             new_callable=AsyncMock,
             return_value=False,
         ):
@@ -275,7 +287,14 @@ class TestModuleLevelFunctions:
             new_callable=AsyncMock,
             return_value=False,
         ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
+            new_callable=AsyncMock,
+            return_value=False,
+        ), patch(
             "services.background_loop.shutdown_telegram_jorb_router",
+            new_callable=AsyncMock,
+        ), patch(
+            "services.background_loop.shutdown_telegram_bot_router",
             new_callable=AsyncMock,
         ):
             # Start the loop
@@ -363,6 +382,10 @@ class TestTelegramRouterIntegration:
         with patch(
             "services.background_loop.initialize_telegram_jorb_router",
             mock_init,
+        ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
             await background_service.start()
 
@@ -380,8 +403,15 @@ class TestTelegramRouterIntegration:
             new_callable=AsyncMock,
             return_value=False,
         ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
+            new_callable=AsyncMock,
+            return_value=False,
+        ), patch(
             "services.background_loop.shutdown_telegram_jorb_router",
             mock_shutdown,
+        ), patch(
+            "services.background_loop.shutdown_telegram_bot_router",
+            new_callable=AsyncMock,
         ):
             await background_service.start()
             await background_service.stop()
@@ -419,7 +449,14 @@ class TestGracefulShutdown:
             new_callable=AsyncMock,
             return_value=False,
         ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
+            new_callable=AsyncMock,
+            return_value=False,
+        ), patch(
             "services.background_loop.shutdown_telegram_jorb_router",
+            new_callable=AsyncMock,
+        ), patch(
+            "services.background_loop.shutdown_telegram_bot_router",
             new_callable=AsyncMock,
         ):
             await background_service.start()
@@ -442,7 +479,14 @@ class TestGracefulShutdown:
             new_callable=AsyncMock,
             return_value=False,
         ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
+            new_callable=AsyncMock,
+            return_value=False,
+        ), patch(
             "services.background_loop.shutdown_telegram_jorb_router",
+            new_callable=AsyncMock,
+        ), patch(
+            "services.background_loop.shutdown_telegram_bot_router",
             new_callable=AsyncMock,
         ):
             await background_service.start()

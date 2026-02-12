@@ -8,16 +8,22 @@ capabilities without manual updates.
 
 from __future__ import annotations
 
-from meta.introspection import generate_meta_documentation, generate_method_table
+from meta.introspection import generate_method_table
 from meta.api import (
+    AndroidNamespace,
     CalendarNamespace,
+    ClaudiaNamespace,
     ContactsNamespace,
-    FrankAPI,
+    DiagnosticsNamespace,
+    JorbsNamespace,
     SMSNamespace,
     SwarmNamespace,
     TelegramNamespace,
+    TelegramBotNamespace,
+    SystemNamespace,
     TimeNamespace,
     UPSNamespace,
+    StyleNamespace,
 )
 
 
@@ -30,7 +36,8 @@ def generate_capabilities_reference() -> str:
     for injection into LLM prompts.
 
     The output includes:
-    - All available namespaces (calendar, contacts, sms, telegram, swarm, time, ups)
+    - All available namespaces (calendar, contacts, sms, telegram, telegram_bot,
+      swarm, time, ups, diagnostics, system, jorbs, claudia, style, android)
     - Method signatures with parameter names and types
     - Brief descriptions from docstrings
     - Usage examples for each namespace
@@ -117,6 +124,17 @@ def generate_capabilities_reference() -> str:
     parts.append('messages = frank.telegram.messages("@username", limit=10)')
     parts.append("```\n")
 
+    # Telegram Bot namespace
+    parts.append("## frank.telegram_bot - Telegram Bot Messaging\n")
+    parts.append("Send messages via the Telegram bot account (Bot API).\n")
+    parts.append("### Methods\n")
+    parts.append(generate_method_table("telegram_bot", TelegramBotNamespace))
+    parts.append("\n### Example\n")
+    parts.append("```python")
+    parts.append("# Send a Telegram message via the bot account")
+    parts.append('result = frank.telegram_bot.send(text="Diagnostics look good ✅")')
+    parts.append("```\n")
+
     # Swarm namespace
     parts.append("## frank.swarm - Location History\n")
     parts.append("Access Swarm/Foursquare check-in history.\n")
@@ -165,6 +183,63 @@ def generate_capabilities_reference() -> str:
     parts.append('print(f"Battery: {status[\'charge_percent\']}%")')
     parts.append('print(f"Runtime: {status[\'runtime_minutes\']} minutes")')
     parts.append("```\n")
+
+    # Diagnostics namespace
+    parts.append("## frank.diagnostics - Diagnostics\n")
+    parts.append("Get system and service diagnostics.\n")
+    parts.append("### Methods\n")
+    parts.append(generate_method_table("diagnostics", DiagnosticsNamespace))
+    parts.append("\n### Example\n")
+    parts.append("```python")
+    parts.append("# Full diagnostics bundle")
+    parts.append("d = frank.diagnostics.full()")
+    parts.append("print(d.get('message'))")
+    parts.append("```\n")
+
+    # System namespace
+    parts.append("## frank.system - System Status\n")
+    parts.append("Check orchestration machinery status.\n")
+    parts.append("### Methods\n")
+    parts.append(generate_method_table("system", SystemNamespace))
+    parts.append("\n### Example\n")
+    parts.append("```python")
+    parts.append("# Orchestration status (telegram router, agent runner, etc.)")
+    parts.append("s = frank.system.status()")
+    parts.append("print(s.get('message'))")
+    parts.append("```\n")
+
+    # Jorbs namespace
+    parts.append("## frank.jorbs - Jorb Management\n")
+    parts.append("List and manage long-lived autonomous tasks.\n")
+    parts.append("### Methods\n")
+    parts.append(generate_method_table("jorbs", JorbsNamespace))
+    parts.append("\n### Example\n")
+    parts.append("```python")
+    parts.append("# List open jorbs")
+    parts.append("jorbs = frank.jorbs.list(status='open')")
+    parts.append("```")
+    parts.append("")
+
+    # Claudia namespace
+    parts.append("## frank.claudia - Claudia Integration\n")
+    parts.append("Interact with Claudia agent service.\n")
+    parts.append("### Methods\n")
+    parts.append(generate_method_table("claudia", ClaudiaNamespace))
+    parts.append("")
+
+    # Style namespace
+    parts.append("## frank.style - Style Capture\n")
+    parts.append("Generate style guides (e.g. SEAN.md).\n")
+    parts.append("### Methods\n")
+    parts.append(generate_method_table("style", StyleNamespace))
+    parts.append("")
+
+    # Android namespace
+    parts.append("## frank.android - Android Phone Automation\n")
+    parts.append("Run LLM-in-the-loop tasks on an Android phone.\n")
+    parts.append("### Methods\n")
+    parts.append(generate_method_table("android", AndroidNamespace))
+    parts.append("")
 
     # Usage Guidelines
     parts.append("## Usage Guidelines\n")

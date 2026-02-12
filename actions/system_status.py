@@ -34,6 +34,7 @@ async def get_system_status_action(
     from services.switchboard import get_switchboard, SWITCHBOARD_MODEL
     from services.agent_runner import AgentRunner, AGENT_MODEL
     from services.telegram_jorb_router import get_router_status
+    from services.telegram_bot_router import get_bot_router_status
     from services.jorb_storage import JorbStorage
 
     settings = get_settings()
@@ -57,6 +58,10 @@ async def get_system_status_action(
     # Telegram router status
     telegram_router = get_router_status()
     telegram_router["description"] = "Listens for Telegram messages from jorb contacts and routes them for processing"
+
+    # Telegram bot router status
+    telegram_bot_router = get_bot_router_status()
+    telegram_bot_router["description"] = "Listens for Telegram bot messages (Bot API) and routes them for processing"
 
     # Message buffer - get from telegram router or create fresh
     buffer_status = {
@@ -133,6 +138,7 @@ async def get_system_status_action(
     lines.append(f"📡 Switchboard: {'✓' if switchboard_status['configured'] else '✗'} ({SWITCHBOARD_MODEL})")
     lines.append(f"🤖 Agent Runner: {'✓' if agent_status['configured'] else '✗'} ({AGENT_MODEL})")
     lines.append(f"✈️ Telegram Router: {'✓' if telegram_router.get('initialized') else '✗'}")
+    lines.append(f"🤖 Telegram Bot Router: {'✓' if telegram_bot_router.get('initialized') else '✗'}")
     lines.append(f"📨 Message Buffer: {buffer_status['pending_messages']} pending")
     phone_icon = "✓" if phone_status["connected"] else "✗"
     bat = phone_status.get("battery_level")
@@ -147,6 +153,7 @@ async def get_system_status_action(
         "switchboard": switchboard_status,
         "agent_runner": agent_status,
         "telegram_router": telegram_router,
+        "telegram_bot_router": telegram_bot_router,
         "message_buffer": buffer_status,
         "jorbs": jorbs_status,
         "android_phone": phone_status,

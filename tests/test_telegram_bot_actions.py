@@ -121,3 +121,71 @@ class TestTestTelegramBot:
             result = await test_telegram_bot()
 
             assert result == {"success": False, "error": "Connection failed"}
+
+
+class TestSendTelegramBotMessage:
+    """Tests for send_telegram_bot_message action."""
+
+    @pytest.mark.asyncio
+    async def test_requires_text(self) -> None:
+        with patch("actions.telegram_bot.get_settings", return_value=MagicMock()):
+            from actions.telegram_bot import send_telegram_bot_message
+
+            with pytest.raises(ValueError):
+                await send_telegram_bot_message({"text": ""})
+
+    @pytest.mark.asyncio
+    async def test_not_configured_returns_error(self) -> None:
+        mock_settings = MagicMock()
+        mock_settings.telegram_bot_token = None
+        mock_settings.telegram_bot_chat_id = "123"
+
+        with patch("actions.telegram_bot.get_settings", return_value=mock_settings):
+            from actions.telegram_bot import send_telegram_bot_message
+
+            result = await send_telegram_bot_message({"text": "hi"})
+            assert result["success"] is False
+            assert "not configured" in (result.get("error") or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_requires_chat_id_when_missing(self) -> None:
+        mock_settings = MagicMock()
+        mock_settings.telegram_bot_token = "token"
+        mock_settings.telegram_bot_chat_id = None
+
+        with patch("actions.telegram_bot.get_settings", return_value=mock_settings):
+            from actions.telegram_bot import send_telegram_bot_message
+
+            result = await send_telegram_bot_message({"text": "hi"})
+            assert result["success"] is False
+            assert "chat_id" in (result.get("error") or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_sends_message_with_override_chat_id(self) -> None:
+        mock_settings = MagicMock()
+        mock_settings.telegram_bot_token = "token"
+        mock_settings.telegram_bot_chat_id = "default"
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.message_id = 777
+        mock_result.error = None
+
+        mock_bot = MagicMock()
+        mock_bot.send_notification = AsyncMock(return_value=mock_result)
+
+        with patch(
+            "actions.telegram_bot.get_settings",
+            return_value=mock_settings,
+        ), patch(
+            "actions.telegram_bot.TelegramBot",
+            return_value=mock_bot,
+        ):
+            from actions.telegram_bot import send_telegram_bot_message
+
+            result = await send_telegram_bot_message(
+                {"text": "hello", "chat_id": "42", "parse_mode": None}
+            )
+
+            assert result == {"success": True, "message_id": 777, "chat_id": "42"}
+            mock_bot.send_notification.assert_called_once()

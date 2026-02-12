@@ -407,6 +407,42 @@ class TelegramNamespace:
         return _run_async(list_telegram_chats(args))
 
 
+class TelegramBotNamespace:
+    """
+    Telegram Bot operations.
+
+    Sends messages using the Bot API (i.e. messages appear from the bot account,
+    e.g. `@Seans_frank_bot`). This is distinct from `frank.telegram`, which uses
+    Telethon and your personal Telegram account.
+    """
+
+    def send(
+        self,
+        text: str,
+        chat_id: str | None = None,
+        parse_mode: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Send a Telegram message via the bot.
+
+        Parameters:
+            text: Message content to send
+            chat_id: Optional override chat ID (defaults to TELEGRAM_BOT_CHAT_ID)
+            parse_mode: Optional Telegram parse mode ("HTML", "MarkdownV2"). If omitted, sends plain text.
+
+        Returns:
+            Dict with success status, message_id, and error if any
+        """
+        from actions.telegram_bot import send_telegram_bot_message
+
+        args = {
+            "text": text,
+            "chat_id": chat_id,
+            "parse_mode": parse_mode,
+        }
+        return _run_async(send_telegram_bot_message(args))
+
+
 class AndroidNamespace:
     """
     Android phone operations.
@@ -996,6 +1032,7 @@ class FrankAPI:
         self._ups = UPSNamespace()
         self._time = TimeNamespace()
         self._telegram = TelegramNamespace()
+        self._telegram_bot = TelegramBotNamespace()
         self._android = AndroidNamespace()
         self._diagnostics = DiagnosticsNamespace()
         self._system = SystemNamespace()
@@ -1039,6 +1076,11 @@ class FrankAPI:
         return self._telegram
 
     @property
+    def telegram_bot(self) -> TelegramBotNamespace:
+        """Telegram Bot operations (send)."""
+        return self._telegram_bot
+
+    @property
     def android(self) -> AndroidNamespace:
         """Android phone operations (task_do, task_get, task_cancel)."""
         return self._android
@@ -1078,6 +1120,7 @@ __all__ = [
     "UPSNamespace",
     "TimeNamespace",
     "TelegramNamespace",
+    "TelegramBotNamespace",
     "AndroidNamespace",
     "DiagnosticsNamespace",
     "SystemNamespace",

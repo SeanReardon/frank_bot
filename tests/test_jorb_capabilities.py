@@ -1,7 +1,5 @@
 """Unit tests for jorb_capabilities module."""
 
-import pytest
-
 from services.jorb_capabilities import generate_capabilities_reference
 
 
@@ -24,9 +22,16 @@ class TestGenerateCapabilitiesReference:
         assert "frank.contacts" in ref
         assert "frank.sms" in ref
         assert "frank.telegram" in ref
+        assert "frank.telegram_bot" in ref
         assert "frank.swarm" in ref
         assert "frank.time" in ref
         assert "frank.ups" in ref
+        assert "frank.diagnostics" in ref
+        assert "frank.system" in ref
+        assert "frank.jorbs" in ref
+        assert "frank.claudia" in ref
+        assert "frank.style" in ref
+        assert "frank.android" in ref
 
     def test_includes_header(self):
         """Reference includes proper header."""
