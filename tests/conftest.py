@@ -37,3 +37,11 @@ if "telethon" not in sys.modules:
     sys.modules["telethon.errors"] = telethon_mock.errors
     sys.modules["telethon.tl"] = telethon_mock.tl
     sys.modules["telethon.tl.types"] = telethon_mock.tl.types
+
+# Mock telnyx if not installed
+if "telnyx" not in sys.modules:
+    sys.modules["telnyx"] = MagicMock()
+
+# Mock ntplib if not installed
+if "ntplib" not in sys.modules:
+    sys.modules["ntplib"] = MagicMock()

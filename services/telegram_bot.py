@@ -1,15 +1,18 @@
 """
-Telegram Bot Service for notification messages.
+Telegram Bot Service for notification messages and getUpdates long-polling.
 
-Uses the Telegram Bot API (via httpx) to send notifications.
-This is separate from the Telethon user client (telegram_client.py).
+Uses the Telegram Bot API (via httpx) to send notifications and receive
+incoming messages via long-polling. This is separate from the Telethon
+user client (telegram_client.py).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
+from typing import Any, Callable, Coroutine
 
 import httpx
 
@@ -244,6 +247,170 @@ class TelegramBot:
         return await self.send_notification(text, parse_mode="HTML")
 
 
+class TelegramBotListener:
+    """
+    Long-polling listener for incoming Telegram Bot API messages.
+
+    Uses getUpdates with long-polling to receive messages from the bot.
+    Only processes messages from senders in the telegram_allowlist.
+    """
+
+    def __init__(
+        self,
+        on_message: Callable[
+            [str, str, str, str],
+            Coroutine[Any, Any, None],
+        ],
+        token: str | None = None,
+    ):
+        """
+        Initialize the listener.
+
+        Args:
+            on_message: Async callback(text, username, chat_id, sender_name)
+                        called for each valid incoming message.
+            token: Bot token. If None, reads from settings.
+        """
+        settings = get_settings()
+        self._token = token or settings.telegram_bot_token
+        self._on_message = on_message
+        self._running = False
+        self._poll_task: asyncio.Task | None = None
+        self._offset: int | None = None
+
+    @property
+    def is_configured(self) -> bool:
+        """Check if the listener is configured."""
+        return bool(self._token)
+
+    @property
+    def is_running(self) -> bool:
+        """Check if the listener is currently polling."""
+        return self._running
+
+    async def start_polling(self) -> None:
+        """Start the long-polling loop as an asyncio task."""
+        if self._running:
+            logger.debug("Bot listener already running")
+            return
+
+        if not self._token:
+            logger.warning("Bot listener not configured (no token)")
+            return
+
+        self._running = True
+        self._poll_task = asyncio.create_task(self._poll_loop())
+        logger.info("Telegram bot listener started polling")
+
+    async def stop_polling(self) -> None:
+        """Stop the long-polling loop."""
+        self._running = False
+        if self._poll_task and not self._poll_task.done():
+            self._poll_task.cancel()
+            try:
+                await self._poll_task
+            except asyncio.CancelledError:
+                pass
+        self._poll_task = None
+        logger.info("Telegram bot listener stopped polling")
+
+    async def _poll_loop(self) -> None:
+        """Main polling loop — calls getUpdates in a loop."""
+        while self._running:
+            try:
+                updates = await self._get_updates()
+                for update in updates:
+                    await self._process_update(update)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error("Bot polling error: %s", exc)
+                # Back off on errors to avoid tight loops
+                await asyncio.sleep(5)
+
+    async def _get_updates(self) -> list[dict[str, Any]]:
+        """
+        Call getUpdates with long-polling.
+
+        Returns:
+            List of update dicts from the Telegram API.
+        """
+        url = f"{TELEGRAM_BOT_API_BASE}/bot{self._token}/getUpdates"
+        params: dict[str, Any] = {"timeout": 3}
+        if self._offset is not None:
+            params["offset"] = self._offset
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params)
+
+        if response.status_code != 200:
+            logger.error("getUpdates HTTP %s: %s", response.status_code, response.text)
+            return []
+
+        data = response.json()
+        if not data.get("ok"):
+            logger.error("getUpdates API error: %s", data.get("description"))
+            return []
+
+        updates = data.get("result", [])
+        if updates:
+            # Advance offset past the highest update_id
+            max_id = max(u["update_id"] for u in updates)
+            self._offset = max_id + 1
+
+        return updates
+
+    async def _process_update(self, update: dict[str, Any]) -> None:
+        """
+        Process a single update from getUpdates.
+
+        Extracts message text, sender username, and chat_id.
+        Checks the sender against the telegram_allowlist.
+        """
+        message = update.get("message")
+        if not message:
+            return
+
+        text = message.get("text")
+        if not text:
+            return
+
+        sender = message.get("from", {})
+        username = sender.get("username", "")
+        first_name = sender.get("first_name", "")
+        last_name = sender.get("last_name", "")
+        sender_name = f"{first_name} {last_name}".strip() or username
+        chat_id = str(message.get("chat", {}).get("id", ""))
+
+        if not chat_id:
+            return
+
+        # Check allowlist
+        from services.telegram_allowlist import is_allowed_username
+
+        if not is_allowed_username(username):
+            logger.debug(
+                "Dropping bot message from non-allowlisted user: %s",
+                username,
+            )
+            return
+
+        logger.info(
+            "Bot message from %s (@%s) in chat %s: %s",
+            sender_name,
+            username,
+            chat_id,
+            text[:50],
+        )
+
+        try:
+            await self._on_message(text, username, chat_id, sender_name)
+        except Exception as exc:
+            logger.error(
+                "Error in bot message callback for @%s: %s", username, exc
+            )
+
+
 def _escape_html(text: str) -> str:
     """Escape HTML special characters for Telegram HTML parse mode."""
     return (
@@ -253,4 +420,4 @@ def _escape_html(text: str) -> str:
     )
 
 
-__all__ = ["TelegramBot", "NotificationResult"]
+__all__ = ["TelegramBot", "TelegramBotListener", "NotificationResult"]

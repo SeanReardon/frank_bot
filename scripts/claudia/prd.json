@@ -1955,7 +1955,7 @@
         "Unit tests verify polling loop processes updates and respects allowlist"
       ],
       "priority": 118,
-      "passes": false,
+      "passes": true,
       "notes": "No blocking dependencies on new tasks. Uses existing TelegramBot class in same file for httpx client pattern. This is the foundation for Piece 1 — blocks frank_bot-00119, frank_bot-00120, frank_bot-00121."
     },
     {
@@ -2018,7 +2018,7 @@
         "Unit tests verify each method calls the correct underlying action"
       ],
       "priority": 122,
-      "passes": false,
+      "passes": true,
       "notes": "No dependencies on new tasks — follows existing namespace pattern in meta/api.py. Blocks frank_bot-00127 (api_learn_action update)."
     },
     {
@@ -2034,7 +2034,7 @@
         "Unit tests verify each method calls the correct underlying action with correct arguments"
       ],
       "priority": 123,
-      "passes": false,
+      "passes": true,
       "notes": "No dependencies on new tasks — follows existing namespace pattern. Blocks frank_bot-00127 (api_learn_action update)."
     },
     {
@@ -2049,7 +2049,7 @@
         "Unit tests verify each method calls the correct underlying action with correct arguments"
       ],
       "priority": 124,
-      "passes": false,
+      "passes": true,
       "notes": "No dependencies on new tasks — follows existing namespace pattern. Blocks frank_bot-00127 (api_learn_action update)."
     },
     {
@@ -2062,7 +2062,7 @@
         "Unit tests verify generate() calls the correct underlying action with correct arguments"
       ],
       "priority": 125,
-      "passes": false,
+      "passes": true,
       "notes": "No dependencies on new tasks — follows existing namespace pattern. Blocks frank_bot-00127 (api_learn_action update)."
     },
     {

@@ -14,6 +14,71 @@ Each entry documents what was implemented and lessons learned.
 - Pre-existing test failures: test_enrich_event_sms_with_contact, test_send_sms_message (missing google module)
 - Integration tests use real JorbStorage with temp DB, mock only LLM and FrankAPI
 - Action priority in JorbSession._parse_response: done > pause > script > no_action
+- FrankAPI namespace pattern: class with methods using lazy imports + _run_async(), property accessor on FrankAPI
+- actions/__init__.py eagerly imports all action modules - patch() for actions not in __init__.py needs explicit `import actions.foo` first
+- conftest.py mocks missing modules (telethon, telnyx, ntplib) so patch targets resolve
+- TelegramBotListener uses httpx GET /bot{token}/getUpdates with offset tracking + allowlist filtering
+
+---
+
+## 2026-02-12: frank_bot-00122 - Add DiagnosticsNamespace and SystemNamespace to FrankAPI
+
+### Summary
+Added DiagnosticsNamespace (full, health) and SystemNamespace (status, server, hello) to FrankAPI. Both follow the existing namespace pattern with lazy imports and _run_async(). DiagnosticsNamespace wraps actions/diagnostics.py, SystemNamespace wraps actions/system_status.py and actions/system.py.
+
+### Files Changed
+- meta/api.py (added DiagnosticsNamespace, SystemNamespace, properties, __all__)
+- tests/test_diagnostics_namespace.py (new - 19 tests)
+- tests/conftest.py (added telnyx/ntplib module mocks)
+
+---
+
+## 2026-02-12: frank_bot-00123 - Add JorbsNamespace to FrankAPI
+
+### Summary
+Added JorbsNamespace with list, get, create, approve, cancel, stats, brief, messages methods wrapping all actions/jorbs.py action handlers. All methods use lazy imports and _run_async().
+
+### Files Changed
+- meta/api.py (added JorbsNamespace, property, __all__)
+- tests/test_jorbs_namespace.py (new - 19 tests)
+
+---
+
+## 2026-02-12: frank_bot-00124 - Add ClaudiaNamespace to FrankAPI
+
+### Summary
+Added ClaudiaNamespace with repos, chat_create, chat_get, chat_send, chat_end, prompts, prompt_get, prompt_execute, queue, executions, execution_get methods wrapping all actions/claudia.py action handlers.
+
+### Files Changed
+- meta/api.py (added ClaudiaNamespace, property, __all__)
+- tests/test_claudia_namespace.py (new - 17 tests)
+
+---
+
+## 2026-02-12: frank_bot-00125 - Add StyleNamespace to FrankAPI
+
+### Summary
+Added StyleNamespace with generate(chat_id, dry_run, before_date) wrapping actions/style_capture.py generate_sean_md_action.
+
+### Files Changed
+- meta/api.py (added StyleNamespace, property, __all__)
+- tests/test_style_namespace.py (new - 6 tests)
+
+---
+
+## 2026-02-12: frank_bot-00118 - Add TelegramBotListener class with getUpdates long-polling
+
+### Summary
+Added TelegramBotListener to services/telegram_bot.py implementing getUpdates long-polling. The listener has start_polling/stop_polling lifecycle, _get_updates with offset tracking (timeout=3), _process_update with allowlist filtering, and an async on_message callback. Non-allowlisted senders are silently dropped.
+
+### Files Changed
+- services/telegram_bot.py (added TelegramBotListener class, updated imports/exports)
+- tests/test_telegram_bot_listener.py (new - 15 tests)
+
+### Learnings
+- TelegramBotListener is foundation for bot polling chain (blocks 00119, 00120, 00121)
+- Callback signature: on_message(text, username, chat_id, sender_name)
+- Uses httpx.AsyncClient same as existing TelegramBot class
 
 ---
 
