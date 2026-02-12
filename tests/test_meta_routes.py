@@ -15,8 +15,13 @@ from server.app import create_starlette_app
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     """Create a test client for the Starlette app."""
+    # Most tests assume meta endpoints are unauthenticated unless explicitly testing auth.
+    monkeypatch.delenv("ACTIONS_API_KEY", raising=False)
+    from config import get_settings
+
+    get_settings.cache_clear()
     app = create_starlette_app()
     return TestClient(app)
 
@@ -65,16 +70,16 @@ class TestGetMeta:
         response = client.get("/frank/meta")
 
         assert "Execution Workflow" in response.text
-        assert "/frank/execute" in response.text
-        assert "/frank/jobs" in response.text
+        assert "/frank/script/task/start" in response.text
+        assert "/frank/script/task/status" in response.text
 
 
 class TestListScripts:
-    """Tests for GET /frank/scripts endpoint."""
+    """Tests for GET /frank/script/list endpoint."""
 
     def test_list_scripts_empty(self, client, tmp_data_dirs):
         """Test listing scripts when none exist."""
-        response = client.get("/frank/scripts")
+        response = client.get("/frank/script/list")
 
         assert response.status_code == 200
         data = response.json()
@@ -98,7 +103,7 @@ def main(frank, city="Austin"):
         script_file = scripts_dir / "2024-01-15T10-30-00Z-find-hotels.py"
         script_file.write_text(script_content)
 
-        response = client.get("/frank/scripts")
+        response = client.get("/frank/script/list")
 
         assert response.status_code == 200
         data = response.json()
@@ -109,13 +114,16 @@ def main(frank, city="Austin"):
 
 
 class TestGetScript:
-    """Tests for GET /frank/scripts/{id} endpoint."""
+    """Tests for GET /frank/script/get endpoint."""
 
     def test_get_script_not_found(self, client, tmp_data_dirs):
         """Test getting a non-existent script."""
-        response = client.get("/frank/scripts/nonexistent-script")
+        response = client.get(
+            "/frank/script/get",
+            params={"script_id": "nonexistent-script"},
+        )
 
-        assert response.status_code == 404
+        assert response.status_code == 400
         assert "not found" in response.json()["detail"].lower()
 
     def test_get_script_success(self, client, tmp_data_dirs):
@@ -130,24 +138,28 @@ def main(frank):
         script_file = scripts_dir / "2024-01-15T10-30-00Z-test-script.py"
         script_file.write_text(script_content)
 
-        response = client.get("/frank/scripts/2024-01-15T10-30-00Z-test-script")
+        response = client.get(
+            "/frank/script/get",
+            params={"script_id": "2024-01-15T10-30-00Z-test-script"},
+        )
 
         assert response.status_code == 200
-        assert response.headers["content-type"] == "text/x-python; charset=utf-8"
-        assert "def main(frank)" in response.text
+        data = response.json()
+        assert data["script_id"] == "2024-01-15T10-30-00Z-test-script"
+        assert "def main(frank)" in data["code"]
 
 
-class TestExecute:
-    """Tests for POST /frank/execute endpoint."""
+class TestTaskStart:
+    """Tests for POST /frank/script/task/start endpoint."""
 
-    def test_execute_missing_params(self, client, tmp_data_dirs):
-        """Test execute with missing required parameters."""
-        response = client.post("/frank/execute", json={})
+    def test_task_start_missing_params(self, client, tmp_data_dirs):
+        """Test task start with missing required parameters."""
+        response = client.post("/frank/script/task/start", json={})
 
         assert response.status_code == 400
         assert "script_id" in response.json()["detail"].lower()
 
-    def test_execute_new_script(self, client, tmp_data_dirs):
+    def test_task_start_new_script(self, client, tmp_data_dirs):
         """Test executing a new script."""
         code = '''"""New test script."""
 
@@ -155,7 +167,7 @@ def main(frank, value=10):
     return {"result": value * 2}
 '''
         response = client.post(
-            "/frank/execute",
+            "/frank/script/task/start",
             json={
                 "slug": "double-value",
                 "code": code,
@@ -165,11 +177,11 @@ def main(frank, value=10):
 
         assert response.status_code == 200
         data = response.json()
-        assert "job_id" in data
+        assert "task_id" in data
         assert data["status"] == "running"
         assert "double-value" in data["script_id"]
 
-    def test_execute_existing_script(self, client, tmp_data_dirs):
+    def test_task_start_existing_script(self, client, tmp_data_dirs):
         """Test executing an existing script."""
         scripts_dir = tmp_data_dirs["scripts"]
 
@@ -182,7 +194,7 @@ def main(frank, multiplier=1):
         script_file.write_text(script_content)
 
         response = client.post(
-            "/frank/execute",
+            "/frank/script/task/start",
             json={
                 "script_id": "2024-01-15T10-30-00Z-existing-script",
                 "params": {"multiplier": 2},
@@ -191,34 +203,34 @@ def main(frank, multiplier=1):
 
         assert response.status_code == 200
         data = response.json()
-        assert "job_id" in data
+        assert "task_id" in data
         assert data["status"] == "running"
 
-    def test_execute_nonexistent_script(self, client, tmp_data_dirs):
+    def test_task_start_nonexistent_script(self, client, tmp_data_dirs):
         """Test executing a non-existent script."""
         response = client.post(
-            "/frank/execute",
+            "/frank/script/task/start",
             json={"script_id": "nonexistent-script"},
         )
 
-        assert response.status_code == 404
+        assert response.status_code == 400
         assert "not found" in response.json()["detail"].lower()
 
 
-class TestListJobs:
-    """Tests for GET /frank/jobs endpoint."""
+class TestListTasks:
+    """Tests for GET /frank/script/task/list endpoint."""
 
-    def test_list_jobs_empty(self, client, tmp_data_dirs):
-        """Test listing jobs when none exist."""
-        response = client.get("/frank/jobs")
+    def test_list_tasks_empty(self, client, tmp_data_dirs):
+        """Test listing tasks when none exist."""
+        response = client.get("/frank/script/task/list")
 
         assert response.status_code == 200
         data = response.json()
         assert data["count"] == 0
-        assert data["jobs"] == []
+        assert data["tasks"] == []
 
-    def test_list_jobs_with_jobs(self, client, tmp_data_dirs):
-        """Test listing jobs after execution."""
+    def test_list_tasks_with_tasks(self, client, tmp_data_dirs):
+        """Test listing tasks after execution."""
         scripts_dir = tmp_data_dirs["scripts"]
 
         script_content = '''"""Test script."""
@@ -229,53 +241,56 @@ def main(frank):
         script_file = scripts_dir / "2024-01-15T10-30-00Z-test-script.py"
         script_file.write_text(script_content)
 
-        # Execute a script to create a job
+        # Start a task to create a job record
         client.post(
-            "/frank/execute",
+            "/frank/script/task/start",
             json={"script_id": "2024-01-15T10-30-00Z-test-script"},
         )
 
-        # Wait a moment for the job to be created
+        # Wait a moment for the job record to be created
         time.sleep(0.1)
 
-        response = client.get("/frank/jobs")
+        response = client.get("/frank/script/task/list")
 
         assert response.status_code == 200
         data = response.json()
         assert data["count"] >= 1
-        assert "job_id" in data["jobs"][0]
-        assert "status" in data["jobs"][0]
+        assert "task_id" in data["tasks"][0]
+        assert "status" in data["tasks"][0]
 
-    def test_list_jobs_with_status_filter(self, client, tmp_data_dirs):
-        """Test listing jobs with status filter."""
-        response = client.get("/frank/jobs?status=running")
+    def test_list_tasks_with_status_filter(self, client, tmp_data_dirs):
+        """Test listing tasks with status filter."""
+        response = client.get("/frank/script/task/list?status=running")
 
         assert response.status_code == 200
         data = response.json()
-        # All returned jobs should have running status
-        for job in data["jobs"]:
-            assert job["status"] == "running"
+        # All returned tasks should have running status
+        for task in data["tasks"]:
+            assert task["status"] == "running"
 
-    def test_list_jobs_invalid_status(self, client, tmp_data_dirs):
-        """Test listing jobs with invalid status."""
-        response = client.get("/frank/jobs?status=invalid")
+    def test_list_tasks_invalid_status(self, client, tmp_data_dirs):
+        """Test listing tasks with invalid status."""
+        response = client.get("/frank/script/task/list?status=invalid")
 
         assert response.status_code == 400
         assert "Invalid status" in response.json()["detail"]
 
 
-class TestGetJob:
-    """Tests for GET /frank/jobs/{id} endpoint."""
+class TestTaskStatus:
+    """Tests for GET /frank/script/task/status endpoint."""
 
-    def test_get_job_not_found(self, client, tmp_data_dirs):
-        """Test getting a non-existent job."""
-        response = client.get("/frank/jobs/nonexistent-job")
+    def test_task_status_not_found(self, client, tmp_data_dirs):
+        """Test getting a non-existent task."""
+        response = client.get(
+            "/frank/script/task/status",
+            params={"task_id": "nonexistent-job"},
+        )
 
-        assert response.status_code == 404
+        assert response.status_code == 400
         assert "not found" in response.json()["detail"].lower()
 
-    def test_get_job_success(self, client, tmp_data_dirs):
-        """Test getting a job after execution."""
+    def test_task_status_success(self, client, tmp_data_dirs):
+        """Test getting a task after execution."""
         scripts_dir = tmp_data_dirs["scripts"]
 
         script_content = '''"""Test script."""
@@ -286,34 +301,41 @@ def main(frank):
         script_file = scripts_dir / "2024-01-15T10-30-00Z-test-script.py"
         script_file.write_text(script_content)
 
-        # Execute a script to create a job
-        exec_response = client.post(
-            "/frank/execute",
+        # Start a task to create a job record
+        start_response = client.post(
+            "/frank/script/task/start",
             json={"script_id": "2024-01-15T10-30-00Z-test-script"},
         )
-        job_id = exec_response.json()["job_id"]
+        task_id = start_response.json()["task_id"]
 
         # Wait for completion
         max_wait = 5  # seconds
         start_time = time.time()
         while time.time() - start_time < max_wait:
-            response = client.get(f"/frank/jobs/{job_id}")
+            response = client.get(
+                "/frank/script/task/status",
+                params={"task_id": task_id},
+            )
             if response.status_code == 200:
                 data = response.json()
                 if data["status"] == "completed":
                     break
             time.sleep(0.1)
 
-        response = client.get(f"/frank/jobs/{job_id}")
+        response = client.get(
+            "/frank/script/task/status",
+            params={"task_id": task_id},
+        )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["job_id"] == job_id
+        assert data["task_id"] == task_id
+        assert data["job_id"] == task_id
         assert data["status"] == "completed"
         assert data["result"] == {"done": True}
 
-    def test_get_job_includes_all_fields(self, client, tmp_data_dirs):
-        """Test that job response includes all expected fields."""
+    def test_task_status_includes_all_fields(self, client, tmp_data_dirs):
+        """Test that task status includes all expected fields."""
         scripts_dir = tmp_data_dirs["scripts"]
 
         script_content = '''"""Test script with output."""
@@ -326,21 +348,24 @@ def main(frank, **kwargs):
         script_file.write_text(script_content)
 
         # Execute
-        exec_response = client.post(
-            "/frank/execute",
+        start_response = client.post(
+            "/frank/script/task/start",
             json={
                 "script_id": "2024-01-15T10-30-00Z-output-script",
                 "params": {"test": "value"},
             },
         )
-        job_id = exec_response.json()["job_id"]
+        task_id = start_response.json()["task_id"]
 
         # Wait for completion with longer timeout
         max_wait = 10
         start_time = time.time()
         data = None
         while time.time() - start_time < max_wait:
-            response = client.get(f"/frank/jobs/{job_id}")
+            response = client.get(
+                "/frank/script/task/status",
+                params={"task_id": task_id},
+            )
             data = response.json()
             if data.get("status") == "completed":
                 break
@@ -348,6 +373,7 @@ def main(frank, **kwargs):
 
         # Check all expected fields
         assert data is not None
+        assert "task_id" in data
         assert "job_id" in data
         assert "script_id" in data
         assert "status" in data

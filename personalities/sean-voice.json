@@ -48,6 +48,10 @@
         "response": "got it"
       },
       {
+        "situation": "Short acknowledgment",
+        "response": "Mk"
+      },
+      {
         "situation": "Requesting someone check on something",
         "response": "can you check on the reservation please"
       },

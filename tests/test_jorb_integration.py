@@ -59,8 +59,10 @@ def temp_db_path():
 
 
 @pytest.fixture
-def storage(temp_db_path):
+def storage(temp_db_path, monkeypatch):
     """Create a JorbStorage instance with temp database."""
+    # Actions create their own JorbStorage() instances; make them use this temp DB.
+    monkeypatch.setenv("JORBS_DB_PATH", temp_db_path)
     return JorbStorage(db_path=temp_db_path)
 
 
@@ -273,10 +275,21 @@ class TestApproveJorb:
                     return_value=MagicMock(success=True, message_id=200)
                 )
 
-                result = await approve_jorb({"jorb_id": jorb.id, "decision": "Yes, proceed"})
+                from config import get_settings
+                with patch.dict(
+                    os.environ,
+                    {
+                        "OPENAI_API_KEY": "test-api-key",
+                        "ALLOW_ENV_SECRET_FALLBACK": "true",
+                    },
+                ):
+                    get_settings.cache_clear()
+                    result = await approve_jorb(
+                        {"jorb_id": jorb.id, "decision": "Yes, proceed"}
+                    )
 
-                assert result["success"] is True
-                assert result["status"] == "running"
+                    assert result["status"] == "running"
+                    assert result["agent_result"]["success"] is True
 
         # Verify jorb is running
         approved_jorb = await storage.get_jorb(jorb.id)
@@ -381,16 +394,23 @@ class TestContextReset:
             )
 
         # Create context reset service with mocked LLM
-        context_reset = ContextResetService(storage=storage)
+        context_reset = ContextResetService(storage=storage, openai_api_key="test-api-key")
 
         # Mock the LLM call for handoff generation
         mock_handoff = MagicMock()
         mock_handoff.choices = [MagicMock()]
         mock_handoff.choices[0].message.content = json.dumps({
-            "summary": "Test summary of conversation",
-            "key_decisions": ["Decision 1", "Decision 2"],
-            "current_state": "Waiting for response",
-            "pending_actions": ["Action 1"],
+            "session_summary": "Test summary of conversation",
+            "jorb_handoffs": [
+                {
+                    "jorb_id": jorb.id,
+                    "jorb_name": jorb.name,
+                    "status": "running",
+                    "progress_summary": "Test progress summary",
+                    "recent_activity": "Test recent activity",
+                    "next_steps": "Test next steps",
+                }
+            ],
         })
 
         with patch("services.context_reset.openai") as mock_openai:
@@ -407,7 +427,8 @@ class TestContextReset:
             # Verify handoff was generated
             assert len(handoff.jorb_handoffs) == 1
             assert handoff.jorb_handoffs[0].jorb_id == jorb.id
-            assert "summary" in handoff.jorb_handoffs[0].summary.lower() or len(handoff.jorb_handoffs[0].summary) > 0
+            assert handoff.session_summary
+            assert handoff.jorb_handoffs[0].progress_summary
 
 
 class TestBriefMe:

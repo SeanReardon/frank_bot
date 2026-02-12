@@ -470,7 +470,7 @@ export class JobsCard extends LitElement {
       return html`
         <div class="empty-state">
           <p>No jobs found${this._statusFilter !== 'all' ? ` with status "${this._statusFilter}"` : ''}.</p>
-          <p>Jobs are created when scripts are executed via the /frank/execute endpoint.</p>
+          <p>Jobs are created when scripts are executed via the /frank/script/task/start endpoint.</p>
         </div>
       `;
     }

@@ -349,7 +349,7 @@ export class ScriptsCard extends LitElement {
       return html`
         <div class="empty-state">
           <p>No scripts found.</p>
-          <p>Scripts are created when ChatGPT executes code via the /frank/execute endpoint.</p>
+          <p>Scripts are created when tasks are started via /frank/script/task/start (inline scripts save automatically).</p>
         </div>
       `;
     }

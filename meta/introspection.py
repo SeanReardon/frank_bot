@@ -177,12 +177,12 @@ def generate_meta_documentation() -> str:
     # Execution workflow
     doc_parts.append("## Execution Workflow\n")
     doc_parts.append(
-        "Scripts are executed via the `/frank/execute` endpoint:\n"
+        "Scripts are executed via the `/frank/script/task/start` endpoint:\n"
     )
-    doc_parts.append("1. **POST /frank/execute** with `slug`, `code`, and `params`")
+    doc_parts.append("1. **POST /frank/script/task/start** with `slug`, `code`, and `params`")
     doc_parts.append("2. Server saves the script and starts execution in background")
-    doc_parts.append("3. Response includes `job_id` with `status='running'`")
-    doc_parts.append("4. **GET /frank/jobs/{job_id}** to poll for completion")
+    doc_parts.append("3. Response includes `task_id` with `status='running'`")
+    doc_parts.append("4. **GET /frank/script/task/status?task_id=...** to poll for completion")
     doc_parts.append("5. When `status='completed'`, the `result` field contains the return value\n")
     doc_parts.append("For existing scripts, use `script_id` instead of `code`:\n")
     doc_parts.append("```json")
@@ -227,7 +227,8 @@ def generate_meta_documentation() -> str:
     doc_parts.append("- Scripts have a 10-minute timeout")
     doc_parts.append("- Use `print()` for debugging; output is captured in `stdout`")
     doc_parts.append("- Return a dict from `main()` for structured results")
-    doc_parts.append("- Check `/frank/scripts` for existing reusable scripts")
+    doc_parts.append("- Check `/frank/script/list` for existing reusable scripts")
+    doc_parts.append("- List tasks with `/frank/script/task/list` and poll with `/frank/script/task/status`")
 
     return "\n".join(doc_parts)
 

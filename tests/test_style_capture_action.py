@@ -74,6 +74,17 @@ class TestGenerateSeanMdAction:
         return mock
 
     @pytest.fixture
+    def mock_bot(self) -> MagicMock:
+        """Create mock TelegramBot."""
+        mock = MagicMock()
+        mock.is_configured = True
+        mock.chat_id = "123456"
+        mock.send_notification = AsyncMock(
+            return_value=MagicMock(success=True, message_id=123)
+        )
+        return mock
+
+    @pytest.fixture
     def mock_analyzer(self) -> MagicMock:
         """Create mock StyleAnalyzer."""
         mock = MagicMock()
@@ -150,7 +161,7 @@ class TestGenerateSeanMdAction:
 
     @pytest.mark.asyncio
     async def test_action_sends_to_recipient(
-        self, mock_telegram: MagicMock, mock_analyzer: MagicMock
+        self, mock_telegram: MagicMock, mock_bot: MagicMock, mock_analyzer: MagicMock
     ) -> None:
         """Action sends content to recipient when not dry_run."""
         with patch(
@@ -158,16 +169,21 @@ class TestGenerateSeanMdAction:
             return_value=mock_telegram,
         ):
             with patch(
-                "actions.style_capture.StyleAnalyzer",
-                return_value=mock_analyzer,
+                "actions.style_capture.TelegramBot",
+                return_value=mock_bot,
             ):
-                result = await generate_sean_md_action(
-                    {"recipient": "@TestUser", "dry_run": "false"}
-                )
+                with patch(
+                    "actions.style_capture.StyleAnalyzer",
+                    return_value=mock_analyzer,
+                ):
+                    result = await generate_sean_md_action(
+                        {"recipient": "@TestUser", "dry_run": "false"}
+                    )
 
-                mock_telegram.send_message.assert_called()
-                call_args = mock_telegram.send_message.call_args
-                assert call_args.args[0] == "@TestUser"
+                    mock_bot.send_notification.assert_called()
+                    call_args = mock_bot.send_notification.call_args
+                    assert call_args.kwargs["chat_id"] == "@TestUser"
+                    assert result["recipient"] == "@TestUser"
 
     @pytest.mark.asyncio
     async def test_action_dry_run_skips_send(
@@ -190,7 +206,7 @@ class TestGenerateSeanMdAction:
 
     @pytest.mark.asyncio
     async def test_action_splits_long_content(
-        self, mock_telegram: MagicMock, mock_analyzer: MagicMock
+        self, mock_telegram: MagicMock, mock_bot: MagicMock, mock_analyzer: MagicMock
     ) -> None:
         """Action splits content exceeding Telegram limit."""
         # Generate content that exceeds limit
@@ -201,14 +217,18 @@ class TestGenerateSeanMdAction:
             return_value=mock_telegram,
         ):
             with patch(
-                "actions.style_capture.StyleAnalyzer",
-                return_value=mock_analyzer,
+                "actions.style_capture.TelegramBot",
+                return_value=mock_bot,
             ):
-                result = await generate_sean_md_action({"dry_run": "false"})
+                with patch(
+                    "actions.style_capture.StyleAnalyzer",
+                    return_value=mock_analyzer,
+                ):
+                    result = await generate_sean_md_action({"dry_run": "false"})
 
-                # Should have multiple sends
-                assert mock_telegram.send_message.call_count >= 2
-                assert result["message_count"] >= 2
+                    # Should have multiple sends
+                    assert mock_bot.send_notification.call_count >= 2
+                    assert result["message_count"] >= 2
 
     @pytest.mark.asyncio
     async def test_action_returns_success_response(
@@ -250,10 +270,10 @@ class TestGenerateSeanMdAction:
 
     @pytest.mark.asyncio
     async def test_action_handles_send_failure(
-        self, mock_telegram: MagicMock, mock_analyzer: MagicMock
+        self, mock_telegram: MagicMock, mock_bot: MagicMock, mock_analyzer: MagicMock
     ) -> None:
         """Action raises error when send fails."""
-        mock_telegram.send_message = AsyncMock(
+        mock_bot.send_notification = AsyncMock(
             return_value=MagicMock(success=False, error="Rate limited")
         )
 
@@ -262,11 +282,15 @@ class TestGenerateSeanMdAction:
             return_value=mock_telegram,
         ):
             with patch(
-                "actions.style_capture.StyleAnalyzer",
-                return_value=mock_analyzer,
+                "actions.style_capture.TelegramBot",
+                return_value=mock_bot,
             ):
-                with pytest.raises(ValueError, match="Failed to send"):
-                    await generate_sean_md_action({"dry_run": "false"})
+                with patch(
+                    "actions.style_capture.StyleAnalyzer",
+                    return_value=mock_analyzer,
+                ):
+                    with pytest.raises(ValueError, match="Failed to send"):
+                        await generate_sean_md_action({"dry_run": "false"})
 
     @pytest.mark.asyncio
     async def test_action_parses_before_date_iso(
@@ -345,18 +369,21 @@ class TestGenerateSeanMdAction:
 
     @pytest.mark.asyncio
     async def test_action_uses_default_recipient(
-        self, mock_telegram: MagicMock, mock_analyzer: MagicMock
+        self, mock_telegram: MagicMock, mock_bot: MagicMock, mock_analyzer: MagicMock
     ) -> None:
-        """Action uses @SeanReardon as default recipient."""
+        """Action uses TelegramBot configured chat_id by default."""
         with patch(
             "actions.style_capture.TelegramClientService",
             return_value=mock_telegram,
         ):
             with patch(
-                "actions.style_capture.StyleAnalyzer",
-                return_value=mock_analyzer,
+                "actions.style_capture.TelegramBot",
+                return_value=mock_bot,
             ):
-                result = await generate_sean_md_action({"dry_run": "false"})
+                with patch(
+                    "actions.style_capture.StyleAnalyzer",
+                    return_value=mock_analyzer,
+                ):
+                    result = await generate_sean_md_action({"dry_run": "false"})
 
-                call_args = mock_telegram.send_message.call_args
-                assert call_args.args[0] == "@SeanReardon"
+                    assert result["recipient"] == mock_bot.chat_id

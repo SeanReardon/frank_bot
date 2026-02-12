@@ -158,6 +158,17 @@ export interface JobsResponse {
   jobs: JobSummary[];
 }
 
+interface TasksResponse {
+  count: number;
+  tasks: Array<{
+    task_id: string;
+    script_id: string;
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout';
+    started_at: string | null;
+    completed_at: string | null;
+  }>;
+}
+
 // API Functions
 
 /**
@@ -218,20 +229,10 @@ export async function getScripts(): Promise<ScriptsResponse> {
  * Get a script's source code by ID.
  */
 export async function getScriptCode(scriptId: string): Promise<string> {
-  const response = await fetch(`${apiBase}/frank/script/get?id=${encodeURIComponent(scriptId)}`, {
-    credentials: 'include',
-  });
-
-  if (response.status === 401 || response.status === 403) {
-    throw new AuthError('Not authenticated', response.status);
-  }
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API error ${response.status}: ${errorText}`);
-  }
-
-  return response.text();
+  const data = await request<{ script_id: string; code: string }>(
+    `/frank/script/get?script_id=${encodeURIComponent(scriptId)}`
+  );
+  return data.code;
 }
 
 /**
@@ -239,14 +240,24 @@ export async function getScriptCode(scriptId: string): Promise<string> {
  */
 export async function getJobs(status?: string): Promise<JobsResponse> {
   const params = status ? `?status=${encodeURIComponent(status)}` : '';
-  return request<JobsResponse>(`/frank/script/task/list${params}`);
+  const data = await request<TasksResponse>(`/frank/script/task/list${params}`);
+  return {
+    count: data.count,
+    jobs: (data.tasks || []).map((t) => ({
+      job_id: t.task_id,
+      script_id: t.script_id,
+      status: t.status,
+      started_at: t.started_at,
+      completed_at: t.completed_at,
+    })),
+  };
 }
 
 /**
  * Get a specific job by ID.
  */
 export async function getJob(jobId: string): Promise<Job> {
-  return request<Job>(`/frank/script/task/status?job_id=${encodeURIComponent(jobId)}`);
+  return request<Job>(`/frank/script/task/status?task_id=${encodeURIComponent(jobId)}`);
 }
 
 // Telegram Bot types and functions

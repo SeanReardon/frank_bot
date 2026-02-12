@@ -316,6 +316,7 @@ class TestAndroidPhoneHealthAction:
         })
         mock_client.get_battery_level = AsyncMock(return_value=85)
         mock_client.get_wifi_ssid = AsyncMock(return_value="HomeNetwork")
+        mock_client.is_wifi_enabled = AsyncMock(return_value=True)
 
         # Reset cache
         import actions.android_phone as ap
@@ -389,6 +390,7 @@ class TestAndroidPhoneHealthAction:
         mock_client.get_device_info = AsyncMock(return_value={"model": "Pixel 9 Pro", "android_version": "15"})
         mock_client.get_battery_level = AsyncMock(return_value=85)
         mock_client.get_wifi_ssid = AsyncMock(return_value="HomeNetwork")
+        mock_client.is_wifi_enabled = AsyncMock(return_value=True)
 
         # Reset cache
         import actions.android_phone as ap
@@ -418,6 +420,7 @@ class TestAndroidPhoneHealthAction:
         mock_client.get_device_info = AsyncMock(return_value={"model": "Pixel 9 Pro", "android_version": "15"})
         mock_client.get_battery_level = AsyncMock(return_value=None)
         mock_client.get_wifi_ssid = AsyncMock(return_value=None)
+        mock_client.is_wifi_enabled = AsyncMock(return_value=None)
 
         # Reset cache
         import actions.android_phone as ap

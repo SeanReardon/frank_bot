@@ -571,6 +571,7 @@ class TestMagicResponseUpdatesJorb:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps({
+            "task_id": jorb.id,
             "reasoning": "Magic provided context about the hotel booking request",
             "action": {
                 "type": "no_action",

@@ -477,9 +477,13 @@ class TestDigestTime:
         with patch.dict(os.environ, {}, clear=True):
             # Remove DIGEST_TIME if it exists
             os.environ.pop("DIGEST_TIME", None)
+            from config import get_settings
+            get_settings.cache_clear()
             assert EmailService.get_digest_time() == "08:00"
 
     def test_custom_digest_time(self):
         """Test custom digest time from environment."""
         with patch.dict(os.environ, {"DIGEST_TIME": "09:30"}):
+            from config import get_settings
+            get_settings.cache_clear()
             assert EmailService.get_digest_time() == "09:30"

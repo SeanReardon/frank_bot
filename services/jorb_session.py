@@ -521,7 +521,7 @@ class JorbSession:
         # These vary to feel natural but all accomplish the same goal
         context_messages = [
             "hey sorry i lost track of this - can you remind me where we left off?",
-            "hey my bad i lost the thread here - what were we working on again?",
+            "hey sorry my bad i lost the thread here - what were we working on again?",
             "sorry brain fart - where did we leave this?",
             "hey can you catch me up? lost track of where we were",
             "wait what was this about again? sorry my memory is fried",

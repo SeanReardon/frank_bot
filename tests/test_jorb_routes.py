@@ -85,6 +85,17 @@ def settings():
         smtp_password=None,
         digest_email_to=None,
         digest_time="08:00",
+        claudia_api_url=None,
+        claudia_api_key=None,
+        android_device_serial="",
+        android_adb_host="10.0.0.95",
+        android_adb_port=5555,
+        android_llm_model="gpt-5.2",
+        android_llm_api_key=None,
+        android_maintenance_cron="0 3 1 * *",
+        android_health_check_cron="0 4 * * 0",
+        android_rate_limit_minute=10,
+        android_rate_limit_hour=100,
     )
 
 
@@ -107,18 +118,15 @@ def client(app):
 class TestJorbRoutes:
     """Tests for jorb HTTP routes."""
 
-    def test_list_jorbs_public(self, client, temp_db_path):
-        """Test that /jorbs is public (no API key required for web dashboard)."""
+    def test_list_jorbs_requires_auth_when_configured(self, client, temp_db_path):
+        """Test that jorb list requires auth when API key configured."""
         with patch("actions.jorbs.JorbStorage") as mock_class:
             storage = JorbStorage(db_path=temp_db_path)
             mock_class.return_value = storage
 
-            # Works without API key
-            response = client.get("/jorbs")
-            assert response.status_code == 200
-            data = response.json()
-            assert "count" in data
-            assert "jorbs" in data
+            # Missing API key should fail when configured
+            response = client.get("/actions/jorbs/list")
+            assert response.status_code == 401
 
     def test_list_jorbs_with_api_key(self, client, temp_db_path):
         """Test listing jorbs also works with API key (for ChatGPT)."""
@@ -127,7 +135,7 @@ class TestJorbRoutes:
             mock_class.return_value = storage
 
             response = client.get(
-                "/jorbs",
+                "/actions/jorbs/list",
                 headers={"X-API-Key": "test-api-key"},
             )
 
@@ -143,7 +151,7 @@ class TestJorbRoutes:
             mock_class.return_value = storage
 
             response = client.get(
-                "/jorbs/create",
+                "/actions/jorbs/create",
                 params={
                     "name": "Test Task",
                     "plan": "Do the thing",
@@ -168,7 +176,7 @@ class TestJorbRoutes:
             jorb = run_async(storage.create_jorb("Test", "Plan"))
 
             response = client.get(
-                f"/jorbs/{jorb.id}",
+                f"/actions/jorbs/{jorb.id}/get",
                 headers={"X-API-Key": "test-api-key"},
             )
 
@@ -184,7 +192,7 @@ class TestJorbRoutes:
             mock_class.return_value = storage
 
             response = client.get(
-                "/jorbs/jorb_nonexistent",
+                "/actions/jorbs/jorb_nonexistent/get",
                 headers={"X-API-Key": "test-api-key"},
             )
 
@@ -201,7 +209,7 @@ class TestJorbRoutes:
             jorb = run_async(storage.create_jorb("Test", "Plan"))
 
             response = client.get(
-                f"/jorbs/{jorb.id}/messages",
+                f"/actions/jorbs/{jorb.id}/messages/get",
                 headers={"X-API-Key": "test-api-key"},
             )
 
@@ -226,7 +234,7 @@ class TestJorbRoutes:
                 mock_runner.is_configured = False
 
                 response = client.get(
-                    f"/jorbs/{jorb.id}/approve",
+                    f"/actions/jorbs/{jorb.id}/approve",
                     params={"decision": "Go ahead"},
                     headers={"X-API-Key": "test-api-key"},
                 )
@@ -247,7 +255,7 @@ class TestJorbRoutes:
             run_async(storage.update_jorb(jorb.id, status="running"))
 
             response = client.get(
-                f"/jorbs/{jorb.id}/approve",
+                f"/actions/jorbs/{jorb.id}/approve",
                 params={"decision": "Go ahead"},
                 headers={"X-API-Key": "test-api-key"},
             )
@@ -267,7 +275,7 @@ class TestJorbRoutes:
             run_async(storage.update_jorb(jorb.id, status="running"))
 
             response = client.get(
-                f"/jorbs/{jorb.id}/cancel",
+                f"/actions/jorbs/{jorb.id}/cancel",
                 params={"reason": "No longer needed"},
                 headers={"X-API-Key": "test-api-key"},
             )
@@ -288,7 +296,7 @@ class TestJorbRoutes:
             run_async(storage.update_jorb(jorb.id, status="complete"))
 
             response = client.get(
-                f"/jorbs/{jorb.id}/cancel",
+                f"/actions/jorbs/{jorb.id}/cancel",
                 headers={"X-API-Key": "test-api-key"},
             )
 
@@ -302,7 +310,7 @@ class TestJorbRoutes:
             mock_class.return_value = storage
 
             response = client.get(
-                "/jorbs/brief",
+                "/actions/jorbs/brief",
                 headers={"X-API-Key": "test-api-key"},
             )
 

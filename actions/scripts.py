@@ -302,7 +302,10 @@ async def script_get_action(
     """
     args = arguments or {}
 
-    script_id = args.get("script_id", "").strip()
+    script_id = (args.get("script_id") or "").strip()
+    # Backwards compat: some clients use `id`
+    if not script_id:
+        script_id = (args.get("id") or "").strip()
     if not script_id:
         raise ValueError("'script_id' is required")
 
@@ -332,7 +335,10 @@ async def script_update_action(
     """
     args = arguments or {}
 
-    script_id = args.get("script_id", "").strip()
+    script_id = (args.get("script_id") or "").strip()
+    # Backwards compat: some clients use `id`
+    if not script_id:
+        script_id = (args.get("id") or "").strip()
     if not script_id:
         raise ValueError("'script_id' is required")
 
@@ -373,7 +379,10 @@ async def script_delete_action(
     """
     args = arguments or {}
 
-    script_id = args.get("script_id", "").strip()
+    script_id = (args.get("script_id") or "").strip()
+    # Backwards compat: some clients use `id`
+    if not script_id:
+        script_id = (args.get("id") or "").strip()
     if not script_id:
         raise ValueError("'script_id' is required")
 
@@ -463,7 +472,10 @@ async def task_status_action(
     """
     args = arguments or {}
 
-    task_id = args.get("task_id", "").strip()
+    task_id = (args.get("task_id") or "").strip()
+    # Backwards compat: some clients still send job_id
+    if not task_id:
+        task_id = (args.get("job_id") or "").strip()
     if not task_id:
         raise ValueError("'task_id' is required")
 
@@ -471,7 +483,10 @@ async def task_status_action(
     if job is None:
         raise ValueError(f"Task not found: {task_id}")
 
-    return job.to_dict()
+    # Normalize response shape: API uses task_id, underlying storage uses job_id.
+    data = job.to_dict()
+    data["task_id"] = data.get("job_id")
+    return data
 
 
 async def task_list_action(
@@ -542,7 +557,10 @@ async def task_cancel_action(
     """
     args = arguments or {}
 
-    task_id = args.get("task_id", "").strip()
+    task_id = (args.get("task_id") or "").strip()
+    # Backwards compat: some clients still send job_id
+    if not task_id:
+        task_id = (args.get("job_id") or "").strip()
     if not task_id:
         raise ValueError("'task_id' is required")
 

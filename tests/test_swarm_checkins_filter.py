@@ -9,8 +9,17 @@ Tests filtering by:
 """
 
 import asyncio
+import os
 import sys
 from pathlib import Path
+
+import pytest
+
+# These are live/integration-style tests; skip unless Swarm creds are present.
+pytestmark = pytest.mark.skipif(
+    not os.getenv("SWARM_OAUTH_TOKEN"),
+    reason="Swarm is not configured (set SWARM_OAUTH_TOKEN to run these tests).",
+)
 
 # Add the project root to sys.path
 project_root = Path(__file__).parent.parent

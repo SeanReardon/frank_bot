@@ -22,8 +22,9 @@ TELEGRAM_MESSAGE_LIMIT = 4096
 # Default chat to analyze
 DEFAULT_CHAT_ID = "@MagicConciergeBot"
 
-# Default recipient for the generated SEAN.md
-DEFAULT_RECIPIENT = "@SeanReardon"
+# Optional override chat_id/username for delivery. If not provided, uses
+# the configured `TELEGRAM_BOT_CHAT_ID` from settings.
+DEFAULT_RECIPIENT: str | None = None
 
 
 def _split_message(content: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
@@ -104,7 +105,7 @@ async def generate_sean_md_action(
 
     Args (in arguments dict):
         chat_id: Chat to fetch messages from (default: @MagicConciergeBot).
-        recipient: Telegram user to send the result to (default: @SeanReardon).
+        recipient: Override chat_id to send the result to (optional; defaults to the bot's configured chat_id).
         before_date: Only analyze messages before this date (ISO 8601, default: 2026-01-01).
         dry_run: If true, generate but don't send (default: false).
 
@@ -113,7 +114,11 @@ async def generate_sean_md_action(
     """
     args = arguments or {}
     chat_id = (args.get("chat_id") or DEFAULT_CHAT_ID).strip()
-    recipient = (args.get("recipient") or DEFAULT_RECIPIENT).strip()
+    recipient_raw = args.get("recipient")
+    recipient_override = None
+    if recipient_raw is not None:
+        candidate = str(recipient_raw).strip()
+        recipient_override = candidate or None
     before_date_str = args.get("before_date")
     dry_run = str(args.get("dry_run", "")).lower() in ("true", "1", "yes")
 
@@ -178,6 +183,7 @@ async def generate_sean_md_action(
     # Step 4: Send via Telegram Bot (unless dry run)
     # Use TelegramBot (@Seans_frank_bot) to send to Sean, not Telethon client
     message_count = 0
+    effective_recipient = None
     if not dry_run:
         bot = TelegramBot()
         
@@ -195,7 +201,7 @@ async def generate_sean_md_action(
 
         logger.info(
             "Sending SEAN.md via @Seans_frank_bot to %s in %d message(s)",
-            recipient,
+            recipient_override or (bot.chat_id or ""),
             message_count,
         )
 
@@ -207,7 +213,11 @@ async def generate_sean_md_action(
 
             # Use bot.send_notification() which sends to the configured chat_id (Sean)
             # Use empty parse_mode since SEAN.md is plain text with markdown-like formatting
-            result = await bot.send_notification(chunk, parse_mode="")
+            result = await bot.send_notification(
+                chunk,
+                parse_mode="",
+                chat_id=recipient_override,
+            )
 
             if not result.success:
                 raise ValueError(
@@ -215,6 +225,8 @@ async def generate_sean_md_action(
                 )
 
             logger.debug("Sent part %d/%d via bot", i, message_count)
+
+        effective_recipient = recipient_override or bot.chat_id
 
     # Return result
     return {
@@ -226,7 +238,7 @@ async def generate_sean_md_action(
         },
         "content_length": len(sean_md_content),
         "message_count": message_count,
-        "recipient": recipient if not dry_run else None,
+        "recipient": effective_recipient if not dry_run else None,
         "dry_run": dry_run,
         "preview": sean_md_content[:500] + "..." if len(sean_md_content) > 500 else sean_md_content,
         "patterns_found": {

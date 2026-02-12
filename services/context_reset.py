@@ -26,6 +26,12 @@ from services.jorb_storage import (
 
 logger = logging.getLogger(__name__)
 
+# Optional OpenAI dependency (used for handoff generation).
+try:
+    import openai  # type: ignore
+except ImportError:  # pragma: no cover
+    openai = None  # type: ignore
+
 # Default values
 DEFAULT_CONTEXT_RESET_DAYS = 3
 DEFAULT_PROGRESS_LOG_PATH = "./data/jorbs_progress.txt"
@@ -93,13 +99,13 @@ def _get_context_reset_days() -> int:
 
 def _get_progress_log_path() -> str:
     """Get the progress log file path."""
-    data_dir = os.getenv("DATA_DIR", ".")
+    data_dir = os.getenv("DATA_DIR", "./data")
     return os.path.join(data_dir, "jorbs_progress.txt")
 
 
 def _get_state_file_path() -> str:
     """Get the state file path."""
-    data_dir = os.getenv("DATA_DIR", ".")
+    data_dir = os.getenv("DATA_DIR", "./data")
     return os.path.join(data_dir, "context_reset_state.json")
 
 
@@ -263,9 +269,10 @@ Create a JSON response with:
 Focus on preserving critical context that would be needed to continue the task.
 """
 
-        try:
-            import openai
+        if openai is None:
+            raise ValueError("openai package not installed")
 
+        try:
             client = openai.OpenAI(api_key=self._api_key)
 
             response = client.chat.completions.create(
@@ -305,8 +312,6 @@ Focus on preserving critical context that would be needed to continue the task.
                 generated_at=datetime.now(timezone.utc).isoformat(),
             )
 
-        except ImportError:
-            raise ValueError("openai package not installed")
         except Exception as e:
             logger.error("Failed to generate handoff summary: %s", e)
             raise

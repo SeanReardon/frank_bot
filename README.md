@@ -358,4 +358,4 @@ data/
                 # Contains: job_id, script_id, status, params, stdout, stderr, result, error
 ```
 
-Scripts are executed via the `/frank/execute` endpoint and can be reused by referencing their `script_id`. Job records track execution status (pending, running, completed, failed, timeout) and capture output for later retrieval via `/frank/jobs/{id}`.
+Scripts are executed via `POST /frank/script/task/start` and can be reused by referencing their `script_id`. Job records track execution status (pending, running, completed, failed, timeout) and capture output for retrieval via `GET /frank/script/task/status?task_id=...`.

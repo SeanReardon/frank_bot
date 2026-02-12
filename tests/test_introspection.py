@@ -38,9 +38,9 @@ class TestGenerateMetaDocumentation:
         doc = generate_meta_documentation()
 
         assert "## Execution Workflow" in doc
-        assert "/frank/execute" in doc
-        assert "job_id" in doc
-        assert "/frank/jobs" in doc
+        assert "/frank/script/task/start" in doc
+        assert "task_id" in doc
+        assert "/frank/script/task/status" in doc
 
     def test_includes_all_services(self):
         """Documentation includes all namespace services."""
