@@ -16,7 +16,7 @@ You are fast and focused. You see summaries, not full histories.
 ```json
 {
   "message": {
-    "channel": "telegram|sms|email",
+    "channel": "telegram|telegram_bot|sms|email",
     "sender": "identifier",
     "sender_name": "name or null",
     "content": "the message text",

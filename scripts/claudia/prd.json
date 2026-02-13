@@ -1972,7 +1972,7 @@
         "Unit tests verify flush callback creates correct IncomingEvent with channel='telegram_bot'"
       ],
       "priority": 119,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00118 (TelegramBotListener). Mirrors telegram_jorb_router.py but without the jorb contact gate. Blocks frank_bot-00120."
     },
     {
@@ -1987,7 +1987,7 @@
         "Unit tests verify bot router is initialized on start and shut down on stop"
       ],
       "priority": 120,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00119 (telegram_bot_router). Wires new bot listener into existing lifecycle alongside Telethon router."
     },
     {
@@ -2001,7 +2001,7 @@
         "Unit tests verify channel='telegram_bot' routes through bot API"
       ],
       "priority": 121,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00118 (TelegramBotListener exists). Can be developed in parallel with frank_bot-00119/00120. Ensures bot reply channel is distinct from Telethon."
     },
     {
@@ -2076,7 +2076,7 @@
         "Existing Switchboard behavior for 'telegram' and 'sms' channels unchanged"
       ],
       "priority": 126,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00119 (telegram_bot_router creates IncomingEvent with channel='telegram_bot') and frank_bot-00121 (bot reply channel). Validates end-to-end Switchboard behavior for the new channel."
     },
     {
@@ -2092,7 +2092,7 @@
         "Existing namespace documentation unchanged"
       ],
       "priority": 127,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00122, frank_bot-00123, frank_bot-00124, frank_bot-00125 (all new namespaces must exist). Ensures jorb sessions discover new capabilities via frank.learn()."
     }
   ]

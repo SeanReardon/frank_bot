@@ -1640,8 +1640,8 @@ class AgentRunner:
         Send a message via the appropriate service.
 
         Args:
-            channel: Channel to send on (sms, telegram, email)
-            recipient: Recipient identifier
+            channel: Channel to send on (sms, telegram, telegram_bot, email)
+            recipient: Recipient identifier (for telegram_bot this is the chat_id)
             content: Message content
 
         Returns:
@@ -1659,6 +1659,12 @@ class AgentRunner:
                 telegram_service = TelegramClientService()
                 result = await telegram_service.send_message(recipient, content)
                 return result.success
+
+            elif channel == "telegram_bot":
+                return await self._send_telegram_bot_message(
+                    chat_id=recipient,
+                    text=content,
+                )
 
             elif channel == "email":
                 # Email sending will be implemented in frank_bot-00066
@@ -2067,7 +2073,7 @@ class AgentRunner:
         safely auto-create for allowlisted senders. SMS is more dangerous; we
         only auto-create for trusted senders.
         """
-        if event.channel == "telegram":
+        if event.channel in ("telegram", "telegram_bot"):
             # Defensive: re-check allowlist when sender looks like a username.
             if event.sender.startswith("@"):
                 from services.telegram_allowlist import is_allowed_username
@@ -2098,12 +2104,15 @@ class AgentRunner:
         if len(preview) > 60:
             preview = preview[:60] + "..."
 
-        is_bot = str(event.metadata.get("source") or "").strip() == "telegram_bot"
+        is_bot = (
+            event.channel == "telegram_bot"
+            or str(event.metadata.get("source") or "").strip() == "telegram_bot"
+        )
         jorb_name_prefix = "Bot" if is_bot else event.channel.capitalize()
         jorb_name = f"{jorb_name_prefix}: {preview}" if preview else f"{jorb_name_prefix}: (empty)"
 
         # Decide reply transport
-        if event.channel == "telegram" and is_bot:
+        if is_bot:
             transport = "telegram_bot"
         elif event.channel == "telegram":
             transport = "telegram"

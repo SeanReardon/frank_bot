@@ -18,6 +18,67 @@ Each entry documents what was implemented and lessons learned.
 - actions/__init__.py eagerly imports all action modules - patch() for actions not in __init__.py needs explicit `import actions.foo` first
 - conftest.py mocks missing modules (telethon, telnyx, ntplib) so patch targets resolve
 - TelegramBotListener uses httpx GET /bot{token}/getUpdates with offset tracking + allowlist filtering
+- Channel type is `Literal["telegram", "telegram_bot", "sms", "email"]` in jorb_storage.py and message_buffer.py
+- conftest.py has autouse fixture `disable_switchboard_mode` — tests needing switchboard must re-enable with monkeypatch
+- MessageBuffer supports metadata dict on BufferedMessage/BufferedEvent (for telegram_bot_chat_id)
+- _should_autocreate_jorb treats telegram_bot identically to telegram
+- api_learn_action test bypasses actions/__init__.py via importlib.util.spec_from_file_location
+
+---
+
+## 2026-02-13: frank_bot-00119 - Create telegram_bot_router.py with MessageBuffer and flush callback
+
+### Summary
+Rewrote telegram_bot_router.py to use MessageBuffer-based debouncing (mirroring telegram_jorb_router.py). Messages arrive via TelegramBotListener, get buffered with channel='telegram_bot' and metadata containing telegram_bot_chat_id, then flush callback creates IncomingEvent and dispatches through AgentRunner.process_incoming_message().
+
+### Files Changed
+- services/telegram_bot_router.py (rewritten with MessageBuffer pattern)
+- services/message_buffer.py (added telegram_bot channel, metadata support)
+- services/jorb_storage.py (added telegram_bot to Channel type)
+- tests/test_telegram_bot_router.py (new: 15 unit tests)
+
+---
+
+## 2026-02-13: frank_bot-00120 - Wire bot listener into BackgroundLoopService lifecycle
+
+### Summary
+Verified existing BackgroundLoopService integration (already wired from prior work). Added explicit unit tests for bot router initialization on start, shutdown on stop, graceful degradation when bot fails, and status inclusion.
+
+### Files Changed
+- tests/test_background_loop.py (added TestTelegramBotRouterIntegration class with 4 tests)
+
+---
+
+## 2026-02-13: frank_bot-00121 - Add telegram_bot reply channel to agent_runner._send_message()
+
+### Summary
+Added `channel='telegram_bot'` routing to `_send_message()` which dispatches through `_send_telegram_bot_message(chat_id, text)`. Also updated `_should_autocreate_jorb` and `_create_new_jorb_from_event` to handle the new channel.
+
+### Files Changed
+- services/agent_runner.py (_send_message telegram_bot branch, _should_autocreate_jorb, _create_new_jorb_from_event)
+- tests/test_agent_runner_send_message.py (new: 5 unit tests)
+
+---
+
+## 2026-02-13: frank_bot-00126 - Verify Switchboard catch-up behavior with telegram_bot channel
+
+### Summary
+Verified Switchboard treats channel='telegram_bot' identically to 'telegram' for routing. Updated switchboard_system.md prompt to include telegram_bot channel. Added integration tests for autocreate, catch-up jorb creation, and existing channel behavior.
+
+### Files Changed
+- prompts/switchboard_system.md (added telegram_bot to channel list)
+- tests/test_switchboard_telegram_bot.py (new: 6 integration tests)
+
+---
+
+## 2026-02-13: frank_bot-00127 - Update api_learn_action to document new FrankAPI namespaces
+
+### Summary
+Added documentation for 5 new FrankAPI namespaces (diagnostics, system, jorbs, claudia, style) to api_learn_action. Each namespace includes methods extracted via _get_namespace_info(), usage examples, and common parameter documentation.
+
+### Files Changed
+- actions/scripts.py (added imports, 5 namespace entries, updated overview)
+- tests/test_api_learn_action.py (new: 9 tests)
 
 ---
 

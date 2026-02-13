@@ -25,7 +25,7 @@ DEFAULT_DB_PATH = "./data/jorbs.db"
 # Status type for type checking
 JorbStatus = Literal["planning", "running", "paused", "complete", "failed", "cancelled"]
 Direction = Literal["inbound", "outbound"]
-Channel = Literal["telegram", "sms", "email"]
+Channel = Literal["telegram", "telegram_bot", "sms", "email"]
 
 
 @dataclass

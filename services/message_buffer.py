@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DEBOUNCE_TELEGRAM = 3
 DEFAULT_DEBOUNCE_SMS = 30
 
-Channel = Literal["telegram", "sms", "email"]
+Channel = Literal["telegram", "telegram_bot", "sms", "email"]
 
 
 @dataclass
@@ -32,6 +32,7 @@ class BufferedMessage:
     sender_name: str | None
     content: str
     timestamp: str  # ISO 8601
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -44,6 +45,7 @@ class BufferedEvent:
     content: str  # Combined content with newlines
     timestamp: str  # Timestamp of first message
     message_count: int  # Number of messages combined
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -90,6 +92,9 @@ class MessageBuffer:
             "telegram": debounce_telegram_seconds or int(
                 os.getenv("DEBOUNCE_TELEGRAM_SECONDS", str(DEFAULT_DEBOUNCE_TELEGRAM))
             ),
+            "telegram_bot": int(
+                os.getenv("DEBOUNCE_TELEGRAM_SECONDS", str(DEFAULT_DEBOUNCE_TELEGRAM))
+            ),
             "sms": debounce_sms_seconds or int(
                 os.getenv("DEBOUNCE_SMS_SECONDS", str(DEFAULT_DEBOUNCE_SMS))
             ),
@@ -114,6 +119,7 @@ class MessageBuffer:
         content: str,
         sender_name: str | None = None,
         timestamp: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """
         Add a message to the buffer.
@@ -122,11 +128,12 @@ class MessageBuffer:
         that will flush the buffer after the debounce period.
 
         Args:
-            channel: Message channel (telegram, sms, email)
+            channel: Message channel (telegram, telegram_bot, sms, email)
             sender: Sender identifier (phone, username, email)
             content: Message content
             sender_name: Optional human-readable sender name
             timestamp: ISO 8601 timestamp (defaults to now)
+            metadata: Optional metadata dict (e.g. telegram_bot_chat_id)
 
         Returns:
             True if this is the first message in the window, False if added to existing buffer
@@ -148,6 +155,7 @@ class MessageBuffer:
                 sender_name=sender_name,
                 content=content,
                 timestamp=timestamp,
+                metadata=metadata or {},
             )
         )
 
@@ -197,6 +205,7 @@ class MessageBuffer:
             content=combined_content,
             timestamp=entry.first_message_time or first_msg.timestamp,
             message_count=len(entry.messages),
+            metadata=first_msg.metadata,
         )
 
         logger.info(

@@ -1,35 +1,35 @@
 """
 Telegram Bot Router.
 
-Connects inbound Telegram *bot* messages (Bot API) to Frank's jorb system.
+Connects inbound Telegram *bot* messages (Bot API) to Frank's jorb system
+via the Switchboard.
 
 This is intentionally separate from the Telethon-based router in
 `services/telegram_jorb_router.py`:
 - Telethon router listens as Sean's *user account*
 - Bot router listens as `@Seans_frank_bot` via Bot API `getUpdates`
 
-The key goal: messages sent to the bot (from an allowlisted username) should
-trigger the LLM → script loop and reply back through the bot account.
+Messages from allowlisted senders are buffered (debounced) and then routed
+through the Switchboard → AgentRunner pipeline with channel='telegram_bot'.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 
 from services.agent_runner import AgentRunner, IncomingEvent
+from services.message_buffer import BufferedEvent, MessageBuffer
 from services.telegram_bot import TelegramBotListener
 
 logger = logging.getLogger(__name__)
 
 # Module-level state
 _listener: TelegramBotListener | None = None
+_message_buffer: MessageBuffer | None = None
+_agent_runner: AgentRunner | None = None
 _is_initialized: bool = False
 _last_error: str | None = None
-
-# Ensure we only process one bot message at a time. (Simple + safe.)
-_dispatch_lock = asyncio.Lock()
 
 
 def _normalize_sender(username: str, sender_name: str | None) -> str:
@@ -37,6 +37,73 @@ def _normalize_sender(username: str, sender_name: str | None) -> str:
     if username:
         return f"@{username}"
     return (sender_name or "unknown").strip() or "unknown"
+
+
+async def _on_bot_message_flush(event: BufferedEvent) -> None:
+    """
+    Callback fired when the MessageBuffer flushes debounced bot messages.
+
+    Converts the BufferedEvent into an IncomingEvent with
+    channel='telegram_bot' and dispatches it through the Switchboard.
+    """
+    global _agent_runner, _last_error
+
+    if _agent_runner is None:
+        _agent_runner = AgentRunner()
+
+    if not _agent_runner.is_configured:
+        logger.warning(
+            "AgentRunner not configured (missing OpenAI API key); "
+            "skipping bot message processing"
+        )
+        return
+
+    metadata = {
+        "source": "telegram_bot",
+    }
+    if event.metadata:
+        metadata["telegram_bot_chat_id"] = event.metadata.get(
+            "telegram_bot_chat_id", ""
+        )
+
+    incoming_event = IncomingEvent(
+        channel="telegram_bot",
+        sender=event.sender,
+        sender_name=event.sender_name,
+        content=event.content,
+        timestamp=event.timestamp,
+        metadata=metadata,
+        message_count=event.message_count,
+    )
+
+    logger.info(
+        "Processing debounced bot message from %s (%d messages combined)",
+        event.sender,
+        event.message_count,
+    )
+
+    try:
+        result = await _agent_runner.process_incoming_message(incoming_event)
+        _last_error = None
+        logger.info(
+            "Bot message processed: jorb=%s action=%s success=%s",
+            result.jorb_id,
+            result.action_taken,
+            result.success,
+        )
+    except Exception as exc:
+        _last_error = str(exc)
+        logger.exception("Error processing bot message: %s", exc)
+
+
+def _get_message_buffer() -> MessageBuffer:
+    """Get or create the module-level message buffer."""
+    global _message_buffer
+
+    if _message_buffer is None:
+        _message_buffer = MessageBuffer(on_flush=_on_bot_message_flush)
+
+    return _message_buffer
 
 
 async def _handle_bot_message(
@@ -48,55 +115,29 @@ async def _handle_bot_message(
     """
     Handle a single inbound Telegram Bot API message.
 
-    Routes the message through the Switchboard → AgentRunner pipeline.
-
-    This enables:
-    - Proper follow-up routing to the correct existing jorb (no new jorb per DM)
-    - Richer routing based on jorb summaries and last in/out snippets
-    - Consistent outbound message recording in the web UI
+    Buffers the message for debouncing; the flush callback will
+    route it through Switchboard → AgentRunner.
     """
-    global _last_error
+    sender = _normalize_sender(username, sender_name)
+    timestamp = datetime.now(timezone.utc).isoformat()
 
-    async with _dispatch_lock:
-        _last_error = None
+    message_buffer = _get_message_buffer()
+    await message_buffer.buffer_message(
+        channel="telegram_bot",
+        sender=sender,
+        content=text,
+        sender_name=sender_name or None,
+        timestamp=timestamp,
+        metadata={
+            "telegram_bot_chat_id": str(chat_id),
+        },
+    )
 
-        sender = _normalize_sender(username, sender_name)
-        timestamp = datetime.now(timezone.utc).isoformat()
-
-        runner = AgentRunner()
-
-        if not runner.is_configured:
-            # Don't attempt to process without OpenAI configured.
-            logger.warning(
-                "Telegram bot message received but AgentRunner not configured; "
-                "skipping processing"
-            )
-            return
-
-        event = IncomingEvent(
-            channel="telegram",
-            sender=sender,
-            sender_name=sender_name or None,
-            content=text,
-            timestamp=timestamp,
-            metadata={
-                "source": "telegram_bot",
-                "telegram_bot_chat_id": str(chat_id),
-            },
-            message_count=1,
-        )
-
-        try:
-            result = await runner.process_incoming_message(event)
-            logger.info(
-                "Telegram bot message processed: jorb=%s action=%s success=%s",
-                result.jorb_id,
-                result.action_taken,
-                result.success,
-            )
-        except Exception as exc:
-            _last_error = str(exc)
-            logger.exception("Error processing Telegram bot message: %s", exc)
+    logger.info(
+        "Buffered bot message from %s (chat_id=%s) for processing",
+        sender,
+        chat_id,
+    )
 
 
 async def initialize_telegram_bot_router() -> bool:
@@ -137,8 +178,8 @@ async def initialize_telegram_bot_router() -> bool:
 
 
 async def shutdown_telegram_bot_router() -> None:
-    """Stop the Telegram Bot API listener."""
-    global _listener, _is_initialized
+    """Stop the Telegram Bot API listener and flush pending messages."""
+    global _listener, _message_buffer, _is_initialized
 
     if not _is_initialized:
         return
@@ -148,6 +189,9 @@ async def shutdown_telegram_bot_router() -> None:
             await _listener.stop_polling()
         except Exception:
             logger.exception("Error stopping Telegram bot listener")
+
+    if _message_buffer:
+        await _message_buffer.flush_all()
 
     _listener = None
     _is_initialized = False
@@ -160,6 +204,9 @@ def get_bot_router_status() -> dict[str, object]:
         "initialized": _is_initialized,
         "listener_configured": bool(_listener and _listener.is_configured),
         "listener_running": bool(_listener and _listener.is_running),
+        "pending_messages": sum(
+            1 for _ in (_message_buffer._buffers if _message_buffer else {})
+        ),
         "last_error": _last_error,
     }
 

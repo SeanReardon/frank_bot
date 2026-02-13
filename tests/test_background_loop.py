@@ -438,6 +438,95 @@ class TestTelegramRouterIntegration:
             assert status["telegram_router"] == mock_router_status
 
 
+class TestTelegramBotRouterIntegration:
+    """Tests for Telegram bot router integration in BackgroundLoopService."""
+
+    @pytest.mark.asyncio
+    async def test_bot_router_initialized_on_start(self, background_service):
+        """Test bot router is initialized when starting."""
+        mock_bot_init = AsyncMock(return_value=True)
+
+        with patch(
+            "services.background_loop.initialize_telegram_jorb_router",
+            new_callable=AsyncMock,
+            return_value=False,
+        ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
+            mock_bot_init,
+        ):
+            await background_service.start()
+
+            mock_bot_init.assert_called_once()
+
+            await background_service.stop()
+
+    @pytest.mark.asyncio
+    async def test_bot_router_shutdown_on_stop(self, background_service):
+        """Test bot router is shut down when stopping."""
+        mock_bot_shutdown = AsyncMock()
+
+        with patch(
+            "services.background_loop.initialize_telegram_jorb_router",
+            new_callable=AsyncMock,
+            return_value=False,
+        ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
+            new_callable=AsyncMock,
+            return_value=False,
+        ), patch(
+            "services.background_loop.shutdown_telegram_jorb_router",
+            new_callable=AsyncMock,
+        ), patch(
+            "services.background_loop.shutdown_telegram_bot_router",
+            mock_bot_shutdown,
+        ):
+            await background_service.start()
+            await background_service.stop()
+
+            mock_bot_shutdown.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_bot_failure_does_not_block_other_services(self, background_service):
+        """Test that bot router failure doesn't prevent other services from starting."""
+        with patch(
+            "services.background_loop.initialize_telegram_jorb_router",
+            new_callable=AsyncMock,
+            return_value=True,
+        ), patch(
+            "services.background_loop.initialize_telegram_bot_router",
+            new_callable=AsyncMock,
+            return_value=False,  # Bot router fails
+        ):
+            await background_service.start()
+
+            # Service still running despite bot router failure
+            assert background_service.is_running
+            assert background_service._heartbeat_task is not None
+            assert background_service._worker_task is not None
+
+            await background_service.stop()
+
+    @pytest.mark.asyncio
+    async def test_status_includes_bot_router_status(self, background_service):
+        """Test status includes bot router information."""
+        mock_bot_status = {
+            "initialized": True,
+            "listener_configured": True,
+            "listener_running": True,
+            "pending_messages": 0,
+            "last_error": None,
+        }
+
+        with patch(
+            "services.background_loop.get_bot_router_status",
+            return_value=mock_bot_status,
+        ):
+            status = background_service.get_status()
+
+            assert "telegram_bot_router" in status
+            assert status["telegram_bot_router"] == mock_bot_status
+
+
 class TestGracefulShutdown:
     """Tests for graceful shutdown handling."""
 

@@ -13,9 +13,14 @@ from typing import Any
 
 from meta.api import (
     CalendarNamespace,
+    ClaudiaNamespace,
     ContactsNamespace,
+    DiagnosticsNamespace,
+    JorbsNamespace,
     SMSNamespace,
+    StyleNamespace,
     SwarmNamespace,
+    SystemNamespace,
     TelegramNamespace,
     TimeNamespace,
     UPSNamespace,
@@ -175,14 +180,86 @@ async def api_learn_action(
             "examples": ["frank.time.now()"],
             "returns": "iso_time, timezone, offset_minutes",
         },
+        "diagnostics": {
+            "description": "System diagnostics and health checks",
+            **_get_namespace_info(DiagnosticsNamespace),
+            "examples": [
+                "frank.diagnostics.full()  # comprehensive system diagnostics",
+                "frank.diagnostics.health()  # quick health check",
+            ],
+            "returns": "Dict with server stats, subsystem status, build info",
+        },
+        "system": {
+            "description": "System status, server info, and orchestration machinery",
+            **_get_namespace_info(SystemNamespace),
+            "examples": [
+                "frank.system.status()  # orchestration machinery status",
+                "frank.system.server()  # server uptime info",
+                "frank.system.hello(name='Frank')",
+            ],
+        },
+        "jorbs": {
+            "description": "Jorb management - create, list, approve, cancel autonomous tasks",
+            **_get_namespace_info(JorbsNamespace),
+            "examples": [
+                "frank.jorbs.list()  # open jorbs",
+                "frank.jorbs.list(status='all')",
+                "frank.jorbs.get('jorb_42', include_messages=True)",
+                "frank.jorbs.create(name='Research flights', plan='Find cheapest SFO→NYC flights for March 15-20')",
+                "frank.jorbs.approve('jorb_42', decision='go ahead')",
+                "frank.jorbs.cancel('jorb_42', reason='no longer needed')",
+                "frank.jorbs.stats()  # aggregate metrics",
+                "frank.jorbs.brief(hours=24)  # activity summary",
+                "frank.jorbs.messages('jorb_42', limit=20)",
+            ],
+            "common_params": {
+                "jorb_id": "The jorb ID (e.g. 'jorb_42')",
+                "status": "'open', 'closed', or 'all'",
+            },
+        },
+        "claudia": {
+            "description": "Claudia AI coding assistant - repo management, chat sessions, prompt execution",
+            **_get_namespace_info(ClaudiaNamespace),
+            "examples": [
+                "frank.claudia.repos()  # list managed repos",
+                "frank.claudia.chat_create('frank_bot', 'Fix login bug', message='The login page crashes on Safari')",
+                "frank.claudia.chat_get(repo_id='repo_1', chat_id='chat_42')",
+                "frank.claudia.chat_send(repo_id='repo_1', chat_id='chat_42', message='Try a different approach')",
+                "frank.claudia.chat_end(repo_id='repo_1', chat_id='chat_42')",
+                "frank.claudia.prompts(repo_id='repo_1')",
+                "frank.claudia.prompt_execute(repo_id='repo_1', prompt_id='prompt_5')",
+                "frank.claudia.queue(repo_id='repo_1')",
+                "frank.claudia.executions(repo_id='repo_1', status='running')",
+                "frank.claudia.execution_get(execution_id='exec_99')",
+            ],
+            "common_params": {
+                "repo_id": "Repository ID",
+                "repo_name": "Repository name (for chat_create)",
+                "chat_id": "Chat session ID",
+            },
+        },
+        "style": {
+            "description": "Style guide generation from message analysis",
+            **_get_namespace_info(StyleNamespace),
+            "examples": [
+                "frank.style.generate(dry_run=True)  # preview without sending",
+                "frank.style.generate()  # generate and apply SEAN.md",
+                "frank.style.generate(before_date='2026-01-01')",
+            ],
+            "common_params": {
+                "dry_run": "If True, generate but don't send (default False)",
+                "before_date": "Only analyze messages before this date (ISO 8601)",
+            },
+        },
     }
 
     return {
         "overview": (
             "Scripts are Python files with a main(frank, **params) function. "
             "The 'frank' object provides access to calendar, contacts, SMS, "
-            "Swarm check-ins, Telegram, UPS status, and time. Scripts run "
-            "async - you get a task_id and poll for results."
+            "Swarm check-ins, Telegram, UPS status, time, diagnostics, "
+            "system, jorbs, claudia (AI coding assistant), and style. "
+            "Scripts run async - you get a task_id and poll for results."
         ),
         "quick_start": (
             "To check tomorrow's calendar: write a script calling "
