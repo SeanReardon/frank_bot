@@ -81,7 +81,7 @@ class TestTrustedSenderCreatesCatchUpJorb:
     async def test_trusted_sender_creates_catch_up(
         self, runner, storage
     ) -> None:
-        """Trusted sender with might_be_new_jorb creates catch-up jorb."""
+        """Trusted sender with no match (not new) creates catch-up jorb."""
         # First create a previous jorb so sender becomes trusted
         await storage.create_jorb(
             name="Previous Task",
@@ -102,7 +102,7 @@ class TestTrustedSenderCreatesCatchUpJorb:
             jorb_id=None,  # No match
             confidence="low",
             reasoning="No matching jorb",
-            might_be_new_jorb=True,  # Looks like a new task
+            might_be_new_jorb=False,
         )
 
         with patch.dict(os.environ, {"USE_SWITCHBOARD_MODE": "true"}):
@@ -157,7 +157,7 @@ class TestTrustedSenderCreatesCatchUpJorb:
             jorb_id=None,
             confidence="low",
             reasoning="No match",
-            might_be_new_jorb=True,
+            might_be_new_jorb=False,
         )
 
         with patch.dict(os.environ, {"USE_SWITCHBOARD_MODE": "true"}):
@@ -204,7 +204,7 @@ class TestCatchUpJorbUsesSeanVoice:
             jorb_id=None,
             confidence="low",
             reasoning="No match",
-            might_be_new_jorb=True,
+            might_be_new_jorb=False,
         )
 
         with patch.dict(os.environ, {"USE_SWITCHBOARD_MODE": "true"}):
@@ -636,7 +636,7 @@ class TestEndToEndCatchUpFlow:
             jorb_id=None,
             confidence="low",
             reasoning="No matching jorb",
-            might_be_new_jorb=True,
+            might_be_new_jorb=False,
         )
 
         # Track kickoff call

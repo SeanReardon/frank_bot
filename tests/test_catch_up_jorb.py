@@ -255,7 +255,7 @@ class TestProcessIncomingMessageCatchUp:
     async def test_trusted_sender_creates_catch_up_jorb(
         self, runner, storage, existing_jorb_with_contact, trusted_sender_event
     ):
-        """Trusted sender with might_be_new_jorb creates catch-up jorb."""
+        """Trusted sender with no match (not new) creates catch-up jorb."""
         # First create an existing jorb so sender becomes trusted
         await storage.create_jorb(
             name=existing_jorb_with_contact.name,
@@ -263,12 +263,12 @@ class TestProcessIncomingMessageCatchUp:
             contacts=existing_jorb_with_contact.contacts,
         )
 
-        # Mock switchboard to return no match but might_be_new_jorb=True
+        # Mock switchboard to return no match and not a new jorb
         routing_decision = RoutingDecision(
             jorb_id=None,
             confidence="low",
             reasoning="No matching jorb found",
-            might_be_new_jorb=True,
+            might_be_new_jorb=False,
         )
 
         with patch.dict(os.environ, {"USE_SWITCHBOARD_MODE": "true"}):
@@ -345,7 +345,7 @@ class TestProcessIncomingMessageCatchUp:
     async def test_might_be_new_jorb_false_returns_no_match(
         self, runner, storage, trusted_sender_event
     ):
-        """When might_be_new_jorb=False, returns no_match regardless of trust."""
+        """When might_be_new_jorb=False and sender is trusted, creates a catch-up jorb."""
         # Create existing jorb so sender is trusted
         existing = await storage.create_jorb(
             name="Previous Task",
@@ -369,10 +369,14 @@ class TestProcessIncomingMessageCatchUp:
                 mock_switchboard.route = AsyncMock(return_value=routing_decision)
                 mock_get_switchboard.return_value = mock_switchboard
 
-                result = await runner.process_incoming_message(trusted_sender_event)
+                # Mock kickoff to avoid LLM call
+                with patch.object(runner, "kickoff_jorb", new_callable=AsyncMock) as mock_kickoff:
+                    mock_kickoff.return_value = MagicMock(message_sent=False)
 
-        assert result.action_taken == "no_match"
-        assert result.jorb_id is None
+                    result = await runner.process_incoming_message(trusted_sender_event)
+
+        assert result.action_taken == "catch_up_created"
+        assert result.jorb_id is not None
 
 
 class TestTrustedSenderIntegration:

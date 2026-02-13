@@ -88,6 +88,10 @@ class Jorb:
     outcome_failure_reason: str | None = None
     # Script results field for tracking executed scripts
     script_results: list[dict] = field(default_factory=list)
+    # Optional metadata blob for routing/transports (JSON dict)
+    metadata_json: str = "{}"
+    # Optional wake schedule for worker tick loop (ISO 8601)
+    wake_at: str | None = None
 
     def __post_init__(self) -> None:
         """Set default timestamps if not provided."""
@@ -121,6 +125,20 @@ class Jorb:
             "estimated_cost": self.estimated_cost,
             "context_resets": self.context_resets,
         }
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        """Parse routing/transport metadata from JSON."""
+        try:
+            data = json.loads(self.metadata_json or "{}")
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    @metadata.setter
+    def metadata(self, value: dict[str, Any]) -> None:
+        """Serialize routing/transport metadata to JSON."""
+        self.metadata_json = json.dumps(value or {})
 
     @property
     def outcome(self) -> dict[str, Any] | None:
@@ -221,7 +239,11 @@ CREATE TABLE IF NOT EXISTS jorbs (
     outcome_completed_at TEXT,
     outcome_failure_reason TEXT,
     -- Script results column (added in v4)
-    script_results TEXT DEFAULT '[]'
+    script_results TEXT DEFAULT '[]',
+    -- Metadata blob for routing/transports (added in v5)
+    metadata_json TEXT DEFAULT '{}',
+    -- Wake schedule for background worker tick loop (added in v5)
+    wake_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jorb_messages (
@@ -306,6 +328,8 @@ def _row_to_jorb(row: aiosqlite.Row) -> Jorb:
         outcome_failure_reason=row["outcome_failure_reason"],
         # Script results field
         script_results=script_results,
+        metadata_json=(row["metadata_json"] or "{}") if "metadata_json" in row.keys() else "{}",  # type: ignore[attr-defined]
+        wake_at=(row["wake_at"] if "wake_at" in row.keys() else None),  # type: ignore[attr-defined]
     )
 
 
@@ -371,6 +395,7 @@ class JorbStorage:
         # Migration v2: Add metrics and outcome columns
         # Migration v3: Add personality column
         # Migration v4: Add script_results column
+        # Migration v5: Add metadata_json + wake_at columns
         new_columns = [
             ("messages_in", "INTEGER DEFAULT 0"),
             ("messages_out", "INTEGER DEFAULT 0"),
@@ -382,6 +407,8 @@ class JorbStorage:
             ("outcome_failure_reason", "TEXT"),
             ("personality", "TEXT DEFAULT 'default'"),
             ("script_results", "TEXT DEFAULT '[]'"),
+            ("metadata_json", "TEXT DEFAULT '{}'"),
+            ("wake_at", "TEXT"),
         ]
 
         for col_name, col_type in new_columns:
@@ -579,6 +606,9 @@ class JorbStorage:
             "outcome_failure_reason",
             # Script results field
             "script_results",
+            # Metadata + scheduling fields
+            "metadata_json",
+            "wake_at",
         }
         invalid_fields = set(updates.keys()) - valid_fields
         if invalid_fields:
@@ -606,6 +636,49 @@ class JorbStorage:
         if updated_jorb:
             logger.info("Updated jorb %s: %s", jorb_id, list(updates.keys()))
         return updated_jorb
+
+    async def list_due_jorbs(
+        self,
+        now_iso: str | None = None,
+        limit: int = 50,
+    ) -> list[Jorb]:
+        """
+        List running jorbs that are due for a worker tick.
+
+        A jorb is due when:
+        - status == 'running'
+        - wake_at is set
+        - wake_at <= now
+
+        Args:
+            now_iso: Current time in ISO 8601 (defaults to now UTC)
+            limit: Max number of jorbs to return
+
+        Returns:
+            List of due jorbs ordered by wake_at ascending
+        """
+        await self._ensure_initialized()
+
+        if now_iso is None:
+            now_iso = datetime.now(timezone.utc).isoformat()
+
+        limit = max(1, min(500, int(limit)))
+
+        async with aiosqlite.connect(self._db_path) as conn:
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute(
+                """
+                SELECT * FROM jorbs
+                WHERE status = 'running'
+                AND wake_at IS NOT NULL
+                AND wake_at <= ?
+                ORDER BY wake_at ASC
+                LIMIT ?
+                """,
+                (now_iso, limit),
+            )
+            rows = await cursor.fetchall()
+            return [_row_to_jorb(row) for row in rows]
 
     # Message tracking methods (frank_bot-00052)
 

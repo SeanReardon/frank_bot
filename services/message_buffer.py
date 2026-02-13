@@ -17,7 +17,7 @@ from typing import Any, Callable, Coroutine, Literal
 logger = logging.getLogger(__name__)
 
 # Default debounce times (in seconds)
-DEFAULT_DEBOUNCE_TELEGRAM = 60
+DEFAULT_DEBOUNCE_TELEGRAM = 3
 DEFAULT_DEBOUNCE_SMS = 30
 
 Channel = Literal["telegram", "sms", "email"]

@@ -62,13 +62,14 @@ def _load_switchboard_prompt() -> str:
         return ""
 
 
-def _format_jorb_for_switchboard(jorb: Jorb) -> dict[str, Any]:
+def _format_jorb_for_switchboard(jwm: JorbWithMessages) -> dict[str, Any]:
     """
     Format a jorb for the switchboard context.
 
     This is a LIGHTWEIGHT format - just enough for routing decisions.
     No message history, just identifiers and status.
     """
+    jorb = jwm.jorb
     # Extract contact identifiers for matching
     contacts = jorb.contacts
     contact_identifiers = [c.identifier for c in contacts]
@@ -78,13 +79,49 @@ def _format_jorb_for_switchboard(jorb: Jorb) -> dict[str, Any]:
     if len(jorb.original_plan) > 200:
         plan_summary += "..."
 
+    # Current jorb summary (used for routing), truncated
+    summary = (jorb.progress_summary or "").strip()
+    if len(summary) > 240:
+        summary = summary[:240] + "..."
+
+    def _snippet(text: str | None, limit: int = 160) -> str:
+        raw = (text or "").strip().replace("\n", " ")
+        if len(raw) > limit:
+            return raw[:limit] + "..."
+        return raw
+
+    # Last inbound/outbound message snippets
+    last_inbound = None
+    last_outbound = None
+    if jwm.messages:
+        for msg in reversed(jwm.messages):
+            if last_inbound is None and msg.direction == "inbound":
+                last_inbound = {
+                    "timestamp": msg.timestamp,
+                    "sender": msg.sender_name or msg.sender,
+                    "content": _snippet(msg.content),
+                }
+            if last_outbound is None and msg.direction == "outbound":
+                last_outbound = {
+                    "timestamp": msg.timestamp,
+                    "recipient": msg.recipient or "",
+                    "content": _snippet(msg.content),
+                }
+            if last_inbound and last_outbound:
+                break
+
     return {
         "id": jorb.id,
         "name": jorb.name,
         "status": jorb.status,
         "plan_summary": plan_summary,
+        "summary": summary,
         "contacts": contact_identifiers,
         "awaiting": jorb.awaiting,
+        "wake_at": getattr(jorb, "wake_at", None),
+        "metadata": getattr(jorb, "metadata", {}),
+        "last_inbound": last_inbound,
+        "last_outbound": last_outbound,
         "last_activity": jorb.updated_at,
     }
 
@@ -130,6 +167,7 @@ class Switchboard:
         content: str,
         timestamp: str,
         open_jorbs: list[JorbWithMessages],
+        message_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Build the lightweight context for routing.
@@ -152,9 +190,10 @@ class Switchboard:
                 "sender_name": sender_name,
                 "content": content,
                 "timestamp": timestamp,
+                "metadata": message_metadata or {},
             },
             "jorbs": [
-                _format_jorb_for_switchboard(jwm.jorb) for jwm in open_jorbs
+                _format_jorb_for_switchboard(jwm) for jwm in open_jorbs
             ],
         }
 
@@ -167,6 +206,7 @@ class Switchboard:
         timestamp: str,
         open_jorbs: list[JorbWithMessages],
         is_human_intervention: bool = False,
+        message_metadata: dict[str, Any] | None = None,
     ) -> RoutingDecision:
         """
         Route an incoming message to the appropriate jorb.
@@ -185,7 +225,23 @@ class Switchboard:
         Returns:
             RoutingDecision with jorb_id (or None) and metadata
         """
-        # First, try fast contact matching (no LLM needed)
+        # First, try fast matching (no LLM needed) when unambiguous
+        fast_convo_match = self._try_fast_conversation_match(message_metadata, open_jorbs)
+        if fast_convo_match:
+            logger.info(
+                "Fast conversation match: message from %s routed to %s%s",
+                sender,
+                fast_convo_match,
+                " (human intervention)" if is_human_intervention else "",
+            )
+            return RoutingDecision(
+                jorb_id=fast_convo_match,
+                confidence="high",
+                reasoning="Conversation key matches exactly one open jorb",
+                tokens_used=0,
+                is_human_intervention=is_human_intervention,
+            )
+
         fast_match = self._try_fast_contact_match(sender, open_jorbs)
         if fast_match:
             logger.info(
@@ -214,7 +270,13 @@ class Switchboard:
             )
 
         context = self.build_context(
-            channel, sender, sender_name, content, timestamp, open_jorbs
+            channel,
+            sender,
+            sender_name,
+            content,
+            timestamp,
+            open_jorbs,
+            message_metadata=message_metadata,
         )
 
         try:
@@ -310,11 +372,45 @@ class Switchboard:
         # Normalize sender for comparison
         sender_normalized = self._normalize_identifier(sender)
 
+        matches: list[str] = []
         for jwm in open_jorbs:
             for contact in jwm.jorb.contacts:
                 contact_normalized = self._normalize_identifier(contact.identifier)
                 if sender_normalized == contact_normalized:
-                    return jwm.jorb.id
+                    matches.append(jwm.jorb.id)
+                    break
+
+        # Only fast-match when unambiguous.
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def _try_fast_conversation_match(
+        self,
+        message_metadata: dict[str, Any] | None,
+        open_jorbs: list[JorbWithMessages],
+    ) -> str | None:
+        """
+        Try to match on a conversation key (e.g. Telegram bot chat_id) when unique.
+
+        This avoids LLM routing when we have a deterministic conversation identity.
+        """
+        if not message_metadata:
+            return None
+
+        chat_id = message_metadata.get("telegram_bot_chat_id")
+        chat_id = str(chat_id).strip() if chat_id else ""
+        if not chat_id:
+            return None
+
+        matches: list[Jorb] = []
+        for jwm in open_jorbs:
+            meta = getattr(jwm.jorb, "metadata", {})
+            if str(meta.get("telegram_bot_chat_id") or "").strip() == chat_id:
+                matches.append(jwm.jorb)
+
+        if len(matches) == 1:
+            return matches[0].id
 
         return None
 

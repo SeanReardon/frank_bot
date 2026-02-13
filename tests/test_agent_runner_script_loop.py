@@ -262,6 +262,7 @@ class TestAgentLoop:
         pause_reason=None,
         result=None,
         reasoning="test reasoning",
+        summary=None,
     ):
         """Helper to create a JorbSessionResponse."""
         action = JorbAction(
@@ -275,6 +276,7 @@ class TestAgentLoop:
             reasoning=reasoning,
         )
         return JorbSessionResponse(
+            summary=summary or reasoning,
             reasoning=reasoning,
             action=action,
             progress=None,
@@ -305,7 +307,7 @@ class TestAgentLoop:
             "services.agent_runner.create_jorb_session"
         ) as mock_create:
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(return_value=done_response)
+            mock_session.tick = AsyncMock(return_value=done_response)
             mock_create.return_value = mock_session
 
             result = await runner.process_jorb_event(jorb)
@@ -335,13 +337,13 @@ class TestAgentLoop:
             "services.agent_runner.create_jorb_session"
         ) as mock_create:
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(return_value=pause_response)
+            mock_session.tick = AsyncMock(return_value=pause_response)
             mock_create.return_value = mock_session
 
             result = await runner.process_jorb_event(jorb)
 
         assert result.success is True
-        assert result.action_taken == "pause"
+        assert result.action_taken == "pause_for_approval"
 
         updated = await storage.get_jorb(jorb.id)
         assert updated.status == "paused"
@@ -370,7 +372,7 @@ class TestAgentLoop:
             "meta.api.FrankAPI", return_value=mock_api
         ):
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(return_value=async_response)
+            mock_session.tick = AsyncMock(return_value=async_response)
             mock_create.return_value = mock_session
 
             result = await runner.process_jorb_event(jorb)
@@ -418,7 +420,7 @@ class TestAgentLoop:
             "meta.api.FrankAPI", return_value=mock_api
         ):
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(side_effect=mock_kickoff)
+            mock_session.tick = AsyncMock(side_effect=mock_kickoff)
             mock_create.return_value = mock_session
 
             result = await runner.process_jorb_event(jorb)
@@ -444,13 +446,13 @@ class TestAgentLoop:
             "services.agent_runner.create_jorb_session"
         ) as mock_create:
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(return_value=no_action_response)
+            mock_session.tick = AsyncMock(return_value=no_action_response)
             mock_create.return_value = mock_session
 
             result = await runner.process_jorb_event(jorb)
 
         assert result.success is True
-        assert result.action_taken == "no_action"
+        assert result.action_taken == "noop"
 
     @pytest.mark.asyncio
     async def test_loop_with_incoming_event(self, runner, storage):
@@ -479,14 +481,14 @@ class TestAgentLoop:
         ) as mock_create:
             mock_session = MagicMock()
             mock_session.process_message = AsyncMock(return_value=done_response)
-            mock_session.kickoff = AsyncMock(return_value=done_response)
+            mock_session.tick = AsyncMock(return_value=done_response)
             mock_create.return_value = mock_session
 
             result = await runner.process_jorb_event(jorb, event=event)
 
-        # process_message should have been called, not kickoff
+        # process_message should have been called; no tick needed (done immediately)
         mock_session.process_message.assert_called_once()
-        mock_session.kickoff.assert_not_called()
+        mock_session.tick.assert_not_called()
         assert result.action_taken == "complete"
 
     @pytest.mark.asyncio
@@ -522,7 +524,7 @@ class TestAgentLoop:
         def capture_session(jwm, **kwargs):
             sessions_created.append(jwm)
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(side_effect=mock_kickoff)
+            mock_session.tick = AsyncMock(side_effect=mock_kickoff)
             return mock_session
 
         with patch(
@@ -649,6 +651,7 @@ class TestIntegrationCalendarQuery:
 
         # LLM response 1: generate calendar query script
         script_response = JorbSessionResponse(
+            summary="Checking calendar for tomorrow.",
             reasoning="Checking calendar for tomorrow",
             action=JorbAction(
                 type="script",
@@ -663,6 +666,7 @@ class TestIntegrationCalendarQuery:
 
         # LLM response 2: done with result
         done_response = JorbSessionResponse(
+            summary="Calendar query complete.",
             reasoning="Calendar shows 2 events tomorrow",
             action=JorbAction(
                 type="complete",
@@ -698,7 +702,7 @@ class TestIntegrationCalendarQuery:
             "meta.api.FrankAPI", return_value=mock_api
         ):
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(side_effect=mock_kickoff)
+            mock_session.tick = AsyncMock(side_effect=mock_kickoff)
             mock_create.return_value = mock_session
 
             result = await runner.process_jorb_event(jorb)
@@ -735,6 +739,7 @@ class TestIntegrationTelegramConversation:
 
         # Step 1: LLM sends telegram message
         send_response = JorbSessionResponse(
+            summary="Contacting Magic about hotels; waiting for reply.",
             reasoning="Contacting Magic about hotels",
             action=JorbAction(
                 type="script",
@@ -756,7 +761,7 @@ class TestIntegrationTelegramConversation:
             "meta.api.FrankAPI", return_value=mock_api
         ):
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(return_value=send_response)
+            mock_session.tick = AsyncMock(return_value=send_response)
             mock_create.return_value = mock_session
 
             result1 = await runner.process_jorb_event(jorb)
@@ -774,6 +779,7 @@ class TestIntegrationTelegramConversation:
         )
 
         done_response = JorbSessionResponse(
+            summary="Hotel option received; task complete.",
             reasoning="Magic found a hotel, task complete",
             action=JorbAction(
                 type="complete",
@@ -819,6 +825,7 @@ class TestIntegrationAndroidPhone:
 
         # Step 1: task_do
         task_do_response = JorbSessionResponse(
+            summary="Starting phone automation task.",
             reasoning="Starting phone automation",
             action=JorbAction(
                 type="script",
@@ -833,6 +840,7 @@ class TestIntegrationAndroidPhone:
 
         # Step 2: task_get (polling)
         task_get_response = JorbSessionResponse(
+            summary="Polling phone automation task status.",
             reasoning="Checking task status",
             action=JorbAction(
                 type="script",
@@ -847,6 +855,7 @@ class TestIntegrationAndroidPhone:
 
         # Step 3: done
         done_response = JorbSessionResponse(
+            summary="Thermostat confirmed; task complete.",
             reasoning="Thermostat confirmed at 65-69",
             action=JorbAction(
                 type="complete",
@@ -880,7 +889,7 @@ class TestIntegrationAndroidPhone:
             "meta.api.FrankAPI", return_value=mock_api
         ):
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(side_effect=mock_kickoff)
+            mock_session.tick = AsyncMock(side_effect=mock_kickoff)
             mock_create.return_value = mock_session
 
             result = await runner.process_jorb_event(jorb)
@@ -911,6 +920,7 @@ class TestIntegrationPauseForApproval:
 
         # Step 1: LLM pauses for approval
         pause_response = JorbSessionResponse(
+            summary="Need approval to proceed.",
             reasoning="Found item, need approval to purchase",
             action=JorbAction(
                 type="pause",
@@ -926,12 +936,12 @@ class TestIntegrationPauseForApproval:
             "services.agent_runner.create_jorb_session"
         ) as mock_create:
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(return_value=pause_response)
+            mock_session.tick = AsyncMock(return_value=pause_response)
             mock_create.return_value = mock_session
 
             result1 = await runner.process_jorb_event(jorb)
 
-        assert result1.action_taken == "pause"
+        assert result1.action_taken == "pause_for_approval"
         paused_jorb = await storage.get_jorb(jorb.id)
         assert paused_jorb.status == "paused"
         assert "Widget Pro" in paused_jorb.paused_reason
@@ -941,6 +951,7 @@ class TestIntegrationPauseForApproval:
 
         # Step 3: Process again, now jorb completes
         done_response = JorbSessionResponse(
+            summary="Approved; completing.",
             reasoning="Approved, completing purchase",
             action=JorbAction(
                 type="complete",
@@ -957,7 +968,7 @@ class TestIntegrationPauseForApproval:
             "services.agent_runner.create_jorb_session"
         ) as mock_create:
             mock_session = MagicMock()
-            mock_session.kickoff = AsyncMock(return_value=done_response)
+            mock_session.tick = AsyncMock(return_value=done_response)
             mock_create.return_value = mock_session
 
             refreshed_jorb = await storage.get_jorb(jorb.id)

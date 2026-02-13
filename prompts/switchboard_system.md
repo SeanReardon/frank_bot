@@ -20,7 +20,11 @@ You are fast and focused. You see summaries, not full histories.
     "sender": "identifier",
     "sender_name": "name or null",
     "content": "the message text",
-    "timestamp": "ISO timestamp"
+    "timestamp": "ISO timestamp",
+    "metadata": {
+      "source": "telegram|telegram_bot|sms|email",
+      "telegram_bot_chat_id": "string or null"
+    }
   },
   "jorbs": [
     {
@@ -28,8 +32,13 @@ You are fast and focused. You see summaries, not full histories.
       "name": "GDC Hotel Search",
       "status": "running",
       "plan_summary": "Find and book hotel for GDC March 17-21",
+      "summary": "Required jorb summary used for routing (short).",
       "contacts": ["@MagicConciergeBot", "+1-415-555-0123"],
       "awaiting": "Quote from Magic",
+      "wake_at": "ISO timestamp or null",
+      "metadata": { "telegram_bot_chat_id": "string or null" },
+      "last_inbound": { "timestamp": "ISO", "sender": "id", "content": "snippet" },
+      "last_outbound": { "timestamp": "ISO", "recipient": "id", "content": "snippet" },
       "last_activity": "2026-01-29T14:00:00Z"
     }
   ]

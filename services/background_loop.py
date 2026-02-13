@@ -45,6 +45,9 @@ DIGEST_CHECK_INTERVAL_SECONDS = 60
 # How often to check scheduled maintenance tasks (in seconds)
 MAINTENANCE_CHECK_INTERVAL_SECONDS = 3600  # Check hourly
 
+# How often to tick due jorbs (in seconds)
+WORKER_TICK_INTERVAL_SECONDS = 2
+
 
 class BackgroundLoopService:
     """
@@ -77,6 +80,7 @@ class BackgroundLoopService:
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._digest_task: asyncio.Task[None] | None = None
         self._maintenance_task: asyncio.Task[None] | None = None
+        self._worker_task: asyncio.Task[None] | None = None
         self._shutdown_event: asyncio.Event | None = None
         self._last_digest_date: str | None = None
         self._last_monthly_maintenance: str | None = None
@@ -111,6 +115,9 @@ class BackgroundLoopService:
             ),
             "maintenance_task_running": (
                 self._maintenance_task is not None and not self._maintenance_task.done()
+            ),
+            "worker_task_running": (
+                self._worker_task is not None and not self._worker_task.done()
             ),
             "last_digest_date": self._last_digest_date,
             "last_monthly_maintenance": self._last_monthly_maintenance,
@@ -180,6 +187,13 @@ class BackgroundLoopService:
         )
         logger.info("Android maintenance task started")
 
+        # Start worker tick loop for scheduled wakes / long-running tasks
+        self._worker_task = asyncio.create_task(
+            self._worker_loop(),
+            name="jorb-worker",
+        )
+        logger.info("Worker tick task started")
+
         # Register signal handlers
         self._register_signal_handlers()
 
@@ -207,6 +221,7 @@ class BackgroundLoopService:
         await self._cancel_task(self._heartbeat_task, "heartbeat")
         await self._cancel_task(self._digest_task, "digest")
         await self._cancel_task(self._maintenance_task, "maintenance")
+        await self._cancel_task(self._worker_task, "worker")
 
         # Shutdown Telegram router
         await shutdown_telegram_jorb_router()
@@ -252,6 +267,50 @@ class BackgroundLoopService:
         """Handle shutdown signal."""
         logger.info("Received signal %s, initiating graceful shutdown", sig.name)
         await self.stop()
+
+    async def _worker_loop(self) -> None:
+        """
+        Run the short-interval worker loop.
+
+        This loop resumes jorbs that have scheduled a wake (`wake_at`) so the LLM
+        can poll long-running tasks (Android/meta) and continue multi-step work
+        without needing a human message.
+        """
+        runner = AgentRunner(storage=self._storage)
+
+        while self._running and self._shutdown_event and not self._shutdown_event.is_set():
+            self._last_tick_at = datetime.now(timezone.utc).isoformat()
+
+            if not runner.is_configured:
+                # If OpenAI isn't configured, there's nothing meaningful to do.
+                await asyncio.sleep(max(5, WORKER_TICK_INTERVAL_SECONDS))
+                continue
+
+            try:
+                due = await self._storage.list_due_jorbs(limit=25)
+            except Exception as exc:
+                logger.error("Worker loop failed to list due jorbs: %s", exc)
+                await asyncio.sleep(5)
+                continue
+
+            if not due:
+                await asyncio.sleep(WORKER_TICK_INTERVAL_SECONDS)
+                continue
+
+            for jorb in due:
+                # Clear wake_at immediately to prevent duplicate processing
+                try:
+                    await self._storage.update_jorb(jorb.id, wake_at=None)
+                except Exception:
+                    logger.exception("Failed to clear wake_at for jorb %s", jorb.id)
+
+                try:
+                    await runner.process_jorb_event(jorb, event=None)
+                except Exception:
+                    logger.exception("Worker loop error processing jorb %s", jorb.id)
+
+            # Yield between batches
+            await asyncio.sleep(0)
 
     async def _heartbeat_loop(self) -> None:
         """

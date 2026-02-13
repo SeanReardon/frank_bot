@@ -3,7 +3,6 @@ Unit tests for MessageBuffer service.
 """
 
 import asyncio
-from datetime import datetime, timezone
 
 import pytest
 
@@ -15,7 +14,7 @@ from services.message_buffer import (
 
 @pytest.fixture
 def buffer():
-    """Create a MessageBuffer instance with short debounce times for testing."""
+    """Create a MessageBuffer with short debounce times."""
     return MessageBuffer(
         debounce_telegram_seconds=1,
         debounce_sms_seconds=1,
@@ -284,7 +283,7 @@ class TestDebounceConfiguration:
     def test_default_debounce_times(self):
         """Default debounce times are set correctly."""
         buffer = MessageBuffer()
-        assert buffer.get_debounce_time("telegram") == 60
+        assert buffer.get_debounce_time("telegram") == 3
         assert buffer.get_debounce_time("sms") == 30
 
     def test_custom_debounce_times(self):

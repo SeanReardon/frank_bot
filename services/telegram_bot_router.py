@@ -19,7 +19,6 @@ import logging
 from datetime import datetime, timezone
 
 from services.agent_runner import AgentRunner, IncomingEvent
-from services.jorb_storage import JorbContact, JorbStorage
 from services.telegram_bot import TelegramBotListener
 
 logger = logging.getLogger(__name__)
@@ -40,33 +39,6 @@ def _normalize_sender(username: str, sender_name: str | None) -> str:
     return (sender_name or "unknown").strip() or "unknown"
 
 
-def _build_bot_jorb_plan(
-    *,
-    text: str,
-    username: str,
-    chat_id: str,
-    sender_name: str,
-) -> str:
-    # Keep this concise and operational. This is the "task plan" injected
-    # into the jorb session system prompt.
-    return "\n".join(
-        [
-            "You are responding to Sean via the Telegram *bot* account.",
-            "",
-            "Requirements:",
-            f"- Reply in the Telegram bot DM chat_id={chat_id!s}.",
-            "- Use `frank.telegram_bot.send(...)` for replies (NOT `frank.telegram.send`).",
-            "- Use scripts (frank.*) to gather diagnostics/status as needed.",
-            "- Keep the final answer concise and directly useful.",
-            "- After sending the answer, mark the jorb done.",
-            "",
-            "Original message:",
-            f"- from: @{username} ({sender_name})",
-            f"- text: {text}",
-        ]
-    )
-
-
 async def _handle_bot_message(
     text: str,
     username: str,
@@ -76,8 +48,12 @@ async def _handle_bot_message(
     """
     Handle a single inbound Telegram Bot API message.
 
-    Creates a short-lived jorb for the message and runs the iterative
-    script loop so the LLM can gather diagnostics and respond via the bot.
+    Routes the message through the Switchboard → AgentRunner pipeline.
+
+    This enables:
+    - Proper follow-up routing to the correct existing jorb (no new jorb per DM)
+    - Richer routing based on jorb summaries and last in/out snippets
+    - Consistent outbound message recording in the web UI
     """
     global _last_error
 
@@ -87,8 +63,7 @@ async def _handle_bot_message(
         sender = _normalize_sender(username, sender_name)
         timestamp = datetime.now(timezone.utc).isoformat()
 
-        storage = JorbStorage()
-        runner = AgentRunner(storage=storage)
+        runner = AgentRunner()
 
         if not runner.is_configured:
             # Don't attempt to process without OpenAI configured.
@@ -98,55 +73,24 @@ async def _handle_bot_message(
             )
             return
 
-        # Create a short-lived jorb for this inbound request.
-        preview = (text or "").strip().replace("\n", " ")
-        if len(preview) > 50:
-            preview = preview[:50] + "..."
-        jorb_name = f"Bot: {preview}" if preview else "Bot: (empty)"
-
-        plan = _build_bot_jorb_plan(
-            text=text,
-            username=username,
-            chat_id=chat_id,
-            sender_name=sender_name,
-        )
-
-        # Associate Sean as the contact for routing/history.
-        contacts = [
-            JorbContact(
-                identifier=sender,
-                channel="telegram",
-                name=sender_name or None,
-            )
-        ]
-
-        jorb = await storage.create_jorb(
-            name=jorb_name,
-            plan=plan,
-            contacts=contacts,
-            personality="default",
-        )
-
-        # Mark running so dashboards/filters behave as expected.
-        await storage.update_jorb(jorb.id, status="running")
-
         event = IncomingEvent(
             channel="telegram",
             sender=sender,
             sender_name=sender_name or None,
             content=text,
             timestamp=timestamp,
+            metadata={
+                "source": "telegram_bot",
+                "telegram_bot_chat_id": str(chat_id),
+            },
             message_count=1,
         )
 
-        # Store the inbound message (audit trail).
-        await runner.store_inbound_message(jorb.id, event)
-
         try:
-            result = await runner.process_jorb_event(jorb, event=event)
+            result = await runner.process_incoming_message(event)
             logger.info(
                 "Telegram bot message processed: jorb=%s action=%s success=%s",
-                jorb.id,
+                result.jorb_id,
                 result.action_taken,
                 result.success,
             )

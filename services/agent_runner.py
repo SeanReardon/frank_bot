@@ -136,6 +136,7 @@ class IncomingEvent:
     sender_name: str | None
     content: str
     timestamp: str  # ISO 8601
+    metadata: dict[str, Any] = field(default_factory=dict)
     message_count: int = 1
     is_human_intervention: bool = False  # True when Sean sent this directly (not frank_bot)
 
@@ -663,6 +664,8 @@ class AgentRunner:
         paused_reason: str | None = None,
         needs_approval_for: str | None = None,
         awaiting: str | None = None,
+        wake_at: str | None = None,
+        metadata_json: str | None = None,
     ) -> Jorb | None:
         """
         Update a jorb's status and related fields.
@@ -689,6 +692,10 @@ class AgentRunner:
             updates["needs_approval_for"] = needs_approval_for
         if awaiting is not None:
             updates["awaiting"] = awaiting
+        if wake_at is not None:
+            updates["wake_at"] = wake_at
+        if metadata_json is not None:
+            updates["metadata_json"] = metadata_json
 
         if updates:
             return await self._storage.update_jorb(jorb_id, **updates)
@@ -1013,6 +1020,8 @@ class AgentRunner:
         jorb_id = jorb.id
         message_sent = False
         last_action = "no_action"
+        steps_this_run = 0
+        max_steps_this_run = 25
 
         # Reload jorb with messages for each LLM call
         async def _get_jorb_with_messages() -> JorbWithMessages:
@@ -1023,6 +1032,22 @@ class AgentRunner:
             return JorbWithMessages(jorb=refreshed_jorb, messages=messages)
 
         while True:
+            steps_this_run += 1
+            if steps_this_run > max_steps_this_run:
+                msg = f"Safety stop: exceeded {max_steps_this_run} steps in one run"
+                logger.warning("Agent loop safety stop for jorb %s: %s", jorb_id, msg)
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    status="paused",
+                    paused_reason=msg,
+                    wake_at=None,
+                )
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken="paused_safety_stop",
+                    success=True,
+                    message_sent=message_sent,
+                )
             # Check rate limit before each LLM invocation
             rate_limit_msg = self._check_iteration_rate_limit(jorb_id)
             if rate_limit_msg:
@@ -1065,8 +1090,8 @@ class AgentRunner:
                 )
                 event = None  # Only use event for first iteration
             else:
-                # Subsequent iterations (kickoff or after script result)
-                session_response = await jorb_session.kickoff()
+                # Subsequent iterations (worker tick / after tool result)
+                session_response = await jorb_session.tick()
 
             # Track token usage
             if session_response.tokens_used > 0:
@@ -1086,21 +1111,67 @@ class AgentRunner:
                 action.await_reply, action.done, action.pause,
             )
 
-            # Update progress if provided
-            if session_response.progress:
-                progress = session_response.progress
+            # Persist the jorb's current routing/status summary (required field).
+            await self.update_jorb_status(
+                jorb_id=jorb_id,
+                progress_summary=session_response.summary,
+            )
+
+            # Legacy progress awaiting (optional/back-compat)
+            if session_response.progress and session_response.progress.awaiting:
                 await self.update_jorb_status(
                     jorb_id=jorb_id,
-                    progress_summary=progress.note,
-                    awaiting=progress.awaiting,
+                    awaiting=session_response.progress.awaiting,
                 )
 
-            # --- Handle each action type ---
+            # --- Handle each command type (switch statement) ---
 
-            if action.done:
-                # Done: mark jorb complete
-                result_data = action.result or session_response.result
-                await self.update_jorb_status(jorb_id=jorb_id, status="complete")
+            cmd_type = action.type
+            cmd_args: dict[str, Any] = action.args or {}
+
+            # Normalize legacy schema to the new command schema
+            if cmd_type == "script":
+                cmd_type = "RUN_SCRIPT"
+                cmd_args = {"script": action.script or ""}
+            elif cmd_type == "send_message":
+                transport = "telegram" if action.channel == "telegram" else "sms"
+                cmd_type = "SEND_MESSAGE"
+                cmd_args = {
+                    "transport": transport,
+                    "recipient": action.recipient,
+                    "text": action.content,
+                }
+            elif cmd_type == "pause":
+                cmd_type = "PAUSE_FOR_APPROVAL"
+                cmd_args = {
+                    "pause_reason": action.pause_reason,
+                    "needs_approval_for": action.needs_approval_for,
+                }
+            elif cmd_type == "complete":
+                cmd_type = "COMPLETE"
+                cmd_args = {"result": action.result or session_response.result}
+            elif cmd_type in ("no_action", "update_status"):
+                cmd_type = "NOOP"
+                cmd_args = {}
+
+            # Helper: merge metadata updates
+            async def _merge_metadata(patch: dict[str, Any]) -> None:
+                current = jwm.jorb.metadata
+                current.update(patch)
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    metadata_json=json.dumps(current),
+                )
+
+            if cmd_type == "COMPLETE":
+                result_data = cmd_args.get("result")
+                result_data = result_data if isinstance(result_data, dict) else None
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    status="complete",
+                    awaiting=None,
+                    wake_at=None,
+                )
                 await self._storage.set_outcome(
                     jorb_id,
                     result=json.dumps(result_data) if result_data else None,
@@ -1112,29 +1183,76 @@ class AgentRunner:
                     message_sent=message_sent,
                 )
 
-            if action.pause:
-                # Pause: mark jorb paused
+            if cmd_type == "PAUSE_FOR_APPROVAL":
+                pause_reason = str(cmd_args.get("pause_reason") or action.pause_reason or "").strip()
+                needs_approval_for = cmd_args.get("needs_approval_for") or action.needs_approval_for
+                needs_approval_for = str(needs_approval_for).strip() if needs_approval_for else None
                 await self.update_jorb_status(
                     jorb_id=jorb_id,
                     status="paused",
-                    paused_reason=action.pause_reason or "Paused by agent",
+                    paused_reason=pause_reason or "Paused by agent",
+                    needs_approval_for=needs_approval_for,
+                    wake_at=None,
                 )
                 return ProcessingResult(
                     jorb_id=jorb_id,
-                    action_taken="pause",
+                    action_taken="pause_for_approval",
                     success=True,
                     message_sent=message_sent,
                 )
 
-            if action.script:
-                # Execute the script
-                script_result = await self._execute_script(jwm.jorb, action.script)
+            if cmd_type == "WAIT_FOR_HUMAN":
+                awaiting = str(cmd_args.get("awaiting") or "human_reply").strip() or "human_reply"
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    status="running",
+                    awaiting=awaiting,
+                    wake_at=None,
+                )
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken="wait_for_human",
+                    success=True,
+                    message_sent=message_sent,
+                )
 
+            if cmd_type == "SCHEDULE_WAKE":
+                seconds_raw = cmd_args.get("seconds", 0)
+                try:
+                    seconds = int(seconds_raw)
+                except (TypeError, ValueError):
+                    seconds = 0
+                seconds = max(1, min(24 * 60 * 60, seconds))
+                wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+                awaiting_val = cmd_args.get("awaiting")
+                awaiting_val = str(awaiting_val).strip() if awaiting_val else None
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    status="running",
+                    awaiting=awaiting_val,
+                    wake_at=wake_at_iso,
+                )
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken="schedule_wake",
+                    success=True,
+                    message_sent=message_sent,
+                )
+
+            if cmd_type == "RUN_SCRIPT":
+                script_str = str(cmd_args.get("script") or action.script or "").strip()
+                if not script_str:
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="noop_empty_script",
+                        success=True,
+                        message_sent=message_sent,
+                    )
+
+                script_result = await self._execute_script(jwm.jorb, script_str)
+
+                # Legacy async semantics: await_reply=true means wait for human.
                 if action.await_reply:
-                    # Async: script SHOULD have sent a message, so wait for human reply.
-                    # If the script failed (timeout/exception), do NOT set awaiting.
-                    # Instead, continue the loop so the LLM sees the failure in
-                    # SCRIPT_RESULTS and can retry / change approach / pause.
                     if not script_result.get("success", False):
                         logger.warning(
                             "Async script failed for jorb %s; not awaiting reply. error=%s",
@@ -1143,7 +1261,6 @@ class AgentRunner:
                         )
                         continue
 
-                    # Some FrankAPI calls return a structured dict with success=false.
                     result_value = script_result.get("result")
                     if isinstance(result_value, dict) and result_value.get("success") is False:
                         logger.warning(
@@ -1157,6 +1274,7 @@ class AgentRunner:
                         jorb_id=jorb_id,
                         status="running",
                         awaiting="human_reply",
+                        wake_at=None,
                     )
                     message_sent = True
                     return ProcessingResult(
@@ -1165,14 +1283,349 @@ class AgentRunner:
                         success=True,
                         message_sent=True,
                     )
-                else:
-                    # Sync: feed result back to LLM, continue loop
-                    continue
 
-            # No script, no done, no pause: safety fallback - break
+                continue
+
+            if cmd_type == "SEND_MESSAGE":
+                if self._check_rate_limit(jorb_id):
+                    rate_limit_msg = (
+                        f"Rate limit exceeded: {self._policy.max_messages_per_hour} messages per hour"
+                    )
+                    await self.update_jorb_status(
+                        jorb_id=jorb_id,
+                        status="paused",
+                        paused_reason=rate_limit_msg,
+                        wake_at=None,
+                    )
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="paused_rate_limit",
+                        success=True,
+                        message_sent=message_sent,
+                    )
+
+                transport = str(cmd_args.get("transport") or "").strip()
+                text = str(cmd_args.get("text") or cmd_args.get("content") or "").strip()
+                if not transport or not text:
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="noop_send_missing_args",
+                        success=True,
+                        message_sent=message_sent,
+                    )
+
+                parse_mode = cmd_args.get("parse_mode")
+                parse_mode = str(parse_mode).strip() if parse_mode is not None else None
+                parse_mode = parse_mode or None
+
+                # Defaults from jorb/contact metadata
+                default_recipient = jwm.jorb.contacts[0].identifier if jwm.jorb.contacts else None
+                recipient = str(cmd_args.get("recipient") or default_recipient or "").strip() or None
+
+                bot_chat_id = (
+                    str(cmd_args.get("chat_id") or "").strip()
+                    or str(jwm.jorb.metadata.get("telegram_bot_chat_id") or "").strip()
+                    or None
+                )
+
+                sent_ok = False
+                if transport == "telegram_bot":
+                    if not bot_chat_id:
+                        logger.warning("SEND_MESSAGE telegram_bot missing chat_id for jorb %s", jorb_id)
+                        sent_ok = False
+                    else:
+                        sent_ok = await self._send_telegram_bot_message(
+                            chat_id=bot_chat_id,
+                            text=text,
+                            parse_mode=parse_mode,
+                        )
+                        # Store against the human identifier when available for readability.
+                        store_recipient = recipient or f"chat_id:{bot_chat_id}"
+                        if sent_ok:
+                            await self.store_outbound_message(
+                                jorb_id=jorb_id,
+                                channel="telegram",
+                                recipient=store_recipient,
+                                content=text,
+                                reasoning=session_response.reasoning,
+                            )
+                elif transport == "telegram":
+                    if not recipient:
+                        logger.warning("SEND_MESSAGE telegram missing recipient for jorb %s", jorb_id)
+                        sent_ok = False
+                    else:
+                        sent_ok = await self._send_message("telegram", recipient, text)
+                        if sent_ok:
+                            await self.store_outbound_message(
+                                jorb_id=jorb_id,
+                                channel="telegram",
+                                recipient=recipient,
+                                content=text,
+                                reasoning=session_response.reasoning,
+                            )
+                elif transport == "sms":
+                    if not recipient:
+                        logger.warning("SEND_MESSAGE sms missing recipient for jorb %s", jorb_id)
+                        sent_ok = False
+                    else:
+                        sent_ok = await self._send_message("sms", recipient, text)
+                        if sent_ok:
+                            await self.store_outbound_message(
+                                jorb_id=jorb_id,
+                                channel="sms",
+                                recipient=recipient,
+                                content=text,
+                                reasoning=session_response.reasoning,
+                            )
+                else:
+                    logger.warning("Unknown SEND_MESSAGE transport=%s for jorb %s", transport, jorb_id)
+
+                if sent_ok:
+                    message_sent = True
+                    self._record_message_sent(jorb_id)
+
+                # Continue loop so the LLM can decide to wait/schedule/complete.
+                continue
+
+            if cmd_type == "START_ANDROID_TASK":
+                from actions.android_phone import task_do_action
+
+                goal = str(cmd_args.get("goal") or "").strip()
+                app = cmd_args.get("app")
+                app = str(app).strip() if app is not None else None
+                app = app or None
+                poll_seconds = cmd_args.get("poll_seconds", 10)
+                try:
+                    poll_seconds_int = int(poll_seconds)
+                except (TypeError, ValueError):
+                    poll_seconds_int = 10
+                poll_seconds_int = max(1, min(300, poll_seconds_int))
+
+                if not goal:
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="noop_android_missing_goal",
+                        success=True,
+                        message_sent=message_sent,
+                    )
+
+                task_result = await task_do_action({"goal": goal, "app": app})
+                await self._storage.add_script_result(
+                    jorb_id,
+                    {
+                        "script": "android.task_do",
+                        "result": task_result,
+                        "success": True,
+                    },
+                )
+
+                task_id = str(task_result.get("task_id") or "").strip()
+                if task_id:
+                    await _merge_metadata(
+                        {
+                            "android_task_id": task_id,
+                            "android_task_goal": goal,
+                        }
+                    )
+                    wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds_int)).isoformat()
+                    await self.update_jorb_status(
+                        jorb_id=jorb_id,
+                        awaiting=f"android_task:{task_id}",
+                        wake_at=wake_at_iso,
+                    )
+
+                continue
+
+            if cmd_type == "POLL_ANDROID_TASK":
+                from actions.android_phone import task_get_action
+
+                task_id = str(cmd_args.get("task_id") or "").strip()
+                if not task_id:
+                    task_id = str(jwm.jorb.metadata.get("android_task_id") or "").strip()
+                poll_seconds = cmd_args.get("poll_seconds", 10)
+                try:
+                    poll_seconds_int = int(poll_seconds)
+                except (TypeError, ValueError):
+                    poll_seconds_int = 10
+                poll_seconds_int = max(1, min(300, poll_seconds_int))
+
+                if not task_id:
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="noop_android_missing_task_id",
+                        success=True,
+                        message_sent=message_sent,
+                    )
+
+                task = await task_get_action({"task_id": task_id})
+                await self._storage.add_script_result(
+                    jorb_id,
+                    {
+                        "script": "android.task_get",
+                        "result": task,
+                        "success": True,
+                    },
+                )
+
+                status = str(task.get("status") or "").strip().lower()
+                if status in ("pending", "running"):
+                    wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds_int)).isoformat()
+                    await self.update_jorb_status(
+                        jorb_id=jorb_id,
+                        awaiting=f"android_task:{task_id}",
+                        wake_at=wake_at_iso,
+                    )
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="poll_android_task",
+                        success=True,
+                        message_sent=message_sent,
+                    )
+
+                # Terminal: clear waiting and let LLM interpret results
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    awaiting=None,
+                    wake_at=None,
+                )
+                continue
+
+            if cmd_type == "START_META_TASK":
+                from meta.executor import execute_new_script
+
+                slug = str(cmd_args.get("slug") or "").strip()
+                code = str(cmd_args.get("code") or "").strip()
+                params = cmd_args.get("params")
+                params = params if isinstance(params, dict) else None
+                timeout_seconds = cmd_args.get("timeout_seconds", 600)
+                poll_seconds = cmd_args.get("poll_seconds", 5)
+                try:
+                    timeout_seconds_int = int(timeout_seconds)
+                except (TypeError, ValueError):
+                    timeout_seconds_int = 600
+                timeout_seconds_int = max(5, min(3600, timeout_seconds_int))
+                try:
+                    poll_seconds_int = int(poll_seconds)
+                except (TypeError, ValueError):
+                    poll_seconds_int = 5
+                poll_seconds_int = max(1, min(60, poll_seconds_int))
+
+                if not slug or not code:
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="noop_meta_missing_args",
+                        success=True,
+                        message_sent=message_sent,
+                    )
+
+                job = await asyncio.to_thread(
+                    execute_new_script,
+                    slug,
+                    code,
+                    params,
+                    timeout_seconds_int,
+                )
+                job_dict = job.to_dict() if hasattr(job, "to_dict") else {
+                    "job_id": getattr(job, "job_id", None),
+                    "status": getattr(job, "status", None),
+                }
+                await self._storage.add_script_result(
+                    jorb_id,
+                    {
+                        "script": "meta.start_task",
+                        "result": job_dict,
+                        "success": True,
+                    },
+                )
+
+                job_id = str(job_dict.get("job_id") or "").strip()
+                if job_id:
+                    await _merge_metadata({"meta_task_id": job_id, "meta_task_slug": slug})
+                    wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds_int)).isoformat()
+                    await self.update_jorb_status(
+                        jorb_id=jorb_id,
+                        awaiting=f"meta_task:{job_id}",
+                        wake_at=wake_at_iso,
+                    )
+
+                continue
+
+            if cmd_type == "POLL_META_TASK":
+                from meta.jobs import JobStatus, get_job
+
+                task_id = str(cmd_args.get("task_id") or "").strip()
+                if not task_id:
+                    task_id = str(jwm.jorb.metadata.get("meta_task_id") or "").strip()
+                poll_seconds = cmd_args.get("poll_seconds", 5)
+                try:
+                    poll_seconds_int = int(poll_seconds)
+                except (TypeError, ValueError):
+                    poll_seconds_int = 5
+                poll_seconds_int = max(1, min(60, poll_seconds_int))
+
+                if not task_id:
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="noop_meta_missing_task_id",
+                        success=True,
+                        message_sent=message_sent,
+                    )
+
+                job = await asyncio.to_thread(get_job, task_id)
+                job_dict = job.to_dict() if job else {"job_id": task_id, "status": "not_found"}
+
+                # Add stdout/stderr tail (TTY-like)
+                stdout = str(job_dict.get("stdout") or "")
+                stderr = str(job_dict.get("stderr") or "")
+                job_dict["stdout_tail"] = stdout[-2000:]
+                job_dict["stderr_tail"] = stderr[-2000:]
+                job_dict["stdout_len"] = len(stdout)
+                job_dict["stderr_len"] = len(stderr)
+
+                await self._storage.add_script_result(
+                    jorb_id,
+                    {
+                        "script": "meta.poll_task",
+                        "result": job_dict,
+                        "success": bool(job),
+                    },
+                )
+
+                status = str(job_dict.get("status") or "").strip().lower()
+                if status in ("pending", "running") or (job and job.status == JobStatus.RUNNING):
+                    wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds_int)).isoformat()
+                    await self.update_jorb_status(
+                        jorb_id=jorb_id,
+                        awaiting=f"meta_task:{task_id}",
+                        wake_at=wake_at_iso,
+                    )
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="poll_meta_task",
+                        success=True,
+                        message_sent=message_sent,
+                    )
+
+                # Terminal: clear waiting and let LLM interpret results
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    awaiting=None,
+                    wake_at=None,
+                )
+                continue
+
+            if cmd_type == "NOOP":
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken="noop",
+                    success=True,
+                    message_sent=message_sent,
+                )
+
+            # Unknown: safety fallback
             return ProcessingResult(
                 jorb_id=jorb_id,
-                action_taken=last_action,
+                action_taken=str(cmd_type),
                 success=True,
                 message_sent=message_sent,
             )
@@ -1220,6 +1673,40 @@ class AgentRunner:
             logger.error("Error sending %s message to %s: %s", channel, recipient, e)
             return False
 
+    async def _send_telegram_bot_message(
+        self,
+        chat_id: str,
+        text: str,
+        parse_mode: str | None = None,
+    ) -> bool:
+        """
+        Send a message via the Telegram Bot API.
+
+        This posts as the bot account (e.g. @Seans_frank_bot) rather than via
+        Telethon / Sean's user account.
+        """
+        try:
+            from config import get_settings
+            from services.telegram_bot import TelegramBot
+
+            settings = get_settings()
+            if not settings.telegram_bot_token:
+                logger.warning("Telegram bot token not configured; cannot send bot message")
+                return False
+
+            bot = TelegramBot(token=settings.telegram_bot_token, chat_id=chat_id)
+            result = await bot.send_notification(
+                text=text,
+                parse_mode=parse_mode,
+                chat_id=chat_id,
+            )
+            if not result.success:
+                logger.warning("Telegram bot send failed: %s", result.error)
+            return result.success
+        except Exception as exc:
+            logger.exception("Failed to send Telegram bot message: %s", exc)
+            return False
+
     async def _enrich_event_with_contact(self, event: IncomingEvent) -> IncomingEvent:
         """
         Enrich an incoming event with contact lookup information.
@@ -1254,6 +1741,7 @@ class AgentRunner:
                     sender_name=contact.name,
                     content=event.content,
                     timestamp=event.timestamp,
+                    metadata=event.metadata,
                     message_count=event.message_count,
                     is_human_intervention=event.is_human_intervention,
                 )
@@ -1328,6 +1816,7 @@ class AgentRunner:
                 timestamp=enriched_event.timestamp,
                 open_jorbs=open_jorbs,
                 is_human_intervention=enriched_event.is_human_intervention,
+                message_metadata=enriched_event.metadata,
             )
 
             logger.info(
@@ -1353,15 +1842,17 @@ class AgentRunner:
                     )
 
                 if routing.might_be_new_jorb:
-                    # Check if this is a trusted sender who might have an in-flight task
-                    is_trusted = await self.is_trusted_sender(enriched_event.sender)
+                    # New request with no match: create a new jorb when allowed.
+                    if await self._should_autocreate_jorb(enriched_event):
+                        return await self._create_new_jorb_from_event(enriched_event)
 
-                    if is_trusted:
-                        # Create catch-up jorb for in-flight task
-                        return await self._create_catch_up_jorb(enriched_event)
-                    else:
-                        # Unknown sender - flag for review instead of auto-jorbing
-                        return await self._flag_for_review(enriched_event)
+                    # Otherwise, flag for review instead of auto-jorbing.
+                    return await self._flag_for_review(enriched_event)
+
+                # Not a new jorb, but still no match: if sender is trusted, fall back
+                # to a catch-up jorb to recover context safely.
+                if await self.is_trusted_sender(enriched_event.sender):
+                    return await self._create_catch_up_jorb(enriched_event)
 
                 return ProcessingResult(
                     jorb_id=None,
@@ -1396,91 +1887,31 @@ class AgentRunner:
             # Step 7: Store the inbound message (for regular messages)
             await self.store_inbound_message(routing.jorb_id, enriched_event)
 
-            # Step 8: Create jorb session with personality
-            jorb_session = create_jorb_session(
-                matched_jorb,
-                policy=self._policy.to_context_dict(),
-            )
-
-            # Step 9: Process with jorb session
-            session_response = await jorb_session.process_message(
-                channel=enriched_event.channel,
-                sender=enriched_event.sender,
-                sender_name=enriched_event.sender_name,
-                content=enriched_event.content,
-                timestamp=enriched_event.timestamp,
-                message_count=enriched_event.message_count,
-            )
-
-            # Track session tokens
-            total_tokens += session_response.tokens_used
-            total_cost = session_response.estimated_cost
-
-            logger.info(
-                "Jorb session decided: action=%s, reasoning=%s",
-                session_response.action.type,
-                session_response.reasoning[:100] if session_response.reasoning else "",
-            )
-
-            # Update token metrics for this jorb
-            if total_tokens > 0:
-                await self._storage.increment_metrics(
-                    routing.jorb_id,
-                    tokens_used=total_tokens,
-                    estimated_cost=total_cost,
-                )
-
-            # Step 10: Execute the action
-            message_sent = False
-            action = session_response.action
-
-            if action.type == "send_message":
-                message_sent = await self._execute_send_message(
-                    jorb_id=routing.jorb_id,
-                    jorb_name=matched_jorb.jorb.name,
-                    action=action,
-                    reasoning=session_response.reasoning,
-                )
-
-            elif action.type == "pause":
-                await self.update_jorb_status(
-                    jorb_id=routing.jorb_id,
-                    status="paused",
-                    paused_reason=action.pause_reason,
-                    needs_approval_for=action.needs_approval_for,
-                )
-
-            elif action.type == "complete":
-                await self.update_jorb_status(
-                    jorb_id=routing.jorb_id,
-                    status="complete",
-                )
-
-            # Step 11: Update progress if provided
-            if session_response.progress:
-                progress = session_response.progress
-                await self.update_jorb_status(
-                    jorb_id=routing.jorb_id,
-                    progress_summary=progress.note,
-                    awaiting=progress.awaiting,
-                )
-
-                # Record progress in log
-                if progress.note:
-                    progress_log = get_progress_log()
-                    progress_log.add_entry(
-                        entry_type="task_progress",
-                        summary=progress.note,
+            # Step 8: Persist routing metadata (e.g. telegram_bot chat_id) onto the jorb
+            if enriched_event.metadata:
+                meta = matched_jorb.jorb.metadata
+                # Merge only known routing keys (avoid unbounded growth)
+                for k in ("source", "telegram_bot_chat_id"):
+                    if k in enriched_event.metadata and enriched_event.metadata.get(k) is not None:
+                        meta[k] = enriched_event.metadata.get(k)
+                # Derive preferred transport from source when present
+                src = str(enriched_event.metadata.get("source") or "").strip()
+                if src == "telegram_bot":
+                    meta["preferred_transport"] = "telegram_bot"
+                if meta != matched_jorb.jorb.metadata:
+                    await self.update_jorb_status(
                         jorb_id=routing.jorb_id,
-                        jorb_name=matched_jorb.jorb.name,
+                        metadata_json=json.dumps(meta),
                     )
 
-            return ProcessingResult(
+            # Step 9: Ensure jorb is running when new work arrives
+            await self.update_jorb_status(
                 jorb_id=routing.jorb_id,
-                action_taken=action.type,
-                success=True,
-                message_sent=message_sent,
+                status="running",
             )
+
+            # Step 10: Run the iterative command loop for this event
+            return await self.process_jorb_event(matched_jorb.jorb, event=enriched_event)
 
         except Exception as e:
             logger.exception("Error in switchboard processing")
@@ -1627,6 +2058,119 @@ class AgentRunner:
             success=True,
             message_sent=False,  # Sean already sent it, we just recorded it
         )
+
+    async def _should_autocreate_jorb(self, event: IncomingEvent) -> bool:
+        """
+        Decide whether a new jorb can be auto-created from this message.
+
+        Telegram (bot + user) is allowlisted at the router layer, so we can
+        safely auto-create for allowlisted senders. SMS is more dangerous; we
+        only auto-create for trusted senders.
+        """
+        if event.channel == "telegram":
+            # Defensive: re-check allowlist when sender looks like a username.
+            if event.sender.startswith("@"):
+                from services.telegram_allowlist import is_allowed_username
+
+                return is_allowed_username(event.sender[1:])
+            return True
+
+        if event.channel == "sms":
+            return await self.is_trusted_sender(event.sender)
+
+        return False
+
+    async def _create_new_jorb_from_event(self, event: IncomingEvent) -> ProcessingResult:
+        """
+        Create a new jorb from an incoming message and process it immediately.
+
+        This is used when the switchboard indicates the message is a new request
+        with no existing jorb match.
+        """
+        logger.info(
+            "Creating new jorb from %s (%s): %s",
+            event.channel,
+            event.sender,
+            event.content[:80],
+        )
+
+        preview = (event.content or "").strip().replace("\n", " ")
+        if len(preview) > 60:
+            preview = preview[:60] + "..."
+
+        is_bot = str(event.metadata.get("source") or "").strip() == "telegram_bot"
+        jorb_name_prefix = "Bot" if is_bot else event.channel.capitalize()
+        jorb_name = f"{jorb_name_prefix}: {preview}" if preview else f"{jorb_name_prefix}: (empty)"
+
+        # Decide reply transport
+        if event.channel == "telegram" and is_bot:
+            transport = "telegram_bot"
+        elif event.channel == "telegram":
+            transport = "telegram"
+        elif event.channel == "sms":
+            transport = "sms"
+        else:
+            transport = event.channel
+
+        bot_chat_id = str(event.metadata.get("telegram_bot_chat_id") or "").strip() or None
+
+        plan_lines = [
+            "You are a jorb agent. Follow the strict command schema in the system prompt.",
+            "",
+            "Reply requirements:",
+            f"- Reply via transport={transport}.",
+            f"- Default recipient is {event.sender}.",
+            "- Use SEND_MESSAGE for human-facing replies (do NOT send via RUN_SCRIPT).",
+            "- Use RUN_SCRIPT for diagnostics and API calls (frank.*).",
+            "- Use SCHEDULE_WAKE to yield and resume later (polling long-running tasks).",
+            "- Only WAIT_FOR_HUMAN when you truly need a human reply.",
+            "- When done: send the final answer, then COMPLETE.",
+        ]
+        if transport == "telegram_bot" and bot_chat_id:
+            plan_lines.insert(4, f"- Telegram bot chat_id={bot_chat_id}.")
+
+        plan_lines.extend(
+            [
+                "",
+                "Original message:",
+                f"- from: {event.sender} ({event.sender_name or 'unknown'})",
+                f"- content: {event.content}",
+            ]
+        )
+        plan = "\n".join(plan_lines)
+
+        contact = JorbContact(
+            identifier=event.sender,
+            channel=event.channel,
+            name=event.sender_name,
+        )
+
+        jorb = await self._storage.create_jorb(
+            name=jorb_name,
+            plan=plan,
+            contacts=[contact],
+            personality="default",
+        )
+
+        # Persist routing metadata for switchboard + SEND_MESSAGE defaults
+        meta: dict[str, Any] = {}
+        if isinstance(event.metadata, dict):
+            meta.update(event.metadata)
+        meta["preferred_transport"] = transport
+        if transport == "telegram_bot" and bot_chat_id:
+            meta["telegram_bot_chat_id"] = bot_chat_id
+
+        await self.update_jorb_status(
+            jorb_id=jorb.id,
+            status="running",
+            metadata_json=json.dumps(meta),
+        )
+
+        # Store inbound message
+        await self.store_inbound_message(jorb.id, event)
+
+        # Process with iterative loop
+        return await self.process_jorb_event(jorb, event=event)
 
     async def _create_catch_up_jorb(
         self,

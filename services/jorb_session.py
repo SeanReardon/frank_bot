@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime  # noqa: F401 - used by format functions
 from typing import Any, Literal
 
@@ -88,9 +88,30 @@ def _parse_json_object_from_model(content: str) -> dict[str, Any]:
 
 @dataclass
 class JorbAction:
-    """An action decided by the jorb session."""
+    """A command decided by the jorb session (executed by a switch statement)."""
 
-    type: Literal["send_message", "pause", "complete", "update_status", "no_action", "script"]
+    type: Literal[
+        # New command schema (preferred)
+        "RUN_SCRIPT",
+        "SEND_MESSAGE",
+        "WAIT_FOR_HUMAN",
+        "SCHEDULE_WAKE",
+        "PAUSE_FOR_APPROVAL",
+        "COMPLETE",
+        "NOOP",
+        "START_ANDROID_TASK",
+        "POLL_ANDROID_TASK",
+        "START_META_TASK",
+        "POLL_META_TASK",
+        # Legacy action schema (backwards compat)
+        "send_message",
+        "pause",
+        "complete",
+        "update_status",
+        "no_action",
+        "script",
+    ]
+    args: dict[str, Any] = field(default_factory=dict)
     # Legacy fields for backward compatibility
     channel: Channel | None = None
     recipient: str | None = None
@@ -119,6 +140,7 @@ class JorbProgress:
 class JorbSessionResponse:
     """Complete response from a jorb session."""
 
+    summary: str
     reasoning: str
     action: JorbAction
     progress: JorbProgress | None = None
@@ -177,6 +199,8 @@ def _format_jorb_context(jorb: Jorb) -> dict[str, Any]:
         "status": jorb.status,
         "progress_summary": jorb.progress_summary or "",
         "awaiting": jorb.awaiting,
+        "wake_at": getattr(jorb, "wake_at", None),
+        "metadata": getattr(jorb, "metadata", {}),
         "contacts": [c.to_dict() for c in jorb.contacts],
         "created_at": jorb.created_at,
     }
@@ -271,14 +295,12 @@ class JorbSession:
         """
         Parse the LLM JSON response into a JorbSessionResponse.
 
-        Handles the new script-based JSON format with fields:
-        - reasoning: thought process
-        - script: Python code to execute (or null)
-        - await_reply: whether to wait for human response
-        - done: whether jorb is complete
-        - pause: whether to pause for approval
-        - pause_reason: why pausing
-        - result: final result if done
+        Supports two formats:
+        1) Preferred (strict) command schema:
+           - summary: required short status
+           - reasoning: optional short explanation
+           - command: { type, args }
+        2) Legacy script schema (backwards compatibility)
 
         Args:
             response_json: Parsed JSON dict from LLM response
@@ -292,7 +314,78 @@ class JorbSession:
         if not isinstance(response_json, dict):
             raise ValueError(f"Expected dict response, got {type(response_json).__name__}")
 
-        # Extract fields with sensible defaults
+        # ------------------------------------------------------------
+        # Preferred strict command schema
+        # ------------------------------------------------------------
+        if "command" in response_json:
+            summary = str(response_json.get("summary") or "").strip()
+            if not summary:
+                raise ValueError("summary is required")
+
+            reasoning = str(response_json.get("reasoning") or "").strip()
+
+            command = response_json.get("command")
+            if not isinstance(command, dict):
+                raise ValueError("command must be an object")
+
+            cmd_type = str(command.get("type") or "").strip()
+            args = command.get("args") or {}
+            if not isinstance(args, dict):
+                raise ValueError("command.args must be an object")
+
+            allowed = {
+                "RUN_SCRIPT",
+                "SEND_MESSAGE",
+                "WAIT_FOR_HUMAN",
+                "SCHEDULE_WAKE",
+                "PAUSE_FOR_APPROVAL",
+                "COMPLETE",
+                "NOOP",
+                "START_ANDROID_TASK",
+                "POLL_ANDROID_TASK",
+                "START_META_TASK",
+                "POLL_META_TASK",
+            }
+            if cmd_type not in allowed:
+                raise ValueError(f"Invalid command.type: {cmd_type}")
+
+            action = JorbAction(
+                type=cmd_type,  # type: ignore[arg-type]
+                args=args,
+                reasoning=reasoning,
+            )
+
+            # Populate legacy convenience fields for existing code paths/logging.
+            if cmd_type == "RUN_SCRIPT":
+                script = str(args.get("script") or "").strip()
+                action.script = script or None
+                action.content = action.script
+            elif cmd_type == "PAUSE_FOR_APPROVAL":
+                action.pause = True
+                action.pause_reason = str(args.get("pause_reason") or "").strip() or None
+                naf = args.get("needs_approval_for")
+                action.needs_approval_for = str(naf).strip() if naf else None
+            elif cmd_type == "COMPLETE":
+                action.done = True
+                result_val = args.get("result")
+                action.result = result_val if isinstance(result_val, dict) else None
+            elif cmd_type == "SEND_MESSAGE":
+                # AgentRunner handles sending; keep content populated for logs.
+                action.content = str(args.get("text") or "").strip() or None
+
+            # Summary doubles as the canonical progress note for routing.
+            progress = JorbProgress(note=summary)
+
+            return JorbSessionResponse(
+                summary=summary,
+                reasoning=reasoning,
+                action=action,
+                progress=progress,
+            )
+
+        # ------------------------------------------------------------
+        # Legacy script schema (backwards compatibility)
+        # ------------------------------------------------------------
         reasoning = response_json.get("reasoning", "") or ""
         script = response_json.get("script")
         await_reply = bool(response_json.get("await_reply", False))
@@ -301,19 +394,16 @@ class JorbSession:
         pause_reason = response_json.get("pause_reason")
         result = response_json.get("result")
 
-        # Determine action type based on new format fields
         action_type: Literal[
             "send_message", "pause", "complete", "update_status", "no_action", "script"
         ] = "no_action"
-
         if done:
             action_type = "complete"
         elif pause:
             action_type = "pause"
-        elif script is not None and script.strip():
+        elif script is not None and str(script).strip():
             action_type = "script"
 
-        # Create the action with all new format fields
         action = JorbAction(
             type=action_type,
             script=script,
@@ -323,11 +413,9 @@ class JorbSession:
             pause_reason=pause_reason,
             result=result if isinstance(result, dict) else None,
             reasoning=reasoning,
-            # Legacy fields for backward compatibility
             content=script if script else None,
         )
 
-        # Create progress from any progress data in response
         progress = None
         progress_data = response_json.get("progress")
         if progress_data and isinstance(progress_data, dict):
@@ -337,11 +425,18 @@ class JorbSession:
                 learnings=progress_data.get("learnings"),
             )
 
+        # Derive a best-effort summary from legacy fields.
+        summary = (
+            (progress.note if progress and progress.note else None)
+            or (reasoning.strip() if isinstance(reasoning, str) else None)
+            or "Working…"
+        )
+
         return JorbSessionResponse(
+            summary=summary,
             reasoning=reasoning,
             action=action,
             progress=progress,
-            # Also expose new format fields at response level for convenience
             script=script,
             await_reply=await_reply,
             done=done,
@@ -461,6 +556,7 @@ class JorbSession:
         if not self._api_key or openai is None:
             logger.warning("Jorb session not configured")
             return JorbSessionResponse(
+                summary="Session not configured (missing OpenAI API key).",
                 reasoning="Session not configured",
                 action=JorbAction(type="no_action"),
             )
@@ -539,9 +635,95 @@ class JorbSession:
         except Exception as e:
             logger.exception("Jorb session error: %s", e)
             return JorbSessionResponse(
+                summary=f"Session error: {e}",
                 reasoning=f"Session error: {e}",
                 action=JorbAction(type="no_action"),
                 progress=JorbProgress(note=f"Session error: {e}"),
+            )
+
+    async def tick(self) -> JorbSessionResponse:
+        """
+        Continue working a jorb when there is no new external message.
+
+        This is used for worker ticks (scheduled wakes) and for multi-step
+        iteration after tools/scripts have produced new results.
+        """
+        if not self._api_key or openai is None:
+            logger.warning("Jorb session not configured for tick")
+            return JorbSessionResponse(
+                summary="Tick not configured (missing OpenAI API key).",
+                reasoning="Session not configured",
+                action=JorbAction(type="no_action"),
+            )
+
+        system_prompt = self._build_system_prompt()
+        system_prompt = system_prompt.replace("{{CURRENT_EVENT}}", "See user message")
+
+        user_message = (
+            "Tick: there is no new external message.\n\n"
+            "Continue working this jorb using the current plan, message history, "
+            "and tool/script results history. Emit the next command.\n\n"
+            "Important:\n"
+            "- Do NOT assume you must wait for a human reply unless truly required.\n"
+            "- If you're waiting on an external task (Android/meta task), poll it or "
+            "schedule a wake.\n"
+            "- Always include an up-to-date `summary` suitable for routing."
+        )
+
+        try:
+            client = openai.OpenAI(api_key=self._api_key)
+
+            model = self._personality.model_preferences.preferred_model or DEFAULT_JORB_MODEL
+            temperature = self._personality.model_preferences.temperature
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ]
+
+            logger.info(
+                "Ticking jorb %s with personality %s",
+                self._jorb.id,
+                self._personality.id,
+            )
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                response_format={"type": "json_object"},
+                temperature=temperature,
+            )
+
+            content_str = response.choices[0].message.content
+            if not content_str:
+                raise ValueError("Empty response from tick")
+
+            result = _parse_json_object_from_model(content_str)
+
+            tokens_used = 0
+            estimated_cost = 0.0
+            if response.usage:
+                input_tokens = response.usage.prompt_tokens or 0
+                output_tokens = response.usage.completion_tokens or 0
+                tokens_used = input_tokens + output_tokens
+                estimated_cost = _calculate_token_cost(input_tokens, output_tokens)
+
+            response_obj = self._parse_response(result)
+            response_obj.tokens_used = tokens_used
+            response_obj.estimated_cost = estimated_cost
+
+            if response_obj.progress and response_obj.progress.learnings:
+                self._record_learning(response_obj.progress.learnings)
+
+            return response_obj
+
+        except Exception as e:
+            logger.exception("Jorb tick error: %s", e)
+            return JorbSessionResponse(
+                summary=f"Tick error: {e}",
+                reasoning=f"Tick error: {e}",
+                action=JorbAction(type="no_action"),
+                progress=JorbProgress(note=f"Tick error: {e}"),
             )
 
     def _is_catch_up_jorb(self) -> bool:
@@ -586,6 +768,7 @@ class JorbSession:
         if not contacts:
             logger.warning("Catch-up jorb %s has no contacts", self._jorb.id)
             return JorbSessionResponse(
+                summary="Catch-up jorb has no contacts to message.",
                 reasoning="Catch-up jorb has no contacts to message",
                 action=JorbAction(type="no_action"),
             )
@@ -599,6 +782,7 @@ class JorbSession:
         )
 
         return JorbSessionResponse(
+            summary="Asked contact for context recovery; awaiting reply.",
             reasoning="Catch-up jorb - asking contact to remind me of context",
             action=JorbAction(
                 type="send_message",
@@ -632,6 +816,7 @@ class JorbSession:
         if not self._api_key or openai is None:
             logger.warning("Jorb session not configured for kickoff")
             return JorbSessionResponse(
+                summary="Kickoff not configured (missing OpenAI API key).",
                 reasoning="Session not configured",
                 action=JorbAction(type="no_action"),
             )
@@ -696,6 +881,7 @@ class JorbSession:
         except Exception as e:
             logger.exception("Jorb kickoff error: %s", e)
             return JorbSessionResponse(
+                summary=f"Kickoff error: {e}",
                 reasoning=f"Kickoff error: {e}",
                 action=JorbAction(type="no_action"),
                 progress=JorbProgress(note=f"Kickoff error: {e}"),

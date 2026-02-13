@@ -440,7 +440,7 @@ def get_settings() -> Settings:
         jorbs_progress_log=os.getenv("JORBS_PROGRESS_LOG", "./data/jorbs_progress.txt"),
         agent_spend_limit=float(os.getenv("AGENT_SPEND_LIMIT", "100.0")),
         context_reset_days=int(os.getenv("CONTEXT_RESET_DAYS", "3")),
-        debounce_telegram_seconds=int(os.getenv("DEBOUNCE_TELEGRAM_SECONDS", "60")),
+        debounce_telegram_seconds=int(os.getenv("DEBOUNCE_TELEGRAM_SECONDS", "3")),
         debounce_sms_seconds=int(os.getenv("DEBOUNCE_SMS_SECONDS", "30")),
         # Email/SMTP settings for jorb notifications
         smtp_host=secrets.get("smtp_host"),
