@@ -74,3 +74,12 @@ Dev-only fallbacks (avoid in prod; prefer Vault):
 - `token.json` - OAuth token cache (auto-generated)
 - `.env` files - User-specific configuration
 - `credentials.json` - User's Google OAuth credentials
+
+## Deploy Auth Responsibilities
+
+- Deployment auth is infra-owned in `homelab-infra` and read at runtime from Vault.
+- Canonical deploy-auth path for this repo: `secret/homelab/deploy-auth/frank_bot`.
+- The deploy PAT from that path is used for both HTTPS git fetch and GHCR image pulls.
+- This repo continues to own only its application secret schema/policies in Vault.
+- Do not rely on persistent deployment creds in `~/.docker/config.json` or `~/.git-credentials`.
+
