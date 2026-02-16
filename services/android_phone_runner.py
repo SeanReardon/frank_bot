@@ -525,6 +525,7 @@ class AndroidPhoneRunner:
             for key, value in params.items():
                 full_task_prompt = full_task_prompt.replace(f"{{{key}}}", str(value))
                 full_task_prompt = full_task_prompt.replace(f"{{{{ {key} }}}}", str(value))
+                full_task_prompt = full_task_prompt.replace(f"{{{{{key}}}}}", str(value))
         else:
             # Use task_prompt as-is
             full_task_prompt = task_prompt

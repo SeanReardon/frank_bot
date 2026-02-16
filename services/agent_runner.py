@@ -1762,14 +1762,99 @@ class AgentRunner:
                         message_sent=message_sent,
                     )
 
-                # Terminal: clear waiting and schedule a short wake so the LLM can
-                # interpret results in a fresh run (prevents tight in-process loops).
-                next_wake = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()
+                # Terminal: do NOT schedule a rapid wake. In practice, a completed
+                # task that gets re-polled can create a runaway LLM loop
+                # (completed → POLL again → wake → completed → ...), tripping the
+                # iteration limiter before the human sees any output.
+                #
+                # Instead, clear waiting and emit a single human-facing summary of
+                # the terminal task result, then wait for a new human message.
                 await self.update_jorb_status(
                     jorb_id=jorb_id,
-                    awaiting=None,
-                    wake_at=next_wake,
+                    status="running",
+                    awaiting="human_reply",
+                    wake_at=None,
                 )
+
+                # Best-effort: send a terminal update once (keeps things safe even
+                # if the model asked to poll again).
+                try:
+                    meta = jwm.jorb.metadata or {}
+                    preferred = str(meta.get("preferred_transport") or "").strip()
+                    preferred = preferred or ("telegram_bot" if meta.get("telegram_bot_chat_id") else "")
+                    chat_id = str(meta.get("telegram_bot_chat_id") or "").strip() or None
+                    recipient = jwm.jorb.contacts[0].identifier if jwm.jorb.contacts else None
+
+                    inner = task.get("result")
+                    extracted = None
+                    result_desc = None
+                    if isinstance(inner, dict):
+                        extracted = inner.get("extracted_data")
+                        result_desc = inner.get("result")
+
+                    lines = [f"Android task finished (task_id={task_id}, status={status or 'terminal'})."]
+                    if isinstance(task.get("current_step"), str) and task.get("current_step"):
+                        lines.append(f"Last step: {str(task.get('current_step'))[:160]}")
+                    if isinstance(task.get("error"), str) and task.get("error"):
+                        err_one = " ".join(str(task.get("error")).split())
+                        if len(err_one) > 300:
+                            err_one = err_one[:300] + "..."
+                        lines.append(f"Error: {err_one}")
+                    if result_desc:
+                        lines.append(f"Result: {str(result_desc)[:300]}")
+                    if extracted:
+                        try:
+                            extracted_json = json.dumps(extracted, ensure_ascii=False)
+                        except Exception:
+                            extracted_json = str(extracted)
+                        if len(extracted_json) > 600:
+                            extracted_json = extracted_json[:600] + "..."
+                        lines.append(f"Extracted data: {extracted_json}")
+                    elif status == "completed":
+                        lines.append(
+                            "Note: extracted data was empty. If you want, ask me to retry with a more specific goal."
+                        )
+
+                    text = "\n".join(lines)
+                    sent_ok = False
+                    if not self._check_rate_limit(jorb_id):
+                        if preferred == "telegram_bot" and chat_id:
+                            sent_ok = await self._send_telegram_bot_message(chat_id=chat_id, text=text)
+                            if sent_ok:
+                                await self.store_outbound_message(
+                                    jorb_id=jorb_id,
+                                    channel="telegram_bot",
+                                    recipient=recipient or f"chat_id:{chat_id}",
+                                    content=text,
+                                    reasoning="android_task_terminal",
+                                )
+                        elif preferred == "telegram" and recipient:
+                            sent_ok = await self._send_message("telegram", recipient, text)
+                            if sent_ok:
+                                await self.store_outbound_message(
+                                    jorb_id=jorb_id,
+                                    channel="telegram",
+                                    recipient=recipient,
+                                    content=text,
+                                    reasoning="android_task_terminal",
+                                )
+                        elif preferred == "sms" and recipient:
+                            sent_ok = await self._send_message("sms", recipient, text)
+                            if sent_ok:
+                                await self.store_outbound_message(
+                                    jorb_id=jorb_id,
+                                    channel="sms",
+                                    recipient=recipient,
+                                    content=text,
+                                    reasoning="android_task_terminal",
+                                )
+
+                    if sent_ok:
+                        message_sent = True
+                        self._record_message_sent(jorb_id)
+                except Exception:
+                    logger.exception("Failed to send terminal android task summary for jorb %s", jorb_id)
+
                 terminal_action = f"android_task_{status}" if status else "android_task_terminal"
                 return ProcessingResult(
                     jorb_id=jorb_id,

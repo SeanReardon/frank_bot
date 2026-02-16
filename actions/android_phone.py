@@ -1130,9 +1130,43 @@ async def _execute_task_background(task_id: str, goal: str, app: str | None) -> 
         await storage.update_task(task_id, current_step="Running automation")
         logger.info("Task %s: Starting automation for goal: %s", task_id, goal[:50])
 
+        # Choose a task prompt based on goal/app.
+        #
+        # We prefer task-specific prompts when we can confidently detect the
+        # intent, because the generic prompt can "complete" without extracting
+        # the requested structured data.
+        goal_lower = goal.lower()
+        task_prompt = "_generic"
+        parameters: dict[str, Any] = {"GOAL": goal}
+
+        if app == "google_home":
+            thermostat_markers = (
+                "thermostat",
+                "temperature",
+                "temp",
+                "hvac",
+                "nest",
+                "setpoint",
+            )
+            looks_like_thermostat = any(m in goal_lower for m in thermostat_markers)
+            looks_like_set_action = any(
+                phrase in goal_lower
+                for phrase in (
+                    "set the thermostat",
+                    "set thermostat",
+                    "change the thermostat",
+                    "adjust the thermostat",
+                    "set to",
+                    "set range",
+                )
+            )
+            if looks_like_thermostat and not looks_like_set_action:
+                task_prompt = "thermostat-getStatus"
+                parameters = {}
+
         result = await runner.run_task(
-            task_prompt="_generic",
-            parameters={"GOAL": goal},
+            task_prompt=task_prompt,
+            parameters=parameters,
             max_steps=25,
         )
 

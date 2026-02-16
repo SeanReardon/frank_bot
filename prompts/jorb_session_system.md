@@ -116,6 +116,13 @@ Your `command.type` MUST be exactly one of the following. The runtime will execu
 - If the task returns `status="failed"` (or you see an ADB/device/screenshot error), send a clear message to Sean with the exact error and what you’ll try next.
 - Avoid tight retry loops; use `SCHEDULE_WAKE` with a reasonable backoff if you plan to retry.
 
+**Completion handling (IMPORTANT)**:
+- If the task returns `status="completed"`: **do NOT keep polling the same task_id**. Polling a completed task will not produce new information and can trigger runaway-loop protection.
+- Instead: **use whatever `result` / `extracted_data` you already have**, send Sean a concise message, and either:
+  - finish, or
+  - start a *new* Android task with a more specific goal (if you need a retry).
+- If `extracted_data` is empty/missing on completion, say so explicitly and propose the next best step (e.g. retry with a more specific navigation goal).
+
 #### `START_META_TASK`
 - Use to start a long-running Python script with stdout/stderr capture ("TTY-like")
 - Args:

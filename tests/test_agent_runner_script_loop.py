@@ -433,6 +433,54 @@ class TestAgentLoop:
         assert result.action_taken == "complete"
 
     @pytest.mark.asyncio
+    async def test_poll_android_task_terminal_does_not_schedule_wake(self, runner, storage):
+        """
+        Regression: if the model polls a task that is already terminal, we must
+        NOT schedule rapid wake ticks (which can cause runaway LLM loops).
+        """
+        jorb = await storage.create_jorb(
+            name="Test Android Poll Terminal",
+            plan="Poll android task",
+        )
+        await storage.update_jorb(
+            jorb.id,
+            status="running",
+            metadata_json='{"preferred_transport":"telegram_bot","telegram_bot_chat_id":"123"}',
+        )
+
+        poll_response = self._make_session_response(action_type="POLL_ANDROID_TASK")
+        poll_response.action = JorbAction(type="POLL_ANDROID_TASK", args={"task_id": "abc123"})
+
+        completed_task = {
+            "id": "abc123",
+            "status": "completed",
+            "current_step": "Running automation",
+            "result": {"success": True, "result": "Task completed", "extracted_data": {}},
+            "error": None,
+        }
+
+        with patch("services.agent_runner.create_jorb_session") as mock_create, patch(
+            "actions.android_phone.task_get_action",
+            new=AsyncMock(return_value=completed_task),
+        ), patch.object(
+            AgentRunner,
+            "_send_telegram_bot_message",
+            new=AsyncMock(return_value=True),
+        ):
+            mock_session = MagicMock()
+            mock_session.tick = AsyncMock(return_value=poll_response)
+            mock_create.return_value = mock_session
+
+            result = await runner.process_jorb_event(jorb)
+
+        assert result.success is True
+        assert result.action_taken in ("android_task_completed", "android_task_terminal")
+
+        updated = await storage.get_jorb(jorb.id)
+        assert updated.wake_at is None
+        assert updated.awaiting == "human_reply"
+
+    @pytest.mark.asyncio
     async def test_no_action_breaks_loop(self, runner, storage):
         """No-action response is a safety fallback that breaks the loop."""
         jorb = await storage.create_jorb(
