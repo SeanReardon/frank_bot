@@ -14,6 +14,7 @@ Orchestrates jorb event processing including:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import signal
 from datetime import datetime, timezone, time as dt_time, timedelta
@@ -326,7 +327,75 @@ class BackgroundLoopService:
                 )
                 return True
 
-            # Terminal/error: clear waiting and let the LLM interpret results once.
+            # Terminal/error: for failures, proactively notify the human once with
+            # the exact error, then clear awaiting. For success, let the LLM
+            # interpret and summarize.
+            if status in ("failed", "error", "not_found") or not success:
+                try:
+                    meta = getattr(jorb, "metadata", {}) or {}
+                    last_notified = str(meta.get("last_android_task_terminal_notified") or "").strip()
+                    if last_notified != task_id:
+                        error = str((task or {}).get("error") or "").strip()
+                        if error:
+                            # Keep the message short but verbatim for debugging.
+                            err_one_line = " ".join(error.split())
+                            if len(err_one_line) > 400:
+                                err_one_line = err_one_line[:400] + "..."
+
+                            preferred = str(meta.get("preferred_transport") or "").strip()
+                            preferred = preferred or ("telegram_bot" if meta.get("telegram_bot_chat_id") else "")
+                            chat_id = str(meta.get("telegram_bot_chat_id") or "").strip() or None
+                            recipient = jorb.contacts[0].identifier if getattr(jorb, "contacts", None) else None
+
+                            text = (
+                                f"Android diagnostics failed (task_id={task_id}): {err_one_line}\n\n"
+                                "If you reconnect the phone/ADB, send another message and I’ll retry."
+                            )
+                            sent_ok = False
+                            if preferred == "telegram_bot" and chat_id:
+                                sent_ok = await runner._send_telegram_bot_message(chat_id=chat_id, text=text)
+                                if sent_ok:
+                                    await runner.store_outbound_message(
+                                        jorb_id=jorb.id,
+                                        channel="telegram_bot",
+                                        recipient=recipient or f"chat_id:{chat_id}",
+                                        content=text,
+                                        reasoning="auto_task_failure",
+                                    )
+                            elif preferred == "telegram" and recipient:
+                                sent_ok = await runner._send_message("telegram", recipient, text)
+                                if sent_ok:
+                                    await runner.store_outbound_message(
+                                        jorb_id=jorb.id,
+                                        channel="telegram",
+                                        recipient=recipient,
+                                        content=text,
+                                        reasoning="auto_task_failure",
+                                    )
+                            elif preferred == "sms" and recipient:
+                                sent_ok = await runner._send_message("sms", recipient, text)
+                                if sent_ok:
+                                    await runner.store_outbound_message(
+                                        jorb_id=jorb.id,
+                                        channel="sms",
+                                        recipient=recipient,
+                                        content=text,
+                                        reasoning="auto_task_failure",
+                                    )
+
+                            if sent_ok:
+                                runner._record_message_sent(jorb.id)
+                                meta["last_android_task_terminal_notified"] = task_id
+                                await self._storage.update_jorb(
+                                    jorb.id, metadata_json=json.dumps(meta), awaiting=None, wake_at=None
+                                )
+                                return True
+                except Exception:
+                    logger.exception("Failed to auto-notify android task failure for jorb %s", jorb.id)
+
+                await self._storage.update_jorb(jorb.id, awaiting=None, wake_at=None)
+                return True
+
             await self._storage.update_jorb(jorb.id, awaiting=None, wake_at=None)
             refreshed = await self._storage.get_jorb(jorb.id) or jorb
             await runner.process_jorb_event(refreshed, event=None)
