@@ -136,6 +136,29 @@ class TestKickoffCatchUpJorb:
         assert response.action.channel == "telegram"
         assert response.action.recipient == "@magic"
 
+    def test_telegram_bot_recipient_uses_chat_id_metadata(self, sean_voice_personality):
+        """telegram_bot catch-up kickoff should use stored chat_id, not username."""
+        jorb = Jorb(
+            id="jorb_catchup_bot",
+            name="Catch-up: hello",
+            status="running",
+            original_plan="Recover context for in-flight task. Original message: hello",
+            personality="sean-voice",
+        )
+        jorb.contacts = [JorbContact(identifier="@SeanReardon", channel="telegram_bot", name="Sean")]
+        jorb.metadata = {"telegram_bot_chat_id": "12345"}
+
+        session = JorbSession(
+            jorb=jorb,
+            messages=[],
+            personality=sean_voice_personality,
+        )
+        response = session._kickoff_catch_up_jorb()
+
+        assert response.action.type == "send_message"
+        assert response.action.channel == "telegram_bot"
+        assert response.action.recipient == "12345"
+
     def test_message_asks_for_context(self, catch_up_jorb, sean_voice_personality):
         """Catch-up message asks for context in casual way."""
         session = JorbSession(

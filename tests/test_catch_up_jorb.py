@@ -87,6 +87,23 @@ def trusted_sender_event():
 
 
 @pytest.fixture
+def trusted_sender_event_bot():
+    """Create a telegram_bot event with chat_id metadata (Sean) with no matching jorb."""
+    return IncomingEvent(
+        channel="telegram_bot",
+        sender="@SeanReardon",
+        sender_name="Sean Reardon",
+        content="hello, how are you today?",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        metadata={
+            "source": "telegram_bot",
+            "telegram_bot_chat_id": "12345",
+        },
+        message_count=1,
+    )
+
+
+@pytest.fixture
 def unknown_sender_event():
     """Create an event from an unknown sender."""
     return IncomingEvent(
@@ -196,6 +213,24 @@ class TestCatchUpJorbCreation:
             call_args = mock_kickoff.call_args
             kickoff_jorb = call_args[0][0]  # First positional arg
             assert kickoff_jorb.name.startswith("Catch-up:")
+
+    @pytest.mark.asyncio
+    async def test_persists_telegram_bot_chat_id_metadata(
+        self, runner, storage, trusted_sender_event_bot
+    ):
+        """Catch-up jorb created from telegram_bot event stores chat_id metadata for replies."""
+        with patch.object(runner, "kickoff_jorb", new_callable=AsyncMock) as mock_kickoff:
+            mock_kickoff.return_value = MagicMock(message_sent=False)
+            result = await runner._create_catch_up_jorb(trusted_sender_event_bot)
+
+        jorb = await storage.get_jorb(result.jorb_id)
+        assert jorb is not None
+        assert jorb.metadata.get("preferred_transport") == "telegram_bot"
+        assert jorb.metadata.get("telegram_bot_chat_id") == "12345"
+
+        # kickoff should see metadata too (we refresh before calling kickoff)
+        kickoff_jorb = mock_kickoff.call_args[0][0]
+        assert kickoff_jorb.metadata.get("telegram_bot_chat_id") == "12345"
 
 
 class TestFlagForReview:

@@ -3090,8 +3090,39 @@ class AgentRunner:
             personality="sean-voice",
         )
 
-        # Update status to running
-        await self._storage.update_jorb(jorb.id, status="running")
+        # Persist routing metadata so catch-up kickoff can actually message back
+        # on transports like telegram_bot (which requires chat_id, not username).
+        is_bot = (
+            event.channel == "telegram_bot"
+            or str(event.metadata.get("source") or "").strip() == "telegram_bot"
+        )
+        if is_bot:
+            transport: str = "telegram_bot"
+        elif event.channel == "telegram":
+            transport = "telegram"
+        elif event.channel == "sms":
+            transport = "sms"
+        else:
+            transport = str(event.channel)
+
+        bot_chat_id = str(event.metadata.get("telegram_bot_chat_id") or "").strip() or None
+        meta: dict[str, Any] = {}
+        if isinstance(event.metadata, dict):
+            meta.update(event.metadata)
+        meta["preferred_transport"] = transport
+        if transport == "telegram_bot" and bot_chat_id:
+            meta["telegram_bot_chat_id"] = bot_chat_id
+
+        await self.update_jorb_status(
+            jorb_id=jorb.id,
+            status="running",
+            metadata_json=json.dumps(meta),
+        )
+
+        # Refresh the jorb so kickoff sees the saved metadata.
+        refreshed = await self._storage.get_jorb(jorb.id)
+        if refreshed is not None:
+            jorb = refreshed
 
         # Store the incoming message as first inbound message
         await self.store_inbound_message(jorb.id, event)

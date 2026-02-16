@@ -775,10 +775,17 @@ class JorbSession:
 
         contact = contacts[0]
 
+        recipient = contact.identifier
+        if contact.channel == "telegram_bot":
+            # Bot API requires numeric chat_id for private chats; use stored metadata when available.
+            chat_id = str(self._jorb.metadata.get("telegram_bot_chat_id") or "").strip()
+            if chat_id:
+                recipient = chat_id
+
         logger.info(
             "Catch-up jorb %s kickoff: asking %s for context",
             self._jorb.id,
-            contact.identifier,
+            recipient,
         )
 
         return JorbSessionResponse(
@@ -787,7 +794,7 @@ class JorbSession:
             action=JorbAction(
                 type="send_message",
                 channel=contact.channel,
-                recipient=contact.identifier,
+                recipient=recipient,
                 content=message,
             ),
             progress=JorbProgress(
