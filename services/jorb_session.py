@@ -492,11 +492,60 @@ class JorbSession:
             script_results_lines = []
             for i, result in enumerate(script_results[-10:]):  # Last 10 results
                 script_results_lines.append(f"Step {i + 1}:")
-                script_results_lines.append(f"  Script: {result.get('script', 'N/A')[:100]}...")
-                script_results_lines.append(f"  Success: {result.get('success', False)}")
-                script_results_lines.append(
-                    f"  Result: {json.dumps(result.get('result', {}))[:200]}"
-                )
+                script = str(result.get("script", "N/A"))
+                success = bool(result.get("success", False))
+                payload = result.get("result", {})
+
+                script_results_lines.append(f"  Script: {script[:100]}...")
+                script_results_lines.append(f"  Success: {success}")
+
+                # Guardrail: always surface critical fields (status/id/error) even
+                # when payloads contain long strings (e.g. Android task goal) that
+                # would otherwise push `status` past the truncation window.
+                if isinstance(payload, dict):
+                    task_id = (
+                        payload.get("task_id")
+                        or payload.get("id")
+                        or payload.get("job_id")
+                        or payload.get("task")
+                    )
+                    status = payload.get("status") or payload.get("state")
+                    current_step = (
+                        payload.get("current_step")
+                        or payload.get("step")
+                        or payload.get("phase")
+                    )
+                    error = payload.get("error") or payload.get("failure_reason")
+
+                    if task_id:
+                        script_results_lines.append(f"  Task/ID: {str(task_id)[:64]}")
+                    if status:
+                        script_results_lines.append(f"  Status: {str(status)[:64]}")
+                    if current_step:
+                        script_results_lines.append(
+                            f"  Current step: {str(current_step)[:160]}"
+                        )
+                    if error:
+                        err_one_line = " ".join(str(error).split())
+                        if len(err_one_line) > 300:
+                            err_one_line = err_one_line[:300] + "..."
+                        script_results_lines.append(f"  Error: {err_one_line}")
+
+                    # Keep a compact JSON preview but avoid letting very long
+                    # fields drown out important keys.
+                    compact = dict(payload)
+                    if isinstance(compact.get("goal"), str) and len(compact["goal"]) > 180:
+                        compact["goal"] = compact["goal"][:180] + "..."
+                    if isinstance(compact.get("stdout"), str) and len(compact["stdout"]) > 500:
+                        compact["stdout"] = compact["stdout"][-500:]
+                    if isinstance(compact.get("stderr"), str) and len(compact["stderr"]) > 500:
+                        compact["stderr"] = compact["stderr"][-500:]
+
+                    preview = json.dumps(compact, ensure_ascii=False)[:400]
+                else:
+                    preview = json.dumps(payload, ensure_ascii=False)[:400]
+
+                script_results_lines.append(f"  Result: {preview}")
                 script_results_lines.append("")
             script_results_text = "\n".join(script_results_lines)
         else:
