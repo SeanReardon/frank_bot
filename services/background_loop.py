@@ -88,6 +88,7 @@ class BackgroundLoopService:
         self._last_weekly_health_check: str | None = None
         self._started_at: str | None = None
         self._last_tick_at: str | None = None
+        self._crash_error: str | None = None  # Set if a critical loop crashes
 
     @property
     def is_running(self) -> bool:
@@ -102,8 +103,9 @@ class BackgroundLoopService:
             Dict with status information
         """
         return {
-            "status": "ok" if self._running else "stopped",
+            "status": "crashed" if self._crash_error else ("ok" if self._running else "stopped"),
             "running": self._running,
+            **({"crash_error": self._crash_error} if self._crash_error else {}),
             "started_at": self._started_at,
             "last_tick_at": self._last_tick_at,
             "telegram_router": get_router_status(),
@@ -277,6 +279,16 @@ class BackgroundLoopService:
         can poll long-running tasks (Android/meta) and continue multi-step work
         without needing a human message.
         """
+        try:
+            await self._worker_loop_inner()
+        except asyncio.CancelledError:
+            logger.debug("Worker loop cancelled")
+        except Exception as e:
+            self._crash_error = f"worker_loop crashed: {e}"
+            logger.critical("Worker loop crashed unexpectedly: %s", e, exc_info=True)
+
+    async def _worker_loop_inner(self) -> None:
+        """Inner worker loop implementation."""
         runner = AgentRunner(storage=self._storage)
 
         async def _poll_android_task_if_awaiting(jorb) -> bool:

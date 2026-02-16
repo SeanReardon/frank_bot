@@ -96,6 +96,8 @@ logger.info("Log level: %s", settings.log_level)
 
 # Export degraded flag so health endpoint can report it
 settings_degraded = _settings_degraded
+# Set to True if background loop fails to start (checked by /health)
+background_loop_failed = False
 
 starlette_app = create_starlette_app()
 

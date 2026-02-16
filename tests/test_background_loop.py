@@ -370,6 +370,101 @@ class TestErrorHandling:
 
         assert "Error sending daily digest" in caplog.text
 
+    @pytest.mark.asyncio
+    async def test_process_jorb_event_exception_does_not_kill_worker_loop(
+        self, background_service, mock_storage, caplog
+    ):
+        """Test that an exception in process_jorb_event does not kill the worker loop."""
+        import asyncio as _asyncio
+        import logging
+
+        caplog.set_level(logging.ERROR)
+
+        # Set up worker loop state (normally done by start())
+        background_service._running = True
+        background_service._shutdown_event = _asyncio.Event()
+
+        # Create a fake jorb
+        fake_jorb = MagicMock()
+        fake_jorb.id = "jorb_deadbeef"
+        fake_jorb.awaiting = None
+
+        # list_due_jorbs returns the fake jorb on first call, then empty
+        call_count = 0
+
+        async def mock_list_due(limit=25):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [fake_jorb]
+            # Stop the loop after processing
+            background_service._running = False
+            return []
+
+        mock_storage.list_due_jorbs = mock_list_due
+        mock_storage.update_jorb = AsyncMock()
+
+        # Mock AgentRunner so process_jorb_event raises
+        mock_runner = MagicMock()
+        mock_runner.is_configured = True
+        mock_runner.process_jorb_event = AsyncMock(
+            side_effect=Exception("LLM exploded")
+        )
+
+        with patch(
+            "services.background_loop.AgentRunner",
+            return_value=mock_runner,
+        ):
+            # Run the worker loop — should complete without raising
+            await background_service._worker_loop_inner()
+
+        # The loop logged the error but kept running
+        assert "Worker loop error processing jorb jorb_deadbeef" in caplog.text
+        # The loop iterated again (call_count > 1 means it didn't die)
+        assert call_count >= 2
+        # No crash error set (the loop exited normally via _running=False)
+        assert background_service._crash_error is None
+
+    @pytest.mark.asyncio
+    async def test_worker_loop_crash_sets_crash_error(
+        self, background_service, caplog
+    ):
+        """Test that a truly unexpected crash in worker loop sets _crash_error."""
+        import logging
+
+        caplog.set_level(logging.CRITICAL)
+
+        # Mock the inner loop to simulate an unexpected crash
+        with patch.object(
+            background_service,
+            "_worker_loop_inner",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("Database connection pool destroyed"),
+        ):
+            # Run the outer wrapper that catches crashes
+            await background_service._worker_loop()
+
+        assert background_service._crash_error is not None
+        assert "worker_loop crashed" in background_service._crash_error
+        assert "Worker loop crashed unexpectedly" in caplog.text
+
+    def test_status_reports_crashed_when_crash_error_set(
+        self, background_service
+    ):
+        """Test get_status() reports 'crashed' status when _crash_error is set."""
+        background_service._crash_error = "worker_loop crashed: test"
+        status = background_service.get_status()
+        assert status["status"] == "crashed"
+        assert status["crash_error"] == "worker_loop crashed: test"
+
+    def test_status_reports_ok_when_no_crash(self, background_service):
+        """Test get_status() reports 'ok' when running with no crash."""
+        background_service._running = True
+        background_service._crash_error = None
+        status = background_service.get_status()
+        assert status["status"] == "ok"
+        assert "crash_error" not in status
+
 
 class TestTelegramRouterIntegration:
     """Tests for Telegram router integration."""

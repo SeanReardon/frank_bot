@@ -2163,7 +2163,7 @@
         "A test verifies that an exception in process_jorb_event does not kill the background loop"
       ],
       "priority": 132,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00129 (app must start first). Recent commits ee26942 and 1567ee0 added ~150 lines to agent_runner.py and jorb_session.py. An unhandled exception in these new paths could silently kill jorb processing while the API appears healthy."
     },
     {
@@ -2191,7 +2191,7 @@
         "The smoke test can be run locally with `docker-compose up` to catch startup failures before deploying"
       ],
       "priority": 134,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00130 (health check must report meaningful status) and frank_bot-00132 (health endpoint must include loop status). This is the prevention layer — catch these issues before they hit production."
     }
   ]

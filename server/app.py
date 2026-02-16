@@ -23,6 +23,7 @@ from server.openapi import load_openapi_document, load_chatgpt_openapi_document
 from server.meta_routes import build_meta_routes
 from server.routes import build_action_routes
 from services.background_loop import (
+    get_background_loop_status,
     start_background_loop,
     stop_background_loop,
 )
@@ -50,12 +51,37 @@ def create_starlette_app() -> Starlette:
     async def health_check(_request):
         import app as _app_module
         degraded = getattr(_app_module, "settings_degraded", False)
-        return JSONResponse({
-            "status": "degraded" if degraded else "healthy",
+        loop_start_failed = getattr(_app_module, "background_loop_failed", False)
+
+        loop_status = get_background_loop_status()
+        loop_running = loop_status.get("running", False)
+        loop_crashed = loop_status.get("crash_error") is not None
+
+        # Determine overall status
+        if loop_crashed or loop_start_failed:
+            status = "unhealthy"
+        elif degraded:
+            status = "degraded"
+        else:
+            status = "healthy"
+
+        body: dict = {
+            "status": status,
             "server": "frank-bot",
             "version": GIT_COMMIT,
-            **({"degraded_reason": "secrets_failed_to_load"} if degraded else {}),
-        })
+            "background_loop": {
+                "running": loop_running,
+                "status": loop_status.get("status", "unknown"),
+            },
+        }
+        if degraded:
+            body["degraded_reason"] = "secrets_failed_to_load"
+        if loop_crashed:
+            body["background_loop"]["crash_error"] = loop_status["crash_error"]
+        if loop_start_failed:
+            body["background_loop"]["start_failed"] = True
+
+        return JSONResponse(body)
 
     async def version_endpoint(_request):
         return JSONResponse({
@@ -154,6 +180,8 @@ def create_starlette_app() -> Starlette:
             logger.info("Background loop started")
         except Exception as e:
             logger.error("Failed to start background loop: %s", e)
+            import app as _app_module
+            _app_module.background_loop_failed = True
 
     @app.on_event("shutdown")
     async def shutdown_event():

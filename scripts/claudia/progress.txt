@@ -30,6 +30,30 @@ Each entry documents what was implemented and lessons learned.
 
 ---
 
+## 2026-02-16: frank_bot-00132 - Harden agent_runner background loop against unhandled exceptions
+
+### Summary
+Wrapped the worker loop in a crash-detecting outer handler that sets `_crash_error` on the BackgroundLoopService. Updated /health endpoint to include background_loop status (running/crashed) and report "unhealthy" when the loop has crashed. Added `background_loop_failed` flag to app.py for startup failures. Added 4 new tests covering exception resilience and crash detection.
+
+### Files Changed
+- services/background_loop.py (crash detection wrapper, status reporting)
+- server/app.py (health endpoint includes loop status, startup crash flag)
+- app.py (background_loop_failed flag)
+- tests/test_background_loop.py (4 new tests)
+
+---
+
+## 2026-02-16: frank_bot-00134 - Add production startup smoke test and rollback documentation
+
+### Summary
+Created `scripts/smoke_test.sh` that polls /health until it returns `{"status":"healthy"}` with `background_loop.running: true`, with configurable timeout. Created `scripts/ops/rollback.md` with docker rollback commands, log checking, and recovery verification steps.
+
+### Files Changed
+- scripts/smoke_test.sh (new)
+- scripts/ops/rollback.md (new)
+
+---
+
 ## 2026-02-16: frank_bot-00128 - Add timeouts to entrypoint.sh ADB and Vault commands
 
 ### Summary
