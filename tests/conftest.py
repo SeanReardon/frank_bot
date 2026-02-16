@@ -19,6 +19,17 @@ def disable_switchboard_mode(monkeypatch):
     monkeypatch.setenv("USE_SWITCHBOARD_MODE", "false")
 
 
+@pytest.fixture(autouse=True)
+def reset_agent_runner_globals():
+    """
+    AgentRunner keeps some rate-limit state in module/class globals so different
+    runtime subsystems share limits. Tests must isolate this state.
+    """
+    from services.agent_runner import AgentRunner
+
+    AgentRunner._GLOBAL_MESSAGE_COUNTS.clear()
+
+
 # Mock telethon if not installed to allow tests to run
 if "telethon" not in sys.modules:
     # Create mock telethon module

@@ -14,7 +14,8 @@ from services.agent_runner import (
     AgentRunner,
     IncomingEvent,
     SCRIPT_EXECUTION_TIMEOUT,
-    MAX_ITERATIONS_PER_HOUR,
+    MAX_ITERATIONS_PER_10_MIN,
+    ITERATION_WINDOW_SECONDS,
     MAX_ITERATIONS_PER_DAY,
 )
 from services.jorb_storage import (
@@ -240,7 +241,8 @@ class TestExecuteScript:
 
     def test_rate_limit_constants(self):
         """Rate limit constants have correct defaults."""
-        assert MAX_ITERATIONS_PER_HOUR == 20
+        assert MAX_ITERATIONS_PER_10_MIN == 20
+        assert ITERATION_WINDOW_SECONDS == 600
         assert MAX_ITERATIONS_PER_DAY == 100
 
 
@@ -553,16 +555,17 @@ class TestIterationRateLimiting:
         result = runner._check_iteration_rate_limit("jorb_test")
         assert result is None
 
-    def test_hourly_limit_pauses(self, runner):
-        """At hourly limit, check returns rate limit message."""
-        jorb_id = "jorb_hourly"
-        # Simulate MAX_ITERATIONS_PER_HOUR iterations
-        for _ in range(MAX_ITERATIONS_PER_HOUR):
+    def test_window_limit_pauses(self, runner):
+        """At window limit, check returns rate limit message."""
+        jorb_id = "jorb_window"
+        # Simulate MAX_ITERATIONS_PER_10_MIN iterations within window
+        for _ in range(MAX_ITERATIONS_PER_10_MIN):
             runner._record_iteration(jorb_id)
 
         result = runner._check_iteration_rate_limit(jorb_id)
         assert result is not None
-        assert "per hour" in result
+        assert "per 10 minutes" in result
+        assert "without human" in result.lower()
 
     def test_daily_limit_pauses(self, runner):
         """At daily limit, check returns rate limit message."""
@@ -599,7 +602,7 @@ class TestIterationRateLimiting:
         jorb_a = "jorb_a"
         jorb_b = "jorb_b"
 
-        for _ in range(MAX_ITERATIONS_PER_HOUR):
+        for _ in range(MAX_ITERATIONS_PER_10_MIN):
             runner._record_iteration(jorb_a)
 
         # jorb_a is at limit
@@ -616,7 +619,7 @@ class TestIterationRateLimiting:
         await storage.update_jorb(jorb.id, status="running")
 
         # Pre-fill iterations to hit limit
-        for _ in range(MAX_ITERATIONS_PER_HOUR):
+        for _ in range(MAX_ITERATIONS_PER_10_MIN):
             runner._record_iteration(jorb.id)
 
         result = await runner.process_jorb_event(jorb)
@@ -986,10 +989,14 @@ class TestExistingTestsStillPass:
         """New constants are properly exported."""
         from services.agent_runner import (
             SCRIPT_EXECUTION_TIMEOUT,
+            MAX_ITERATIONS_PER_10_MIN,
+            ITERATION_WINDOW_SECONDS,
             MAX_ITERATIONS_PER_HOUR,
             MAX_ITERATIONS_PER_DAY,
         )
         assert isinstance(SCRIPT_EXECUTION_TIMEOUT, int)
+        assert isinstance(MAX_ITERATIONS_PER_10_MIN, int)
+        assert isinstance(ITERATION_WINDOW_SECONDS, int)
         assert isinstance(MAX_ITERATIONS_PER_HOUR, int)
         assert isinstance(MAX_ITERATIONS_PER_DAY, int)
 

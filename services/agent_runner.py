@@ -60,9 +60,18 @@ TOKEN_PRICE_OUTPUT = 0.03  # $0.03 per 1K output tokens
 # Script execution timeout (seconds) for jorb scripts
 SCRIPT_EXECUTION_TIMEOUT = int(os.getenv("JORB_SCRIPT_TIMEOUT", "300"))
 
-# Rate limiting for jorb LLM invocation loops
-MAX_ITERATIONS_PER_HOUR = int(os.getenv("JORB_MAX_ITERATIONS_PER_HOUR", "20"))
+# Iteration limiting for jorb LLM invocation loops (runaway protection)
+#
+# Back-compat: we still read `JORB_MAX_ITERATIONS_PER_HOUR` as the limit value if
+# the new env var isn't set, but the semantics are now time-window based.
+MAX_ITERATIONS_PER_10_MIN = int(
+    os.getenv("JORB_MAX_ITERATIONS_PER_10_MIN", os.getenv("JORB_MAX_ITERATIONS_PER_HOUR", "20"))
+)
+ITERATION_WINDOW_SECONDS = int(os.getenv("JORB_ITERATION_WINDOW_SECONDS", "600"))  # 10 minutes
 MAX_ITERATIONS_PER_DAY = int(os.getenv("JORB_MAX_ITERATIONS_PER_DAY", "100"))
+
+# Deprecated alias (kept for imports/docs)
+MAX_ITERATIONS_PER_HOUR = MAX_ITERATIONS_PER_10_MIN
 
 # Feature flag for switchboard mode (can be disabled for backwards compatibility)
 # Checked at runtime to allow test fixtures to override
@@ -255,6 +264,10 @@ class AgentRunner:
     and the current state of all active jorbs.
     """
 
+    # Shared, in-process rate-limit state so different AgentRunner instances
+    # (e.g. message router + worker loop) enforce the same limits.
+    _GLOBAL_MESSAGE_COUNTS: dict[str, list[str]] = {}
+
     def __init__(
         self,
         storage: JorbStorage | None = None,
@@ -276,7 +289,7 @@ class AgentRunner:
         self._spend_limit = self._policy.max_spend_without_approval
         self._system_prompt = _load_system_prompt()
         # Track messages per hour per jorb for rate limiting
-        self._message_counts: dict[str, list[str]] = {}  # jorb_id -> list of timestamps
+        self._message_counts = AgentRunner._GLOBAL_MESSAGE_COUNTS  # jorb_id/key -> list of timestamps
         # Track policy violations for briefing
         self._policy_violations: list[PolicyViolation] = []
 
@@ -955,7 +968,9 @@ class AgentRunner:
         """
         Check if a jorb has exceeded LLM iteration rate limits.
 
-        Tracks invocation timestamps per jorb and enforces both hourly and daily limits.
+        Tracks invocation timestamps per jorb and enforces a runaway-protection
+        window (default: 20 LLM invocations per 10 minutes) plus an optional
+        daily ceiling.
 
         Args:
             jorb_id: The jorb ID
@@ -964,21 +979,25 @@ class AgentRunner:
             None if under limit, or a string explaining which limit was exceeded
         """
         now = datetime.now(timezone.utc)
-        one_hour_ago = now - timedelta(hours=1)
+        window_ago = now - timedelta(seconds=ITERATION_WINDOW_SECONDS)
         one_day_ago = now - timedelta(days=1)
 
         key = f"iter_{jorb_id}"
         timestamps = self._message_counts.get(key, [])
 
         # Parse timestamps and filter
-        recent_hour = [ts for ts in timestamps if ts > one_hour_ago.isoformat()]
         recent_day = [ts for ts in timestamps if ts > one_day_ago.isoformat()]
+        recent_window = [ts for ts in recent_day if ts > window_ago.isoformat()]
 
         # Update stored timestamps (prune old ones)
         self._message_counts[key] = recent_day
 
-        if len(recent_hour) >= MAX_ITERATIONS_PER_HOUR:
-            return f"Rate limit exceeded: {MAX_ITERATIONS_PER_HOUR} LLM invocations per hour"
+        if len(recent_window) >= MAX_ITERATIONS_PER_10_MIN:
+            minutes = max(1, int(ITERATION_WINDOW_SECONDS / 60))
+            return (
+                f"Rate limit exceeded: {MAX_ITERATIONS_PER_10_MIN} LLM invocations "
+                f"per {minutes} minutes without human interaction"
+            )
 
         if len(recent_day) >= MAX_ITERATIONS_PER_DAY:
             return f"Rate limit exceeded: {MAX_ITERATIONS_PER_DAY} LLM invocations per day"
@@ -1024,6 +1043,14 @@ class AgentRunner:
         steps_this_run = 0
         max_steps_this_run = 25
 
+        # A new inbound human message resets the runaway-iteration window.
+        # This makes the limiter "without human interaction" in practice.
+        if started_with_event:
+            try:
+                self._message_counts.pop(f"iter_{jorb_id}", None)
+            except Exception:
+                pass
+
         # Reload jorb with messages for each LLM call
         async def _get_jorb_with_messages() -> JorbWithMessages:
             refreshed_jorb = await self._storage.get_jorb(jorb_id)
@@ -1056,15 +1083,76 @@ class AgentRunner:
                 self._record_policy_violation(
                     jorb_id, jorb.name, "iteration_rate_limit", rate_limit_msg
                 )
+                # Pause the jorb and explicitly await a human command.
                 await self.update_jorb_status(
                     jorb_id=jorb_id,
                     status="paused",
                     paused_reason=rate_limit_msg,
+                    awaiting="human_reply:restriction",
+                    wake_at=None,
                 )
+
+                # Best-effort: notify Sean in the originating transport with
+                # explicit commands the system can switch on.
+                try:
+                    contact = jorb.contacts[0] if jorb.contacts else None
+                    recipient = contact.identifier if contact else None
+                    transport = str(jorb.metadata.get("preferred_transport") or "").strip()
+                    transport = transport or (contact.channel if contact else "")
+                    chat_id = str(jorb.metadata.get("telegram_bot_chat_id") or "").strip() or None
+
+                    notice = (
+                        f"Runaway-loop protection paused {jorb_id}.\n"
+                        f"Reason: {rate_limit_msg}\n\n"
+                        "Reply with exactly one of:\n"
+                        "- CANCEL JORB\n"
+                        "- RESET RESTRICTION\n\n"
+                        "CANCEL JORB: cancels the jorb (and clears the restriction).\n"
+                        "RESET RESTRICTION: clears the restriction and lets it continue."
+                    )
+
+                    sent_ok = False
+                    if transport == "telegram_bot" and chat_id:
+                        sent_ok = await self._send_telegram_bot_message(chat_id=chat_id, text=notice)
+                        if sent_ok:
+                            await self.store_outbound_message(
+                                jorb_id=jorb_id,
+                                channel="telegram_bot",
+                                recipient=recipient or f"chat_id:{chat_id}",
+                                content=notice,
+                                reasoning="rate_limit_notice",
+                            )
+                    elif transport == "telegram" and recipient:
+                        sent_ok = await self._send_message("telegram", recipient, notice)
+                        if sent_ok:
+                            await self.store_outbound_message(
+                                jorb_id=jorb_id,
+                                channel="telegram",
+                                recipient=recipient,
+                                content=notice,
+                                reasoning="rate_limit_notice",
+                            )
+                    elif transport == "sms" and recipient:
+                        sent_ok = await self._send_message("sms", recipient, notice)
+                        if sent_ok:
+                            await self.store_outbound_message(
+                                jorb_id=jorb_id,
+                                channel="sms",
+                                recipient=recipient,
+                                content=notice,
+                                reasoning="rate_limit_notice",
+                            )
+                    if sent_ok:
+                        message_sent = True
+                        self._record_message_sent(jorb_id)
+                except Exception:
+                    logger.exception("Failed to send rate-limit notice for jorb %s", jorb_id)
+
                 return ProcessingResult(
                     jorb_id=jorb_id,
                     action_taken="paused_rate_limit",
                     success=True,
+                    message_sent=message_sent,
                 )
 
             # Record this iteration
@@ -2064,6 +2152,15 @@ class AgentRunner:
             open_jorbs = await self.get_open_jorbs()
             logger.debug("Found %d open jorbs", len(open_jorbs))
 
+            # Step 2.5: Handle explicit control commands (no switchboard / no LLM).
+            normalized = " ".join((enriched_event.content or "").strip().split()).upper()
+            if normalized in ("CANCEL JORB", "RESET RESTRICTION"):
+                return await self._handle_restriction_command(
+                    command=normalized,
+                    event=enriched_event,
+                    open_jorbs=open_jorbs,
+                )
+
             # Step 3: Route with switchboard
             switchboard = get_switchboard()
             routing = await switchboard.route(
@@ -2179,6 +2276,167 @@ class AgentRunner:
                 success=False,
                 error=str(e),
             )
+
+    async def _handle_restriction_command(
+        self,
+        *,
+        command: str,
+        event: IncomingEvent,
+        open_jorbs: list[JorbWithMessages],
+    ) -> ProcessingResult:
+        """
+        Handle explicit human control commands for runaway-loop restrictions.
+
+        Supported commands (case-insensitive, whitespace-normalized):
+        - CANCEL JORB
+        - RESET RESTRICTION
+        """
+
+        def _is_restricted(j: Jorb) -> bool:
+            if str(j.status or "").strip().lower() != "paused":
+                return False
+            awaiting = str(j.awaiting or "").strip().lower()
+            if awaiting.startswith("human_reply:restriction"):
+                return True
+            reason = str(j.paused_reason or "")
+            return ("Rate limit exceeded" in reason) and ("LLM invocations" in reason)
+
+        # Identify candidate restricted jorbs.
+        restricted = [jwm for jwm in open_jorbs if _is_restricted(jwm.jorb)]
+
+        # Narrow to this conversation (best-effort).
+        candidates: list[JorbWithMessages] = []
+        if event.channel == "telegram_bot":
+            chat_id = str(event.metadata.get("telegram_bot_chat_id") or "").strip()
+            if chat_id:
+                candidates = [
+                    jwm
+                    for jwm in restricted
+                    if str(jwm.jorb.metadata.get("telegram_bot_chat_id") or "").strip() == chat_id
+                ]
+
+        if not candidates:
+            sender_norm = JorbStorage._normalize_identifier(event.sender)
+            for jwm in restricted:
+                for c in jwm.jorb.contacts:
+                    if JorbStorage._normalize_identifier(c.identifier) == sender_norm:
+                        candidates.append(jwm)
+                        break
+
+        # Pick the most recently updated candidate.
+        candidates.sort(key=lambda jwm: str(jwm.jorb.updated_at or ""), reverse=True)
+        target = candidates[0] if candidates else None
+
+        async def _send_reply(text: str, *, jorb_id: str | None) -> bool:
+            sent_ok = False
+            if event.channel == "telegram_bot":
+                chat_id = str(event.metadata.get("telegram_bot_chat_id") or "").strip() or None
+                if chat_id:
+                    sent_ok = await self._send_telegram_bot_message(chat_id=chat_id, text=text)
+                    if sent_ok and jorb_id:
+                        await self.store_outbound_message(
+                            jorb_id=jorb_id,
+                            channel="telegram_bot",
+                            recipient=event.sender,
+                            content=text,
+                            reasoning="restriction_command",
+                        )
+            elif event.channel == "telegram":
+                sent_ok = await self._send_message("telegram", event.sender, text)
+                if sent_ok and jorb_id:
+                    await self.store_outbound_message(
+                        jorb_id=jorb_id,
+                        channel="telegram",
+                        recipient=event.sender,
+                        content=text,
+                        reasoning="restriction_command",
+                    )
+            elif event.channel == "sms":
+                sent_ok = await self._send_message("sms", event.sender, text)
+                if sent_ok and jorb_id:
+                    await self.store_outbound_message(
+                        jorb_id=jorb_id,
+                        channel="sms",
+                        recipient=event.sender,
+                        content=text,
+                        reasoning="restriction_command",
+                    )
+            return sent_ok
+
+        if not target:
+            msg = (
+                "I didn’t find any jorb currently paused for runaway-loop protection "
+                "in this conversation."
+            )
+            sent_ok = await _send_reply(msg, jorb_id=None)
+            return ProcessingResult(
+                jorb_id=None,
+                action_taken="restriction_command_no_match",
+                success=True,
+                message_sent=sent_ok,
+            )
+
+        jorb_id = target.jorb.id
+
+        # Store the inbound command against the target jorb for auditability.
+        try:
+            await self.store_inbound_message(jorb_id, event)
+        except Exception:
+            logger.exception("Failed to store restriction command inbound for jorb %s", jorb_id)
+
+        # Reset the iteration limiter state for this jorb (both commands do this).
+        try:
+            self._message_counts.pop(f"iter_{jorb_id}", None)
+        except Exception:
+            pass
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        if command == "CANCEL JORB":
+            prev = target.jorb.progress_summary or ""
+            new_summary = f"{prev}\nCancelled by Sean via command: CANCEL JORB".strip()
+            await self._storage.update_jorb(
+                jorb_id,
+                status="cancelled",
+                progress_summary=new_summary,
+                paused_reason=None,
+                needs_approval_for=None,
+                awaiting=None,
+                wake_at=None,
+            )
+
+            sent_ok = await _send_reply(f"OK — cancelled {jorb_id}.", jorb_id=jorb_id)
+            return ProcessingResult(
+                jorb_id=jorb_id,
+                action_taken="cancel_jorb_command",
+                success=True,
+                message_sent=sent_ok,
+            )
+
+        # RESET RESTRICTION
+        prev = target.jorb.progress_summary or ""
+        new_summary = f"{prev}\nRestriction reset by Sean at {now_iso}".strip()
+        wake_at = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()
+        await self._storage.update_jorb(
+            jorb_id,
+            status="running",
+            progress_summary=new_summary,
+            paused_reason=None,
+            needs_approval_for=None,
+            awaiting=None,
+            wake_at=wake_at,
+        )
+
+        sent_ok = await _send_reply(
+            f"OK — restriction cleared for {jorb_id}. Resuming now.",
+            jorb_id=jorb_id,
+        )
+        return ProcessingResult(
+            jorb_id=jorb_id,
+            action_taken="reset_restriction_command",
+            success=True,
+            message_sent=sent_ok,
+        )
 
     async def _execute_send_message(
         self,
