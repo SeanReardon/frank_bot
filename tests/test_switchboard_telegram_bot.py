@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from services.agent_runner import AgentRunner, IncomingEvent
+from services.jorb_storage import Jorb
 
 
 @pytest.fixture
@@ -253,3 +254,168 @@ class TestSwitchboardTelegramBotChannel:
         ):
             result = await runner._should_autocreate_jorb(event)
             assert result is True
+
+    @pytest.mark.asyncio
+    async def test_restricted_jorb_does_not_capture_unrelated_messages(self, runner):
+        """
+        When a conversation has a runaway-restricted jorb, unrelated messages should still
+        be routable (i.e. we filter restricted jorbs out of the switchboard candidate list).
+        """
+        restricted = Jorb(
+            id="jorb_restricted_1",
+            name="Restricted",
+            status="paused",
+            original_plan="n/a",
+            progress_summary="",
+            awaiting="human_reply:restriction",
+            paused_reason="Rate limit exceeded: 20 LLM invocations per 10 minutes without human interaction",
+            metadata_json='{"telegram_bot_chat_id":"12345"}',
+            contacts_json='[{"identifier":"@SeanReardon","channel":"telegram_bot","name":"Sean"}]',
+        )
+        open_jorbs = [MagicMock(jorb=restricted, messages=[])]
+
+        event = IncomingEvent(
+            channel="telegram_bot",
+            sender="@SeanReardon",
+            sender_name="Sean",
+            content="hello?",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            metadata={
+                "source": "telegram_bot",
+                "telegram_bot_chat_id": "12345",
+            },
+        )
+
+        mock_routing = MagicMock(
+            jorb_id=None,
+            confidence="low",
+            reasoning="No match",
+            might_be_new_jorb=False,
+            is_spam=False,
+            is_urgent=False,
+            unknown_sender=False,
+            is_human_intervention=False,
+            tokens_used=0,
+        )
+        mock_switchboard = MagicMock()
+        mock_switchboard.route = AsyncMock(return_value=mock_routing)
+
+        with patch(
+            "services.agent_runner.get_switchboard",
+            return_value=mock_switchboard,
+        ), patch.object(
+            runner,
+            "_enrich_event_with_contact",
+            new_callable=AsyncMock,
+            side_effect=lambda e: e,
+        ), patch.object(
+            runner,
+            "get_open_jorbs",
+            new_callable=AsyncMock,
+            return_value=open_jorbs,
+        ), patch.object(
+            runner,
+            "is_trusted_sender",
+            new_callable=AsyncMock,
+            return_value=True,
+        ), patch.object(
+            runner,
+            "_create_catch_up_jorb",
+            new_callable=AsyncMock,
+            return_value=MagicMock(
+                jorb_id="jorb_catchup_1",
+                action_taken="catch_up_created",
+                success=True,
+            ),
+        ) as mock_catch_up:
+            result = await runner.process_incoming_message(event)
+
+        # The restricted jorb should not be offered as a routing candidate.
+        assert mock_switchboard.route.await_count == 1
+        _, kwargs = mock_switchboard.route.call_args
+        assert kwargs["open_jorbs"] == []
+
+        assert result.action_taken == "catch_up_created"
+        mock_catch_up.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cancel_all_running_jorbs_command_bypasses_restriction(self, runner, mock_storage):
+        """
+        The control-plane "cancel all running jorbs" command should work even when the
+        current conversation is blocked by a runaway restriction notice.
+        """
+        restricted = Jorb(
+            id="jorb_restricted_1",
+            name="Restricted",
+            status="paused",
+            original_plan="n/a",
+            progress_summary="",
+            awaiting="human_reply:restriction",
+            paused_reason="Rate limit exceeded: 20 LLM invocations per 10 minutes without human interaction",
+            metadata_json='{"telegram_bot_chat_id":"12345"}',
+            contacts_json='[{"identifier":"@SeanReardon","channel":"telegram_bot","name":"Sean"}]',
+        )
+        running = Jorb(
+            id="jorb_running_1",
+            name="Running",
+            status="running",
+            original_plan="n/a",
+            progress_summary="work",
+            metadata_json="{}",
+            contacts_json='[{"identifier":"@SeanReardon","channel":"telegram_bot","name":"Sean"}]',
+        )
+        open_jorbs = [MagicMock(jorb=restricted, messages=[]), MagicMock(jorb=running, messages=[])]
+
+        event = IncomingEvent(
+            channel="telegram_bot",
+            sender="@SeanReardon",
+            sender_name="Sean",
+            content="can you cancel all running jorbs?",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            metadata={
+                "source": "telegram_bot",
+                "telegram_bot_chat_id": "12345",
+            },
+        )
+
+        mock_switchboard = MagicMock()
+        mock_switchboard.route = AsyncMock()
+
+        with patch(
+            "services.agent_runner.get_switchboard",
+            return_value=mock_switchboard,
+        ), patch(
+            "services.telegram_allowlist.is_allowed_username",
+            return_value=True,
+        ), patch.object(
+            runner,
+            "_enrich_event_with_contact",
+            new_callable=AsyncMock,
+            side_effect=lambda e: e,
+        ), patch.object(
+            runner,
+            "get_open_jorbs",
+            new_callable=AsyncMock,
+            return_value=open_jorbs,
+        ), patch.object(
+            runner,
+            "store_inbound_message",
+            new_callable=AsyncMock,
+        ), patch.object(
+            runner,
+            "store_outbound_message",
+            new_callable=AsyncMock,
+        ), patch.object(
+            runner,
+            "_send_telegram_bot_message",
+            new_callable=AsyncMock,
+            return_value=True,
+        ):
+            result = await runner.process_incoming_message(event)
+
+        # No switchboard/LLM routing should happen.
+        assert mock_switchboard.route.await_count == 0
+
+        assert result.action_taken == "cancel_all_jorbs"
+        # Should have cancelled both open jorbs via storage.update_jorb
+        assert mock_storage.update_jorb.await_count == 2

@@ -60,6 +60,14 @@ _SWITCH_DIRECTIVE_JORB_RE = re.compile(
     re.IGNORECASE,
 )
 
+_EXPLICIT_JORB_ID_RE = re.compile(r"\bjorb_[0-9a-f]{8}\b", re.IGNORECASE)
+_EXPLICIT_THREAD_RE = re.compile(r"\bthread\s*\d{1,3}\b", re.IGNORECASE)
+
+_CANCEL_ALL_JORBS_RE = re.compile(
+    r"^\s*(?:can\s+you\s+)?cancel\s+all\s+(?:running\s+)?jorbs\s*\??\s*$",
+    re.IGNORECASE,
+)
+
 # Sentinel to distinguish "no update" from "set NULL".
 _UNSET = object()
 
@@ -2175,7 +2183,18 @@ class AgentRunner:
                     open_jorbs=open_jorbs,
                 )
 
+            # Step 2.6: Bulk-cancel all open jorbs (control-plane recovery).
+            if _CANCEL_ALL_JORBS_RE.match(enriched_event.content or ""):
+                return await self._handle_cancel_all_jorbs_command(
+                    event=enriched_event,
+                    open_jorbs=open_jorbs,
+                )
+
             # Step 3: Route with switchboard
+            open_jorbs_for_routing = self._filter_open_jorbs_for_routing(
+                event=enriched_event,
+                open_jorbs=open_jorbs,
+            )
             switchboard = get_switchboard()
             routing = await switchboard.route(
                 channel=enriched_event.channel,
@@ -2183,7 +2202,7 @@ class AgentRunner:
                 sender_name=enriched_event.sender_name,
                 content=enriched_event.content,
                 timestamp=enriched_event.timestamp,
-                open_jorbs=open_jorbs,
+                open_jorbs=open_jorbs_for_routing,
                 is_human_intervention=enriched_event.is_human_intervention,
                 message_metadata=enriched_event.metadata,
             )
@@ -2425,6 +2444,183 @@ class AgentRunner:
         return ProcessingResult(
             jorb_id=jorb_id,
             action_taken="switch_ack",
+            success=True,
+            message_sent=sent_ok,
+        )
+
+    def _jorb_matches_event_conversation(self, jorb: Jorb, event: IncomingEvent) -> bool:
+        """
+        Best-effort: determine whether a jorb belongs to the same conversation as this event.
+
+        For Telegram Bot API, the chat_id is authoritative. We also fall back to contact
+        identifier matching across all channels.
+        """
+        try:
+            if event.channel == "telegram_bot":
+                chat_id = str(event.metadata.get("telegram_bot_chat_id") or "").strip()
+                if chat_id and str(jorb.metadata.get("telegram_bot_chat_id") or "").strip() == chat_id:
+                    return True
+        except Exception:
+            pass
+
+        try:
+            sender_norm = JorbStorage._normalize_identifier(event.sender)
+            for c in jorb.contacts:
+                if JorbStorage._normalize_identifier(c.identifier) == sender_norm:
+                    return True
+        except Exception:
+            pass
+
+        return False
+
+    def _filter_open_jorbs_for_routing(
+        self,
+        *,
+        event: IncomingEvent,
+        open_jorbs: list[JorbWithMessages],
+    ) -> list[JorbWithMessages]:
+        """
+        Prevent a runaway-restricted jorb from capturing unrelated messages in the same
+        Telegram chat / conversation.
+
+        When a conversation has a restricted jorb, we still want other messages to be routable
+        (e.g. "cancel all running jorbs?", "hello?") without forcing the user to clear the
+        restriction first.
+        """
+        content = event.content or ""
+        if self._is_switch_directive_message(content) or _EXPLICIT_JORB_ID_RE.search(content) or _EXPLICIT_THREAD_RE.search(content):
+            return open_jorbs
+
+        restricted_ids = {
+            jwm.jorb.id
+            for jwm in open_jorbs
+            if self._jorb_is_restricted(jwm.jorb) and self._jorb_matches_event_conversation(jwm.jorb, event)
+        }
+        if not restricted_ids:
+            return open_jorbs
+
+        filtered = [jwm for jwm in open_jorbs if jwm.jorb.id not in restricted_ids]
+        if len(filtered) != len(open_jorbs):
+            logger.info(
+                "Filtered %d restricted jorb(s) from routing for %s",
+                len(open_jorbs) - len(filtered),
+                event.sender,
+            )
+        return filtered
+
+    def _is_control_plane_admin(self, event: IncomingEvent) -> bool:
+        """Control-plane admin check for dangerous commands."""
+        if event.is_human_intervention:
+            return True
+
+        if event.channel in ("telegram", "telegram_bot"):
+            from services.telegram_allowlist import is_allowed_username
+
+            return is_allowed_username(event.sender)
+
+        if event.channel == "sms":
+            try:
+                settings = get_settings()
+                allowed = tuple(getattr(settings, "notify_numbers", ()) or ())
+                if not allowed:
+                    return False
+                sender_norm = JorbStorage._normalize_identifier(event.sender)
+                allowed_norm = {JorbStorage._normalize_identifier(v) for v in allowed}
+                return sender_norm in allowed_norm
+            except Exception:
+                return False
+
+        return False
+
+    async def _handle_cancel_all_jorbs_command(
+        self,
+        *,
+        event: IncomingEvent,
+        open_jorbs: list[JorbWithMessages],
+    ) -> ProcessingResult:
+        """
+        Cancel all open jorbs (running/paused).
+
+        This is a control-plane recovery command intended to always work even if a
+        conversation is currently blocked by runaway-loop restriction prompts.
+        """
+        if not self._is_control_plane_admin(event):
+            logger.warning("Denied cancel-all-jorbs from non-admin sender %s", event.sender)
+            return ProcessingResult(
+                jorb_id=None,
+                action_taken="cancel_all_jorbs_denied",
+                success=True,
+                message_sent=False,
+            )
+
+        # Pick a "control" jorb for message history (best-effort).
+        control_candidates = [jwm for jwm in open_jorbs if self._jorb_matches_event_conversation(jwm.jorb, event)]
+        control_candidates.sort(key=lambda jwm: str(jwm.jorb.updated_at or ""), reverse=True)
+        control_jorb_id = control_candidates[0].jorb.id if control_candidates else None
+
+        if control_jorb_id:
+            try:
+                await self.store_inbound_message(control_jorb_id, event)
+            except Exception:
+                logger.exception("Failed storing inbound cancel-all-jorbs message")
+
+        cancelled: list[str] = []
+        for jwm in open_jorbs:
+            j = jwm.jorb
+            if j.status in ("complete", "failed", "cancelled"):
+                continue
+            previous_summary = j.progress_summary or ""
+            cancel_note = "Cancelled by user (bulk cancel)"
+            new_summary = f"{previous_summary}\n{cancel_note}".strip()
+            await self.update_jorb_status(
+                jorb_id=j.id,
+                status="cancelled",
+                progress_summary=new_summary,
+                paused_reason=None,
+                needs_approval_for=None,
+                awaiting=None,
+                wake_at=None,
+            )
+            cancelled.append(j.id)
+            try:
+                self._message_counts.pop(f"iter_{j.id}", None)
+                self._message_counts.pop(j.id, None)
+            except Exception:
+                pass
+
+        if cancelled:
+            shown = ", ".join(cancelled[:8])
+            more = f" (+{len(cancelled) - 8} more)" if len(cancelled) > 8 else ""
+            text = f"OK — cancelled {len(cancelled)} open jorb(s): {shown}{more}"
+        else:
+            text = "No open jorbs to cancel."
+
+        sent_ok = False
+        if event.channel == "telegram_bot":
+            chat_id = str(event.metadata.get("telegram_bot_chat_id") or "").strip()
+            if chat_id:
+                sent_ok = await self._send_telegram_bot_message(chat_id=chat_id, text=text)
+        elif event.channel in ("telegram", "sms"):
+            sent_ok = await self._send_message(event.channel, event.sender, text)
+
+        if sent_ok and control_jorb_id:
+            try:
+                await self.store_outbound_message(
+                    jorb_id=control_jorb_id,
+                    channel=event.channel,
+                    recipient=event.sender,
+                    content=text,
+                    reasoning="cancel_all_jorbs",
+                )
+            except Exception:
+                logger.exception("Failed storing outbound cancel-all-jorbs message")
+
+        if sent_ok and control_jorb_id:
+            self._record_message_sent(control_jorb_id)
+
+        return ProcessingResult(
+            jorb_id=control_jorb_id,
+            action_taken="cancel_all_jorbs",
             success=True,
             message_sent=sent_ok,
         )
