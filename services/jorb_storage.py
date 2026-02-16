@@ -251,7 +251,7 @@ CREATE TABLE IF NOT EXISTS jorb_messages (
     jorb_id TEXT NOT NULL REFERENCES jorbs(id) ON DELETE CASCADE,
     timestamp TEXT NOT NULL,
     direction TEXT NOT NULL CHECK(direction IN ('inbound', 'outbound')),
-    channel TEXT NOT NULL CHECK(channel IN ('telegram', 'sms', 'email')),
+    channel TEXT NOT NULL CHECK(channel IN ('telegram', 'telegram_bot', 'sms', 'email')),
     sender TEXT,
     sender_name TEXT,
     recipient TEXT,
@@ -421,6 +421,59 @@ class JorbStorage:
                     logger.debug("Column %s migration skipped: %s", col_name, e)
 
         await conn.commit()
+
+        # Migration v6: allow 'telegram_bot' in jorb_messages.channel CHECK constraint.
+        # SQLite cannot ALTER a CHECK constraint, so we rebuild the table when needed.
+        try:
+            cursor = await conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='jorb_messages'"
+            )
+            row = await cursor.fetchone()
+            create_sql = (row[0] if row and row[0] else "") if row else ""
+
+            if create_sql and "telegram_bot" not in create_sql:
+                logger.info("Migrating jorb_messages.channel to allow telegram_bot")
+                await conn.executescript(
+                    """
+                    PRAGMA foreign_keys=OFF;
+
+                    ALTER TABLE jorb_messages RENAME TO jorb_messages_old;
+
+                    CREATE TABLE jorb_messages (
+                        id TEXT PRIMARY KEY,
+                        jorb_id TEXT NOT NULL REFERENCES jorbs(id) ON DELETE CASCADE,
+                        timestamp TEXT NOT NULL,
+                        direction TEXT NOT NULL CHECK(direction IN ('inbound', 'outbound')),
+                        channel TEXT NOT NULL CHECK(channel IN ('telegram', 'telegram_bot', 'sms', 'email')),
+                        sender TEXT,
+                        sender_name TEXT,
+                        recipient TEXT,
+                        content TEXT NOT NULL,
+                        agent_reasoning TEXT
+                    );
+
+                    INSERT INTO jorb_messages (
+                        id, jorb_id, timestamp, direction, channel,
+                        sender, sender_name, recipient, content, agent_reasoning
+                    )
+                    SELECT
+                        id, jorb_id, timestamp, direction, channel,
+                        sender, sender_name, recipient, content, agent_reasoning
+                    FROM jorb_messages_old;
+
+                    DROP TABLE jorb_messages_old;
+
+                    CREATE INDEX IF NOT EXISTS idx_jorb_messages_jorb_id
+                        ON jorb_messages(jorb_id);
+                    CREATE INDEX IF NOT EXISTS idx_jorb_messages_timestamp
+                        ON jorb_messages(jorb_id, timestamp);
+
+                    PRAGMA foreign_keys=ON;
+                    """
+                )
+                await conn.commit()
+        except Exception as e:
+            logger.warning("jorb_messages channel migration skipped/failed: %s", e)
 
     async def create_jorb(
         self,
