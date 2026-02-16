@@ -1536,7 +1536,66 @@ class AgentRunner:
                         wake_at=wake_at_iso,
                     )
 
-                continue
+                # Always yield after starting a long-running task so we don't
+                # burn LLM iterations in a tight loop. Send a lightweight
+                # acknowledgement automatically when this run was triggered by
+                # a human message and no other message has been sent yet.
+                if started_with_event and not message_sent:
+                    try:
+                        if not self._check_rate_limit(jorb_id):
+                            preferred = str(jwm.jorb.metadata.get("preferred_transport") or "").strip()
+                            preferred = preferred or ("telegram_bot" if jwm.jorb.metadata.get("telegram_bot_chat_id") else "")
+                            chat_id = str(jwm.jorb.metadata.get("telegram_bot_chat_id") or "").strip() or None
+                            recipient = jwm.jorb.contacts[0].identifier if jwm.jorb.contacts else None
+
+                            ack = (
+                                f"On it — starting Android diagnostics (task_id={task_id or 'unknown'}). "
+                                "I’ll update you when it finishes."
+                            )
+                            sent_ok = False
+                            if preferred == "telegram_bot" and chat_id:
+                                sent_ok = await self._send_telegram_bot_message(chat_id=chat_id, text=ack)
+                                if sent_ok:
+                                    await self.store_outbound_message(
+                                        jorb_id=jorb_id,
+                                        channel="telegram_bot",
+                                        recipient=recipient or f"chat_id:{chat_id}",
+                                        content=ack,
+                                        reasoning="auto_progress_update",
+                                    )
+                            elif preferred == "telegram" and recipient:
+                                sent_ok = await self._send_message("telegram", recipient, ack)
+                                if sent_ok:
+                                    await self.store_outbound_message(
+                                        jorb_id=jorb_id,
+                                        channel="telegram",
+                                        recipient=recipient,
+                                        content=ack,
+                                        reasoning="auto_progress_update",
+                                    )
+                            elif preferred == "sms" and recipient:
+                                sent_ok = await self._send_message("sms", recipient, ack)
+                                if sent_ok:
+                                    await self.store_outbound_message(
+                                        jorb_id=jorb_id,
+                                        channel="sms",
+                                        recipient=recipient,
+                                        content=ack,
+                                        reasoning="auto_progress_update",
+                                    )
+
+                            if sent_ok:
+                                message_sent = True
+                                self._record_message_sent(jorb_id)
+                    except Exception:
+                        logger.exception("Failed to send auto Android task ack for jorb %s", jorb_id)
+
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken="start_android_task",
+                    success=True,
+                    message_sent=message_sent,
+                )
 
             if cmd_type == "POLL_ANDROID_TASK":
                 from actions.android_phone import task_get_action
@@ -1673,7 +1732,62 @@ class AgentRunner:
                         wake_at=wake_at_iso,
                     )
 
-                continue
+                if started_with_event and not message_sent:
+                    try:
+                        if not self._check_rate_limit(jorb_id):
+                            preferred = str(jwm.jorb.metadata.get("preferred_transport") or "").strip()
+                            preferred = preferred or ("telegram_bot" if jwm.jorb.metadata.get("telegram_bot_chat_id") else "")
+                            chat_id = str(jwm.jorb.metadata.get("telegram_bot_chat_id") or "").strip() or None
+                            recipient = jwm.jorb.contacts[0].identifier if jwm.jorb.contacts else None
+
+                            ack = (
+                                f"On it — running a background script (job_id={job_id or 'unknown'}). "
+                                "I’ll update you when it finishes."
+                            )
+                            sent_ok = False
+                            if preferred == "telegram_bot" and chat_id:
+                                sent_ok = await self._send_telegram_bot_message(chat_id=chat_id, text=ack)
+                                if sent_ok:
+                                    await self.store_outbound_message(
+                                        jorb_id=jorb_id,
+                                        channel="telegram_bot",
+                                        recipient=recipient or f"chat_id:{chat_id}",
+                                        content=ack,
+                                        reasoning="auto_progress_update",
+                                    )
+                            elif preferred == "telegram" and recipient:
+                                sent_ok = await self._send_message("telegram", recipient, ack)
+                                if sent_ok:
+                                    await self.store_outbound_message(
+                                        jorb_id=jorb_id,
+                                        channel="telegram",
+                                        recipient=recipient,
+                                        content=ack,
+                                        reasoning="auto_progress_update",
+                                    )
+                            elif preferred == "sms" and recipient:
+                                sent_ok = await self._send_message("sms", recipient, ack)
+                                if sent_ok:
+                                    await self.store_outbound_message(
+                                        jorb_id=jorb_id,
+                                        channel="sms",
+                                        recipient=recipient,
+                                        content=ack,
+                                        reasoning="auto_progress_update",
+                                    )
+
+                            if sent_ok:
+                                message_sent = True
+                                self._record_message_sent(jorb_id)
+                    except Exception:
+                        logger.exception("Failed to send auto meta task ack for jorb %s", jorb_id)
+
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken="start_meta_task",
+                    success=True,
+                    message_sent=message_sent,
+                )
 
             if cmd_type == "POLL_META_TASK":
                 from meta.jobs import JobStatus, get_job
