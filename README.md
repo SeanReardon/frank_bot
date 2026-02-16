@@ -264,21 +264,30 @@ Jorbs are long-lived autonomous tasks that Frank Bot can execute on your behalf.
 
 ### Android Phone Automation
 
-Frank Bot can control an Android phone via ADB over the network, enabling LLM-in-the-loop automation for apps like Google Home (thermostat control), Uber, DoorDash, and more.
+Frank Bot can control a dedicated Android phone via ADB, enabling LLM-in-the-loop automation for apps like Google Home (thermostat control), Uber, DoorDash, and more.
+
+ADB transport options:
+- **USB (preferred)**: stable, works even if the phone has Wi‑Fi/cellular disabled
+- **TCP/IP (wireless debugging)**: convenient, but depends on network reachability
 
 **Device Requirements:**
-- Android 10+ with wireless ADB debugging enabled
-- Connected to the same network as Frank Bot
-- ADB authorized for your computer/server
+- Android 10+
+- ADB authorized for the host running frank_bot (ADB keys are persisted via `./adb-keys:/root/.android`)
+- If using USB: USB passthrough to the container (`/dev/bus/usb` is mounted in `docker-compose.yml`)
+- If using TCP/IP: phone reachable from the container network
 
 **Setup steps:**
 
-1. **Enable wireless debugging** on your Android device:
-   - Go to Settings → Developer Options → Wireless debugging
-   - Note the IP address and port shown
-   - Pair your computer using `adb pair <ip>:<pairing-port>`
+1. **USB (recommended / onlogic-closet default)**:
+   - Plug the phone into the host and confirm it appears in `adb devices`
+   - Set the device serial (example: `48151FDKD001UD`) in Vault at `secret/frank-bot/android` (`device_serial`)
+     - On container start, `scripts/entrypoint.sh` will export `ANDROID_DEVICE_SERIAL` from Vault settings (if unset)
+   - If the phone has Wi‑Fi/cellular off, `gnirehtet` will automatically start (when `ANDROID_DEVICE_SERIAL` is set) to provide USB internet
 
-2. **Store Android connection config in Vault** at `secret/frank-bot/android` (keys: `device_serial`, `adb_host`, `adb_port`).
+2. **TCP/IP (wireless debugging fallback)**:
+   - Enable wireless debugging on the phone (Settings → Developer Options → Wireless debugging)
+   - Pair from the host: `adb pair <ip>:<pairing-port>`
+   - Set Vault `adb_host`/`adb_port` (or env vars `ANDROID_ADB_HOST`/`ANDROID_ADB_PORT`)
 
 3. **For LLM-in-the-loop automation**, also configure:
    ```
@@ -290,8 +299,9 @@ Frank Bot can control an Android phone via ADB over the network, enabling LLM-in
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ANDROID_ADB_HOST` | `10.0.0.95` | Android device IP address |
-| `ANDROID_ADB_PORT` | `5555` | ADB TCP port |
+| `ANDROID_DEVICE_SERIAL` | _unset_ | **USB ADB** serial (preferred). Example: `48151FDKD001UD` |
+| `ANDROID_ADB_HOST` | `10.0.0.95` | **TCP/IP ADB** host (fallback) |
+| `ANDROID_ADB_PORT` | `5555` | **TCP/IP ADB** port (fallback) |
 | `ANDROID_LLM_MODEL` | `gpt-5.2` | Vision-capable LLM for automation |
 | `ANDROID_LLM_API_KEY` | _unset_ | Dev fallback only (prefer Vault; falls back to OpenAI key) |
 | `ANDROID_MAINTENANCE_CRON` | `0 3 1 * *` | Monthly maintenance schedule |

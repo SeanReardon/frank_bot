@@ -12,9 +12,10 @@ I've added a new device to the home network that frank_bot uses for mobile app a
 
 ```yaml
 name: android-automation-phone
-ip: 10.0.0.95
-port: 5555
-protocol: ADB over TCP/IP
+usb_serial: 48151FDKD001UD
+protocol: ADB over USB (preferred)
+wifi_debug_host: 10.0.0.95  # optional
+wifi_debug_port: 5555       # optional
 device: Google Pixel 9 Pro Fold
 os: Android 16
 purpose: Headless phone for Frank Bot to control mobile apps
@@ -22,14 +23,14 @@ purpose: Headless phone for Frank Bot to control mobile apps
 
 ### What It Does
 
-This is a rooted, dedicated Android phone that Frank Bot controls via ADB over WiFi. It lets Frank interact with mobile apps that don't have APIs, like:
+This is a rooted, dedicated Android phone that Frank Bot controls via ADB (**USB by default**, optional wireless debugging fallback). It lets Frank interact with mobile apps that don't have APIs, like:
 - Uber (request rides)
 - Uber Eats (order food)
 - OpenTable (make reservations)
 - American Airlines (check flights)
 - Zillow (property lookups)
 
-The phone sits powered and connected to WiFi. Frank Bot connects to `10.0.0.95:5555` and can:
+The phone sits powered and connected to the `onlogic-closet` host over USB. Frank Bot can:
 - Launch apps
 - Read the screen (accessibility tree)
 - Tap, type, swipe
@@ -37,31 +38,26 @@ The phone sits powered and connected to WiFi. Frank Bot connects to `10.0.0.95:5
 
 ### Network/Firewall Considerations
 
-- The phone should only be accessible from the local network
-- ADB port 5555 should NOT be exposed to the internet
-- The frank_bot Docker container needs network access to 10.0.0.95:5555
+- USB mode avoids exposing ADB on the network entirely
+- If wireless debugging is enabled: keep ADB on the local network only; **never** expose port 5555 publicly
 
 ### Please Update
 
-1. **Network documentation** - Add this device to the inventory
-2. **DHCP reservation** - Ensure 10.0.0.95 stays reserved for this device's MAC
-3. **Firewall rules** - If any, ensure frank_bot can reach 10.0.0.95:5555
+1. **Inventory documentation** - Track this device + USB serial
+2. **Host wiring** - Ensure it remains plugged into `onlogic-closet`
+3. **Container access** - Ensure frank_bot has USB passthrough (`/dev/bus/usb`) and persistent ADB keys (`./adb-keys`)
 
 ### Troubleshooting Commands
 
 ```bash
-# Test connectivity
-ping 10.0.0.95
-
-# Test ADB connection
-adb connect 10.0.0.95:5555
-adb devices
+# List attached devices
+adb devices -l
 
 # Get device info
-adb -s 10.0.0.95:5555 shell getprop ro.product.model
+adb -s 48151FDKD001UD shell getprop ro.product.model
 ```
 
 If the phone becomes unreachable:
-1. It may have disconnected from WiFi while sleeping
-2. The ADB TCP service may have stopped (rare with Magisk init script)
-3. IP may have changed if DHCP reservation failed
+1. USB cable/passthrough may be disconnected
+2. ADB authorization may have been revoked (device shows `unauthorized`)
+3. If using wireless debugging: Wi‑Fi state / IP may have changed

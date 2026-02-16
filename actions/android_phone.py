@@ -136,6 +136,8 @@ async def android_phone_health_action(
     if not connect_result.success and "already connected" not in connect_result.output.lower():
         result = {
             "connected": False,
+            "transport": "usb" if client.is_usb else "tcp",
+            "device_serial": client.device_serial,
             "device_model": None,
             "android_version": None,
             "battery_level": None,
@@ -152,6 +154,8 @@ async def android_phone_health_action(
     if not is_connected:
         result = {
             "connected": False,
+            "transport": "usb" if client.is_usb else "tcp",
+            "device_serial": client.device_serial,
             "device_model": None,
             "android_version": None,
             "battery_level": None,
@@ -174,6 +178,8 @@ async def android_phone_health_action(
 
     result = {
         "connected": True,
+        "transport": "usb" if client.is_usb else "tcp",
+        "device_serial": client.device_serial,
         "device_model": device_info.get("model"),
         "android_version": device_info.get("android_version"),
         "battery_level": battery_level,

@@ -10,6 +10,38 @@ set -e
 GNIREHTET_BIN="/usr/local/bin/gnirehtet"
 GNIREHTET_LOG="/app/logs/gnirehtet.log"
 
+maybe_set_android_serial() {
+    # If ANDROID_DEVICE_SERIAL isn't set, try to load it from Vault-backed config.
+    # This keeps docker-compose clean (Vault-first) while still enabling USB ADB
+    # and gnirehtet on the host-attached device.
+    if [ -n "$ANDROID_DEVICE_SERIAL" ]; then
+        return
+    fi
+
+    SERIAL="$(python - <<'PY' 2>/dev/null || true
+from config import get_settings
+print((get_settings().android_device_serial or "").strip())
+PY
+)"
+    if [ -n "$SERIAL" ]; then
+        export ANDROID_DEVICE_SERIAL="$SERIAL"
+        echo "[entrypoint] Loaded ANDROID_DEVICE_SERIAL from settings: $ANDROID_DEVICE_SERIAL"
+        return
+    fi
+
+    # Fallback: if exactly one USB-connected device is present, auto-select it.
+    # (We intentionally ignore tcpip serials like 10.0.0.95:5555 here.)
+    USB_SERIALS="$(adb devices 2>/dev/null | awk 'NR>1 && $2==\"device\" && $1 !~ /:/ {print $1}')"
+    USB_COUNT="$(printf \"%s\" \"$USB_SERIALS\" | grep -c . || true)"
+    if [ "$USB_COUNT" -eq 1 ]; then
+        export ANDROID_DEVICE_SERIAL="$USB_SERIALS"
+        echo "[entrypoint] Auto-detected USB ANDROID_DEVICE_SERIAL: $ANDROID_DEVICE_SERIAL"
+        return
+    fi
+}
+
+maybe_set_android_serial || true
+
 start_gnirehtet() {
     if [ -z "$ANDROID_DEVICE_SERIAL" ]; then
         echo "[entrypoint] ANDROID_DEVICE_SERIAL not set, skipping gnirehtet"

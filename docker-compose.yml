@@ -56,6 +56,13 @@ services:
       # Container path for data (scripts and jobs)
       DATA_DIR: "/app/data"
 
+      # Android phone ADB targeting
+      # - USB (preferred): set ANDROID_DEVICE_SERIAL (e.g. from `adb devices`)
+      # - TCP/IP (fallback): set ANDROID_ADB_HOST/ANDROID_ADB_PORT (wireless debugging)
+      ANDROID_DEVICE_SERIAL: "${ANDROID_DEVICE_SERIAL:-}"
+      ANDROID_ADB_HOST: "${ANDROID_ADB_HOST:-}"
+      ANDROID_ADB_PORT: "${ANDROID_ADB_PORT:-}"
+
       # Optional manifest metadata (defaults if not in .env)
       ACTIONS_NAME_FOR_HUMAN: "${ACTIONS_NAME_FOR_HUMAN:-Frank Bot}"
       ACTIONS_NAME_FOR_MODEL: "${ACTIONS_NAME_FOR_MODEL:-frank_bot}"

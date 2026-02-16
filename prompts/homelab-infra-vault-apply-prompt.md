@@ -7,7 +7,7 @@ The frank_bot repository has been updated with new Vault secrets for Android pho
 ## Task
 
 Apply the Vault terraform changes for frank_bot to create/update these secrets:
-- `secret/frank-bot/android` - Android ADB connection config (host: 10.0.0.95, port: 5555)
+- `secret/frank-bot/android` - Android ADB connection config (**USB serial preferred**, TCP/IP fallback optional)
 - `secret/frank-bot/actions` - Actions API key for authentication
 
 ## Steps
@@ -27,12 +27,16 @@ Apply the Vault terraform changes for frank_bot to create/update these secrets:
    ```bash
    cat >> terraform.tfvars << 'EOF'
 
-# Android phone automation (ADB over TCP)
-android_adb_host = "10.0.0.95"
-android_adb_port = "5555"
+# Android phone automation (ADB)
+# Preferred: USB serial from `adb devices` (onlogic-closet currently: 48151FDKD001UD)
+android_device_serial = "48151FDKD001UD"
+#
+# Optional fallback: wireless debugging host/port
+# android_adb_host = "10.0.0.95"
+# android_adb_port = "5555"
 
 # Actions API key (for X-API-Key header authentication)
-actions_api_key = "f04ad182983a4361f95119cd8508034d2a604b623d45c0083c93eb736f2a9b78"
+actions_api_key = "<ACTIONS_API_KEY>"
 EOF
    ```
    
@@ -64,7 +68,7 @@ EOF
 ## Expected Outcome
 
 After applying:
-- Frank-bot will load Android ADB config from Vault instead of env vars
+- Frank-bot will load Android ADB config from Vault (USB serial preferred)
 - Frank-bot will load ACTIONS_API_KEY from Vault instead of env vars
 - The container may need to be restarted to pick up the new config:
   ```bash

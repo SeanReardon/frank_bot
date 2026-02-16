@@ -2,8 +2,7 @@
 
 ## Device Information
 
-- **IP Address**: 10.0.0.95 (static)
-- **Port**: 5555 (ADB over TCP)
+- **USB Serial**: 48151FDKD001UD
 - **Device**: Google Pixel 9 Pro Fold
 - **Android Version**: 16
 - **Build**: BP3A.251005.004.B3
@@ -11,18 +10,28 @@
 
 ## What This Device Is
 
-This is a rooted Android phone dedicated to automation tasks. It runs headlessly on the home network, allowing Frank Bot to control mobile apps like Uber, Uber Eats, OpenTable, etc. via ADB (Android Debug Bridge) over WiFi.
+This is a rooted Android phone dedicated to automation tasks. Frank Bot controls it via ADB (Android Debug Bridge) — **over USB by default**, with optional wireless debugging as a fallback.
 
 The phone is:
 - **Rooted with Magisk** - Enables persistent ADB TCP mode
 - **No lock screen PIN** - Swipe-only unlock for automation access
 - **Always powered** - Connected to charger
-- **Static IP** - Always reachable at 10.0.0.95
+- **USB-attached** - Plugged into `onlogic-closet` and controlled via ADB over USB
+- **Network optional** - Wi‑Fi/cellular may be disabled; when so, USB reverse-tethering (`gnirehtet`) provides internet
 
-## Network Configuration
+## ADB Configuration (Primary)
 
 ```
-Protocol: ADB over TCP/IP
+Protocol: ADB over USB
+Serial: 48151FDKD001UD
+Connection: adb -s 48151FDKD001UD shell getprop ro.product.model
+```
+
+## ADB Configuration (Optional: Wireless Debugging Fallback)
+
+If the phone is on Wi‑Fi and you prefer TCP/IP:
+
+```
 Host: 10.0.0.95
 Port: 5555
 Connection: adb connect 10.0.0.95:5555
@@ -44,7 +53,7 @@ Connection: adb connect 10.0.0.95:5555
 
 ## How Frank Bot Controls It
 
-Frank Bot (running in Docker) connects to this device over the network and can:
+Frank Bot (running in Docker) connects to this device over USB (preferred) and can:
 - Wake the device screen
 - Launch apps
 - Read UI elements (accessibility tree)
@@ -55,28 +64,23 @@ The control flow is LLM-driven: Frank Bot uses an AI agent loop to interpret wha
 
 ## Firewall / Security Notes
 
-- Only accessible from within the home network (10.0.0.0/24)
-- ADB port 5555 should NOT be exposed to the internet
-- The frank_bot container needs network access to 10.0.0.95:5555
+- If using wireless debugging: ADB port 5555 should NOT be exposed to the internet
+- USB mode avoids exposing ADB on the network entirely
 
 ## Troubleshooting
 
 If Frank Bot can't connect to the phone:
 
-1. **Phone screen off / WiFi sleeping**: The phone may disconnect from WiFi when screen is off for extended periods. Wake the phone physically or ensure "Keep WiFi on during sleep" is set to "Always"
+1. **USB passthrough**: Ensure `docker-compose.yml` mounts `/dev/bus/usb` into the container and persists `./adb-keys:/root/.android`
 
-2. **ADB TCP not running**: If the phone rebooted and the init script didn't run, reconnect via USB and run:
-   ```bash
-   adb tcpip 5555
-   ```
+2. **ADB authorization**: If `adb devices` shows `unauthorized`, re-authorize the host key on the phone and/or remove stale keys in `./adb-keys/`
 
-3. **IP changed**: Verify the phone still has 10.0.0.95 in Settings → Network → WiFi → [network] → IP address
+3. **Wireless debugging (if using TCP/IP)**: confirm the phone is on Wi‑Fi and reachable at the configured host/port
 
 4. **Test connectivity**:
    ```bash
-   ping 10.0.0.95
-   adb connect 10.0.0.95:5555
    adb devices
+   adb -s 48151FDKD001UD shell echo ping
    ```
 
 ## Related Frank Bot Components

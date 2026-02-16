@@ -5,10 +5,11 @@ Provides low-level ADB commands for controlling an Android device.
 Supports both USB and TCP/IP (wireless debugging) transports.
 
 Transport selection:
-  - USB: Set ANDROID_DEVICE_SERIAL env var to the USB serial
-    (e.g., "48151FDKD001UD"). Requires USB passthrough to container.
-  - TCP/IP: Set ANDROID_ADB_HOST (default 10.0.0.95) and
-    ANDROID_ADB_PORT (default 5555).
+  - USB (preferred): Set ANDROID_DEVICE_SERIAL (e.g., "48151FDKD001UD"),
+    or set Vault secret `secret/frank-bot/android` key `device_serial`.
+    Requires USB passthrough to container.
+  - TCP/IP (wireless debugging fallback): Set ANDROID_ADB_HOST (default 10.0.0.95)
+    and ANDROID_ADB_PORT (default 5555), or set Vault `adb_host`/`adb_port`.
 
 USB is preferred when available -- it doesn't require WiFi and
 survives network changes.
@@ -80,9 +81,22 @@ class AndroidClient:
         serial: str | None = None,
         timeout: int = DEFAULT_ADB_TIMEOUT,
     ):
-        self._usb_serial = serial or os.getenv(
-            "ANDROID_DEVICE_SERIAL", ""
-        )
+        def _env_str(name: str) -> str:
+            raw = os.getenv(name)
+            return (raw or "").strip()
+
+        # Prefer explicit args, then env vars. If unset, fall back to Vault-backed settings.
+        self._usb_serial = (serial or "").strip() or _env_str("ANDROID_DEVICE_SERIAL")
+        if not self._usb_serial:
+            try:
+                from config import get_settings
+
+                settings = get_settings()
+                self._usb_serial = (settings.android_device_serial or "").strip()
+            except Exception:
+                # Vault/config unavailable; remain unset and fall back to TCP/IP.
+                self._usb_serial = ""
+
         self._use_usb = bool(self._usb_serial)
 
         if self._use_usb:
@@ -94,15 +108,29 @@ class AndroidClient:
                 self._usb_serial,
             )
         else:
-            self._host = host or os.getenv(
-                "ANDROID_ADB_HOST", DEFAULT_ADB_HOST
-            )
-            self._port = port or int(
-                os.getenv(
-                    "ANDROID_ADB_PORT",
-                    str(DEFAULT_ADB_PORT),
-                )
-            )
+            host_val = (host or "").strip() or _env_str("ANDROID_ADB_HOST")
+            port_val: int | None = port
+            if port_val is None:
+                port_raw = _env_str("ANDROID_ADB_PORT")
+                if port_raw:
+                    try:
+                        port_val = int(port_raw)
+                    except (ValueError, TypeError):
+                        port_val = None
+
+            if not host_val or port_val is None:
+                try:
+                    from config import get_settings
+
+                    settings = get_settings()
+                    host_val = host_val or (settings.android_adb_host or "").strip()
+                    if port_val is None:
+                        port_val = int(settings.android_adb_port)
+                except Exception:
+                    pass
+
+            self._host = host_val or DEFAULT_ADB_HOST
+            self._port = int(port_val or DEFAULT_ADB_PORT)
             self._device_serial = (
                 f"{self._host}:{self._port}"
             )
@@ -206,6 +234,77 @@ class AndroidClient:
                 elapsed_ms=elapsed_ms,
             )
 
+    async def _run_adb_global(self, *args: str, timeout: int | None = None) -> ADBResult:
+        """
+        Run an ADB command WITHOUT selecting a device (no `-s`).
+
+        This is required for commands like `adb connect` / `adb disconnect` which
+        establish the device entry in the first place.
+        """
+        cmd_timeout = timeout or self._timeout
+        cmd = ["adb", *args]
+
+        adb_stats = stats.get_service_stats("android_adb")
+        start = time.time()
+
+        try:
+            logger.debug("Running ADB command (global): %s", " ".join(cmd))
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=cmd_timeout,
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                elapsed_ms = (time.time() - start) * 1000
+                adb_stats.record_request(elapsed_ms, success=False, error="Timeout")
+                return ADBResult(
+                    success=False,
+                    output="",
+                    error=f"ADB command timed out after {cmd_timeout}s",
+                    elapsed_ms=elapsed_ms,
+                )
+
+            elapsed_ms = (time.time() - start) * 1000
+            output = stdout.decode("utf-8", errors="replace")
+            error_output = stderr.decode("utf-8", errors="replace")
+
+            if proc.returncode == 0:
+                adb_stats.record_request(elapsed_ms, success=True)
+                return ADBResult(
+                    success=True,
+                    output=output,
+                    elapsed_ms=elapsed_ms,
+                )
+
+            adb_stats.record_request(elapsed_ms, success=False, error=error_output)
+            return ADBResult(
+                success=False,
+                output=output,
+                error=error_output or f"ADB command failed with code {proc.returncode}",
+                elapsed_ms=elapsed_ms,
+            )
+
+        except Exception as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            error_msg = str(exc)
+            adb_stats.record_request(elapsed_ms, success=False, error=error_msg)
+            logger.exception("ADB command failed (global): %s", " ".join(cmd))
+            return ADBResult(
+                success=False,
+                output="",
+                error=error_msg,
+                elapsed_ms=elapsed_ms,
+            )
+
     async def connect(self) -> ADBResult:
         """
         Connect to the Android device.
@@ -220,9 +319,7 @@ class AndroidClient:
                 output="USB device (always connected)",
             )
 
-        result = await self._run_adb(
-            "connect", self._device_serial
-        )
+        result = await self._run_adb_global("connect", self._device_serial)
         if (
             result.success
             or "already connected" in result.output.lower()
@@ -240,9 +337,7 @@ class AndroidClient:
                 output="USB device (no disconnect needed)",
             )
 
-        result = await self._run_adb(
-            "disconnect", self._device_serial
-        )
+        result = await self._run_adb_global("disconnect", self._device_serial)
         self._connected = False
         return result
 

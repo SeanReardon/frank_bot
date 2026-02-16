@@ -64,9 +64,15 @@ Terraform configuration for managing Frank Bot secrets in HashiCorp Vault.
 |------|-------------|
 | `frank-bot/stytch` | Stytch project credentials (for session validation) |
 | `frank-bot/telegram` | Telegram API credentials |
+| `frank-bot/telegram-bot` | Telegram Bot API token + default chat_id (notifications) |
 | `frank-bot/telnyx` | Telnyx SMS credentials |
 | `frank-bot/google` | Google OAuth credentials |
 | `frank-bot/swarm` | Swarm/Foursquare credentials |
+| `frank-bot/openai` | OpenAI API key (jorb agent reasoning) |
+| `frank-bot/claudia` | Claudia API URL + API key |
+| `frank-bot/android` | Android automation config (USB `device_serial` preferred; `adb_host`/`adb_port` optional fallback) |
+| `frank-bot/actions` | Actions API key (X-API-Key auth) |
+| `frank-bot/email` | SMTP + digest notification settings |
 
 ## Rotating Secrets
 

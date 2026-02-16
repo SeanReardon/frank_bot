@@ -112,20 +112,20 @@ variable "claudia_api_key" {
 # Android phone automation
 variable "android_device_serial" {
   type        = string
-  description = "USB serial of the Android device (from adb devices)"
+  description = "ADB USB serial of the Android device (preferred transport; from `adb devices`)"
   sensitive   = true
   default     = ""
 }
 
 variable "android_adb_host" {
   type        = string
-  description = "IP address of the Android device for ADB over TCP (fallback)"
+  description = "IP address for ADB over TCP (wireless debugging fallback)"
   default     = "10.0.0.95"
 }
 
 variable "android_adb_port" {
   type        = string
-  description = "ADB TCP port (default: 5555)"
+  description = "ADB TCP port (wireless debugging fallback; default: 5555)"
   default     = "5555"
 }
 

@@ -27,33 +27,38 @@ Restart the frank-bot container and verify the Android phone integration is work
 
 3. **Test Android health endpoint**:
    ```bash
-   curl -s "https://frank-bot-api.contrived.com/actions/androidPhone/health" \
-     -H "X-API-Key: f04ad182983a4361f95119cd8508034d2a604b623d45c0083c93eb736f2a9b78" | jq .
+   curl -s "https://frank-bot-api.contrived.com/actions/androidPhone/health" | jq .
    ```
 
 4. **Expected response** (success):
    ```json
    {
      "connected": true,
+     "transport": "usb",
+     "device_serial": "48151FDKD001UD",
      "device_model": "Pixel 9 Pro Fold",
      "android_version": "15",
      "battery_level": 85,
-     "adb_host": "10.0.0.95",
-     "adb_port": 5555
+      "wifi_enabled": false,
+      "wifi_ssid": null
    }
    ```
 
 5. **If `connected: false`**, check:
-   - Is the Android phone on WiFi and awake?
-   - Can you ping `10.0.0.95` from the frank-bot container?
-   - Is ADB TCP still running on the phone? (port 5555)
+   - USB mode:
+     - Is the phone still physically plugged in?
+     - Does the container see it? `docker exec frank-bot adb devices -l`
+     - If it shows `unauthorized`, re-authorize ADB on the phone (ADB keys are persisted via `./adb-keys`)
+   - Wireless debugging mode (fallback):
+     - Is the phone on Wi‑Fi and reachable at the configured host/port?
+     - Can you run `adb connect <host>:<port>` from the host?
 
 ## Verification
 
 Once health returns `connected: true`, test the thermostat:
 ```bash
-curl -s "https://frank-bot-api.contrived.com/actions/androidPhone/thermostat/status" \
-  -H "X-API-Key: f04ad182983a4361f95119cd8508034d2a604b623d45c0083c93eb736f2a9b78" | jq .
+curl -s "https://frank-bot-api.contrived.com/actions/androidPhone/thermostat/getStatus" \
+  -H "X-API-Key: <ACTIONS_API_KEY>" | jq .
 ```
 
 This will take 10-30 seconds as the LLM navigates the Google Home app.

@@ -2,14 +2,15 @@
 
 ## Overview
 
-The `androidPhone*` family of actions enables Frank Bot to control mobile apps on a dedicated Android device via ADB over WiFi. Unlike simple API calls, these actions require an LLM-in-the-loop to handle variable phone UX.
+The `androidPhone*` family of actions enables Frank Bot to control mobile apps on a dedicated Android device via ADB (**USB preferred**, wireless debugging optional). Unlike simple API calls, these actions require an LLM-in-the-loop to handle variable phone UX.
 
 ## Device Configuration
 
 | Setting | Value |
 |---------|-------|
-| IP Address | 10.0.0.95 (static) |
-| Port | 5555 (ADB over TCP) |
+| USB Serial (preferred) | 48151FDKD001UD |
+| Wi‑Fi Debug Host (optional) | 10.0.0.95 |
+| Wi‑Fi Debug Port (optional) | 5555 |
 | Device | Google Pixel 9 Pro Fold |
 | OS | Android 16 |
 | Root | Magisk |
@@ -419,8 +420,8 @@ async def android_weekly_health():
 
 ### Authentication
 - All endpoints require `X-API-Key` header
-- Phone only accessible from local network (10.0.0.0/24)
-- ADB port 5555 NOT exposed to internet
+- USB mode: phone is only reachable by the host via `/dev/bus/usb` passthrough
+- Wireless debugging mode: restrict to local network (e.g. 10.0.0.0/24); ADB port 5555 must NOT be exposed to the internet
 
 ### Approval Requirements
 

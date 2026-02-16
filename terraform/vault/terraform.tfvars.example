@@ -30,9 +30,13 @@ openai_api_key = "sk-..."
 claudia_api_url = "https://claudia.contrived.com"
 claudia_api_key = "..."
 
-# Android phone automation (ADB over TCP)
-android_adb_host = "10.0.0.95"
-android_adb_port = "5555"
+# Android phone automation (ADB)
+# Preferred: USB serial from `adb devices`
+android_device_serial = "48151FDKD001UD"
+#
+# Optional fallback: wireless debugging host/port
+# android_adb_host = "10.0.0.95"
+# android_adb_port = "5555"
 
 # Actions API key (for X-API-Key header authentication)
 actions_api_key = "your-secret-api-key"
