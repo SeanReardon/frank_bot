@@ -200,7 +200,7 @@ async def shutdown_telegram_bot_router() -> None:
 
 def get_bot_router_status() -> dict[str, object]:
     """Return status for diagnostics/system status endpoints."""
-    return {
+    status: dict[str, object] = {
         "initialized": _is_initialized,
         "listener_configured": bool(_listener and _listener.is_configured),
         "listener_running": bool(_listener and _listener.is_running),
@@ -209,6 +209,15 @@ def get_bot_router_status() -> dict[str, object]:
         ),
         "last_error": _last_error,
     }
+
+    if _listener is not None:
+        try:
+            status["listener_status"] = _listener.get_status()
+        except Exception:
+            # Defensive: never break diagnostics
+            status["listener_status"] = {"error": "failed_to_get_listener_status"}
+
+    return status
 
 
 __all__ = [

@@ -12,6 +12,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine
 
 import httpx
@@ -280,6 +281,15 @@ class TelegramBotListener:
         self._running = False
         self._poll_task: asyncio.Task | None = None
         self._offset: int | None = None
+        # Diagnostics
+        self._last_poll_at: str | None = None
+        self._last_poll_error: str | None = None
+        self._webhook_url: str | None = None
+        self._last_update_at: str | None = None
+        self._last_update_id: int | None = None
+        self._last_update_username: str | None = None
+        self._last_update_chat_id: str | None = None
+        self._last_message_preview: str | None = None
 
     @property
     def is_configured(self) -> bool:
@@ -291,6 +301,22 @@ class TelegramBotListener:
         """Check if the listener is currently polling."""
         return self._running
 
+    def get_status(self) -> dict[str, Any]:
+        """Return diagnostic status for monitoring endpoints."""
+        return {
+            "configured": self.is_configured,
+            "running": self._running,
+            "offset": self._offset,
+            "webhook_url": self._webhook_url,
+            "last_poll_at": self._last_poll_at,
+            "last_poll_error": self._last_poll_error,
+            "last_update_at": self._last_update_at,
+            "last_update_id": self._last_update_id,
+            "last_update_username": self._last_update_username,
+            "last_update_chat_id": self._last_update_chat_id,
+            "last_message_preview": self._last_message_preview,
+        }
+
     async def start_polling(self) -> None:
         """Start the long-polling loop as an asyncio task."""
         if self._running:
@@ -300,6 +326,15 @@ class TelegramBotListener:
         if not self._token:
             logger.warning("Bot listener not configured (no token)")
             return
+
+        # Best-effort: clear any configured webhook so polling works.
+        # If a webhook is set, Telegram will not deliver updates via getUpdates.
+        try:
+            await self._ensure_polling_mode()
+        except Exception as exc:
+            # Don't block startup; keep status for diagnostics.
+            self._last_poll_error = f"ensure_polling_mode_failed: {exc}"
+            logger.warning("Failed to ensure Telegram polling mode: %s", exc)
 
         self._running = True
         self._poll_task = asyncio.create_task(self._poll_loop())
@@ -331,6 +366,65 @@ class TelegramBotListener:
                 # Back off on errors to avoid tight loops
                 await asyncio.sleep(5)
 
+    async def _ensure_polling_mode(self) -> None:
+        """
+        Ensure the bot is configured for getUpdates polling.
+
+        Telegram bots can be configured for either webhooks or getUpdates.
+        If a webhook URL is present, getUpdates will not work.
+        """
+        info = await self._get_webhook_info()
+        url = str(info.get("url") or "").strip()
+        self._webhook_url = url or None
+
+        if url:
+            logger.warning(
+                "Telegram bot webhook is set (%s). Deleting webhook for polling.",
+                url,
+            )
+            await self._delete_webhook(drop_pending_updates=False)
+            info2 = await self._get_webhook_info()
+            url2 = str(info2.get("url") or "").strip()
+            self._webhook_url = url2 or None
+
+    async def _get_webhook_info(self) -> dict[str, Any]:
+        """Call Telegram getWebhookInfo and return the result object."""
+        if not self._token:
+            raise ValueError("Bot token not configured")
+
+        url = f"{TELEGRAM_BOT_API_BASE}/bot{self._token}/getWebhookInfo"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url)
+
+        if resp.status_code != 200:
+            raise RuntimeError(f"getWebhookInfo HTTP {resp.status_code}")
+
+        data = resp.json()
+        if not data.get("ok"):
+            raise RuntimeError(f"getWebhookInfo error: {data.get('description')}")
+
+        result = data.get("result") or {}
+        return result if isinstance(result, dict) else {}
+
+    async def _delete_webhook(self, *, drop_pending_updates: bool = False) -> None:
+        """Call Telegram deleteWebhook."""
+        if not self._token:
+            raise ValueError("Bot token not configured")
+
+        url = f"{TELEGRAM_BOT_API_BASE}/bot{self._token}/deleteWebhook"
+        params = {
+            "drop_pending_updates": "true" if drop_pending_updates else "false",
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, params=params)
+
+        if resp.status_code != 200:
+            raise RuntimeError(f"deleteWebhook HTTP {resp.status_code}")
+
+        data = resp.json()
+        if not data.get("ok"):
+            raise RuntimeError(f"deleteWebhook error: {data.get('description')}")
+
     async def _get_updates(self) -> list[dict[str, Any]]:
         """
         Call getUpdates with long-polling.
@@ -338,6 +432,8 @@ class TelegramBotListener:
         Returns:
             List of update dicts from the Telegram API.
         """
+        self._last_poll_at = datetime.now(timezone.utc).isoformat()
+
         url = f"{TELEGRAM_BOT_API_BASE}/bot{self._token}/getUpdates"
         params: dict[str, Any] = {"timeout": 3}
         if self._offset is not None:
@@ -347,13 +443,19 @@ class TelegramBotListener:
             response = await client.get(url, params=params)
 
         if response.status_code != 200:
+            self._last_poll_error = f"http_{response.status_code}"
             logger.error("getUpdates HTTP %s: %s", response.status_code, response.text)
             return []
 
         data = response.json()
         if not data.get("ok"):
-            logger.error("getUpdates API error: %s", data.get("description"))
+            desc = str(data.get("description") or "unknown_error")
+            self._last_poll_error = desc
+            logger.error("getUpdates API error: %s", desc)
             return []
+
+        # Successful poll clears error
+        self._last_poll_error = None
 
         updates = data.get("result", [])
         if updates:
@@ -370,6 +472,13 @@ class TelegramBotListener:
         Extracts message text, sender username, and chat_id.
         Checks the sender against the telegram_allowlist.
         """
+        update_id = update.get("update_id")
+        try:
+            if update_id is not None:
+                self._last_update_id = int(update_id)
+        except (TypeError, ValueError):
+            pass
+
         message = update.get("message")
         if not message:
             return
@@ -377,6 +486,8 @@ class TelegramBotListener:
         text = message.get("text")
         if not text:
             return
+
+        self._last_update_at = datetime.now(timezone.utc).isoformat()
 
         sender = message.get("from", {})
         username = sender.get("username", "")
@@ -387,6 +498,14 @@ class TelegramBotListener:
 
         if not chat_id:
             return
+
+        self._last_update_username = username or None
+        self._last_update_chat_id = chat_id
+
+        preview = str(text).strip().replace("\n", " ")
+        if len(preview) > 200:
+            preview = preview[:200] + "..."
+        self._last_message_preview = preview
 
         # Check allowlist
         from services.telegram_allowlist import is_allowed_username
