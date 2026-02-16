@@ -15,6 +15,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from services.jorb_storage import Jorb, JorbWithMessages
@@ -410,7 +411,38 @@ class Switchboard:
                 matches.append(jwm.jorb)
 
         if len(matches) == 1:
-            return matches[0].id
+            candidate = matches[0]
+
+            # Guardrail: conversation key match alone is not enough to assume
+            # continuity. Only fast-route when the candidate jorb is active and
+            # recently updated; otherwise let the LLM decide (new task vs follow-up).
+            updated_at = str(getattr(candidate, "updated_at", "") or "").strip()
+            updated_dt: datetime | None = None
+            try:
+                if updated_at.endswith("Z"):
+                    updated_at = updated_at[:-1] + "+00:00"
+                updated_dt = datetime.fromisoformat(updated_at) if updated_at else None
+            except Exception:
+                updated_dt = None
+
+            max_age = timedelta(minutes=30)
+            now = datetime.now(timezone.utc)
+            if not updated_dt or (now - updated_dt) > max_age:
+                return None
+
+            status = str(getattr(candidate, "status", "") or "").strip().lower()
+            awaiting = str(getattr(candidate, "awaiting", "") or "").strip()
+            paused_reason = str(getattr(candidate, "paused_reason", "") or "").strip().lower()
+
+            if status == "paused":
+                # Don't fast-route to long-stale auto-paused jorbs.
+                if "auto-paused" in paused_reason:
+                    return None
+                # If it's paused and not waiting on the human, let the LLM decide.
+                if not awaiting:
+                    return None
+
+            return candidate.id
 
         return None
 
