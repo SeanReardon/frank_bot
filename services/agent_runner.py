@@ -1489,18 +1489,27 @@ class AgentRunner:
                         message_sent=message_sent,
                     )
 
-                task = await task_get_action({"task_id": task_id})
+                poll_success = True
+                try:
+                    task = await task_get_action({"task_id": task_id})
+                except Exception as exc:
+                    poll_success = False
+                    task = {
+                        "id": task_id,
+                        "status": "error",
+                        "error": str(exc),
+                    }
                 await self._storage.add_script_result(
                     jorb_id,
                     {
                         "script": "android.task_get",
                         "result": task,
-                        "success": True,
+                        "success": poll_success,
                     },
                 )
 
                 status = str(task.get("status") or "").strip().lower()
-                if status in ("pending", "running"):
+                if poll_success and status in ("pending", "running"):
                     wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds_int)).isoformat()
                     await self.update_jorb_status(
                         jorb_id=jorb_id,
@@ -1617,8 +1626,16 @@ class AgentRunner:
                         message_sent=message_sent,
                     )
 
-                job = await asyncio.to_thread(get_job, task_id)
-                job_dict = job.to_dict() if job else {"job_id": task_id, "status": "not_found"}
+                job = None
+                try:
+                    job = await asyncio.to_thread(get_job, task_id)
+                    job_dict = job.to_dict() if job else {"job_id": task_id, "status": "not_found"}
+                except Exception as exc:
+                    job_dict = {
+                        "job_id": task_id,
+                        "status": "error",
+                        "error": str(exc),
+                    }
 
                 # Add stdout/stderr tail (TTY-like)
                 stdout = str(job_dict.get("stdout") or "")

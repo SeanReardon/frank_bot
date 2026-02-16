@@ -442,7 +442,18 @@ class Switchboard:
                 if not awaiting:
                     return None
 
-            return candidate.id
+            # Only fast-route when the jorb is explicitly waiting on Sean.
+            # For everything else (including long-running tasks), let the LLM
+            # decide whether this is a follow-up or a new request.
+            needs_approval_for = str(getattr(candidate, "needs_approval_for", "") or "").strip()
+            if needs_approval_for:
+                return candidate.id
+
+            awaiting_norm = awaiting.lower()
+            if awaiting_norm in ("human_reply", "context_recovery") or awaiting_norm.startswith("human_reply"):
+                return candidate.id
+
+            return None
 
         return None
 
