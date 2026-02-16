@@ -1018,6 +1018,7 @@ class AgentRunner:
             ProcessingResult with details of what happened
         """
         jorb_id = jorb.id
+        started_with_event = event is not None
         message_sent = False
         last_action = "no_action"
         steps_this_run = 0
@@ -1384,8 +1385,35 @@ class AgentRunner:
                     message_sent = True
                     self._record_message_sent(jorb_id)
 
-                # Continue loop so the LLM can decide to wait/schedule/complete.
-                continue
+                # Safety: yield after sending a human-facing message.
+                #
+                # Without this, the agent loop can repeatedly call `tick()` and
+                # emit additional SEND_MESSAGE commands, spamming the recipient.
+                #
+                # If a jorb needs to continue work after informing the human,
+                # it should use RUN_SCRIPT first and/or SCHEDULE_WAKE, then
+                # SEND_MESSAGE once results are ready.
+                if sent_ok:
+                    awaiting = "human_reply" if started_with_event else None
+                    await self.update_jorb_status(
+                        jorb_id=jorb_id,
+                        status="running",
+                        awaiting=awaiting,
+                        wake_at=None,
+                    )
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="send_message",
+                        success=True,
+                        message_sent=True,
+                    )
+
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken="send_message_failed",
+                    success=False,
+                    message_sent=message_sent,
+                )
 
             if cmd_type == "START_ANDROID_TASK":
                 from actions.android_phone import task_do_action
