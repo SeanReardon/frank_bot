@@ -30,6 +30,10 @@ _message_buffer: MessageBuffer | None = None
 _agent_runner: AgentRunner | None = None
 _is_initialized: bool = False
 _last_error: str | None = None
+_last_processed_at: str | None = None
+_last_processed_sender: str | None = None
+_last_processed_preview: str | None = None
+_last_processing_result: dict[str, object] | None = None
 
 
 def _normalize_sender(username: str, sender_name: str | None) -> str:
@@ -47,6 +51,7 @@ async def _on_bot_message_flush(event: BufferedEvent) -> None:
     channel='telegram_bot' and dispatches it through the Switchboard.
     """
     global _agent_runner, _last_error
+    global _last_processed_at, _last_processed_sender, _last_processed_preview, _last_processing_result
 
     if _agent_runner is None:
         _agent_runner = AgentRunner()
@@ -82,9 +87,23 @@ async def _on_bot_message_flush(event: BufferedEvent) -> None:
         event.message_count,
     )
 
+    _last_processed_at = datetime.now(timezone.utc).isoformat()
+    _last_processed_sender = event.sender
+    preview = (event.content or "").strip().replace("\n", " ")
+    if len(preview) > 200:
+        preview = preview[:200] + "..."
+    _last_processed_preview = preview
+
     try:
         result = await _agent_runner.process_incoming_message(incoming_event)
         _last_error = None
+        _last_processing_result = {
+            "jorb_id": result.jorb_id,
+            "action_taken": result.action_taken,
+            "success": result.success,
+            "message_sent": result.message_sent,
+            "error": result.error,
+        }
         logger.info(
             "Bot message processed: jorb=%s action=%s success=%s",
             result.jorb_id,
@@ -93,6 +112,13 @@ async def _on_bot_message_flush(event: BufferedEvent) -> None:
         )
     except Exception as exc:
         _last_error = str(exc)
+        _last_processing_result = {
+            "jorb_id": None,
+            "action_taken": "error",
+            "success": False,
+            "message_sent": False,
+            "error": str(exc),
+        }
         logger.exception("Error processing bot message: %s", exc)
 
 
@@ -207,6 +233,11 @@ def get_bot_router_status() -> dict[str, object]:
         "pending_messages": sum(
             1 for _ in (_message_buffer._buffers if _message_buffer else {})
         ),
+        "agent_runner_configured": bool(_agent_runner and _agent_runner.is_configured),
+        "last_processed_at": _last_processed_at,
+        "last_processed_sender": _last_processed_sender,
+        "last_processed_preview": _last_processed_preview,
+        "last_processing_result": _last_processing_result,
         "last_error": _last_error,
     }
 
