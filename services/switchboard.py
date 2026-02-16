@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -21,6 +22,10 @@ from typing import Any
 from services.jorb_storage import Jorb, JorbWithMessages
 
 logger = logging.getLogger(__name__)
+
+# Detect explicit jorb/thread references in messages.
+_JORB_ID_PATTERN = re.compile(r"\bjorb_[0-9a-f]{8}\b", re.IGNORECASE)
+_THREAD_NUM_PATTERN = re.compile(r"\bthread\s*(\d{1,3})\b", re.IGNORECASE)
 
 # The model used for switchboard routing (can be lighter/faster than main model)
 SWITCHBOARD_MODEL = os.getenv("SWITCHBOARD_MODEL", "gpt-5.2")
@@ -226,6 +231,39 @@ class Switchboard:
         Returns:
             RoutingDecision with jorb_id (or None) and metadata
         """
+        # Deterministic: explicit references should win over conversation-key fast routing.
+        explicit = self._try_explicit_jorb_id_match(content, open_jorbs)
+        if explicit:
+            logger.info(
+                "Explicit jorb id mention: message from %s routed to %s%s",
+                sender,
+                explicit,
+                " (human intervention)" if is_human_intervention else "",
+            )
+            return RoutingDecision(
+                jorb_id=explicit,
+                confidence="high",
+                reasoning="Message explicitly referenced this jorb id",
+                tokens_used=0,
+                is_human_intervention=is_human_intervention,
+            )
+
+        thread_match = self._try_thread_name_match(content, open_jorbs)
+        if thread_match:
+            logger.info(
+                "Thread selection match: message from %s routed to %s%s",
+                sender,
+                thread_match,
+                " (human intervention)" if is_human_intervention else "",
+            )
+            return RoutingDecision(
+                jorb_id=thread_match,
+                confidence="high",
+                reasoning="Message referenced a thread number that matches exactly one open jorb name",
+                tokens_used=0,
+                is_human_intervention=is_human_intervention,
+            )
+
         # First, try fast matching (no LLM needed) when unambiguous
         fast_convo_match = self._try_fast_conversation_match(message_metadata, open_jorbs)
         if fast_convo_match:
@@ -352,6 +390,43 @@ class Switchboard:
                 unknown_sender=True,
                 is_human_intervention=is_human_intervention,
             )
+
+    def _try_explicit_jorb_id_match(self, content: str, open_jorbs: list[JorbWithMessages]) -> str | None:
+        """
+        If the message explicitly references a jorb id (e.g. "jorb_ab12cd34"),
+        route directly when the reference is unambiguous.
+        """
+        text = content or ""
+        found = [m.group(0).lower() for m in _JORB_ID_PATTERN.finditer(text)]
+        if not found:
+            return None
+
+        open_ids = {jwm.jorb.id.lower(): jwm.jorb.id for jwm in open_jorbs}
+        matches: list[str] = []
+        for jid in found:
+            resolved = open_ids.get(jid)
+            if resolved and resolved not in matches:
+                matches.append(resolved)
+
+        return matches[0] if len(matches) == 1 else None
+
+    def _try_thread_name_match(self, content: str, open_jorbs: list[JorbWithMessages]) -> str | None:
+        """
+        If the message references "thread N" and exactly one open jorb name contains
+        "thread N", route directly.
+        """
+        text = content or ""
+        m = _THREAD_NUM_PATTERN.search(text)
+        if not m:
+            return None
+
+        token = f"thread {m.group(1)}"
+        matches = [
+            jwm.jorb.id
+            for jwm in open_jorbs
+            if token.lower() in str(jwm.jorb.name or "").lower()
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     def _try_fast_contact_match(
         self,
