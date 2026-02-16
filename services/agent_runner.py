@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
@@ -48,6 +49,19 @@ except ImportError:
     openai = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+# Messages that are primarily about switching threads/jorbs (not asking for work).
+_SWITCH_DIRECTIVE_THREAD_RE = re.compile(
+    r"^\s*(?:yes\s+)?(?:please\s+)?(?:use|switch\s+to|go\s+to)\s+thread\s+\d{1,3}\s*$",
+    re.IGNORECASE,
+)
+_SWITCH_DIRECTIVE_JORB_RE = re.compile(
+    r"^\s*(?:yes\s+)?(?:please\s+)?(?:use|switch\s+to|go\s+to)\s+jorb_[0-9a-f]{8}\s*$",
+    re.IGNORECASE,
+)
+
+# Sentinel to distinguish "no update" from "set NULL".
+_UNSET = object()
 
 # The hardcoded model as specified in the PRD (for legacy single-stage mode)
 AGENT_MODEL = "gpt-5.2"
@@ -672,13 +686,13 @@ class AgentRunner:
     async def update_jorb_status(
         self,
         jorb_id: str,
-        status: str | None = None,
-        progress_summary: str | None = None,
-        paused_reason: str | None = None,
-        needs_approval_for: str | None = None,
-        awaiting: str | None = None,
-        wake_at: str | None = None,
-        metadata_json: str | None = None,
+        status: str | None | object = _UNSET,
+        progress_summary: str | None | object = _UNSET,
+        paused_reason: str | None | object = _UNSET,
+        needs_approval_for: str | None | object = _UNSET,
+        awaiting: str | None | object = _UNSET,
+        wake_at: str | None | object = _UNSET,
+        metadata_json: str | None | object = _UNSET,
     ) -> Jorb | None:
         """
         Update a jorb's status and related fields.
@@ -695,19 +709,19 @@ class AgentRunner:
             Updated Jorb or None if not found
         """
         updates: dict[str, Any] = {}
-        if status is not None:
+        if status is not _UNSET:
             updates["status"] = status
-        if progress_summary is not None:
+        if progress_summary is not _UNSET:
             updates["progress_summary"] = progress_summary
-        if paused_reason is not None:
+        if paused_reason is not _UNSET:
             updates["paused_reason"] = paused_reason
-        if needs_approval_for is not None:
+        if needs_approval_for is not _UNSET:
             updates["needs_approval_for"] = needs_approval_for
-        if awaiting is not None:
+        if awaiting is not _UNSET:
             updates["awaiting"] = awaiting
-        if wake_at is not None:
+        if wake_at is not _UNSET:
             updates["wake_at"] = wake_at
-        if metadata_json is not None:
+        if metadata_json is not _UNSET:
             updates["metadata_json"] = metadata_json
 
         if updates:
@@ -2260,12 +2274,22 @@ class AgentRunner:
                     )
 
             # Step 9: Ensure jorb is running when new work arrives
+            # If this jorb is currently restricted, do NOT resume the LLM loop.
+            # Instead, remind the user how to proceed.
+            if self._jorb_is_restricted(matched_jorb.jorb):
+                return await self._ack_switch_and_wait(jorb=matched_jorb.jorb, event=enriched_event)
+
+            # If the message is primarily a thread/jorb switch directive (not a request),
+            # acknowledge the switch and wait for the next substantive message.
+            if self._is_switch_directive_message(enriched_event.content):
+                return await self._ack_switch_and_wait(jorb=matched_jorb.jorb, event=enriched_event)
+
             await self.update_jorb_status(
                 jorb_id=routing.jorb_id,
                 status="running",
             )
 
-            # Step 10: Run the iterative command loop for this event
+            # Run the iterative command loop for this event
             return await self.process_jorb_event(matched_jorb.jorb, event=enriched_event)
 
         except Exception as e:
@@ -2276,6 +2300,134 @@ class AgentRunner:
                 success=False,
                 error=str(e),
             )
+
+    def _jorb_is_restricted(self, jorb: Jorb) -> bool:
+        """
+        True when a jorb is paused due to runaway-loop iteration limiting.
+
+        When restricted, we only accept the explicit control commands:
+        - CANCEL JORB
+        - RESET RESTRICTION
+        """
+        if str(jorb.status or "").strip().lower() != "paused":
+            return False
+        awaiting = str(jorb.awaiting or "").strip().lower()
+        if awaiting.startswith("human_reply:restriction"):
+            return True
+        reason = str(jorb.paused_reason or "")
+        return ("Rate limit exceeded" in reason) and ("LLM invocations" in reason)
+
+    def _is_switch_directive_message(self, content: str) -> bool:
+        """
+        Detect messages that are primarily about switching threads/jorbs (routing),
+        not asking Frank to perform work.
+        """
+        text = " ".join((content or "").strip().split())
+        if not text:
+            return False
+
+        # If it looks like a real question/request, don't treat it as a pure switch.
+        lower = text.lower()
+        if "?" in text:
+            return False
+        if any(
+            phrase in lower
+            for phrase in (
+                "can you",
+                "could you",
+                "sketch",
+                "explain",
+                "tell me",
+                "what can",
+                "how do",
+                "why",
+                "run diagnostics",
+                "rerun",
+            )
+        ):
+            return False
+
+        if _SWITCH_DIRECTIVE_THREAD_RE.match(text):
+            return True
+        if _SWITCH_DIRECTIVE_JORB_RE.match(text):
+            return True
+
+        # Natural language: "go back to the jorb ..." (common when switching contexts)
+        if "go back to" in lower and "jorb" in lower:
+            return True
+        if lower.startswith("back to") and "jorb" in lower:
+            return True
+
+        return False
+
+    async def _ack_switch_and_wait(self, *, jorb: Jorb, event: IncomingEvent) -> ProcessingResult:
+        """
+        Acknowledge a switch/routing directive without invoking the jorb LLM.
+        """
+        jorb_id = jorb.id
+
+        # If restricted, just resend the restriction notice (no state changes).
+        if self._jorb_is_restricted(jorb):
+            text = (
+                f"Runaway-loop protection paused {jorb_id}.\n"
+                f"Reason: {jorb.paused_reason}\n\n"
+                "Reply with exactly one of:\n"
+                "- CANCEL JORB\n"
+                "- RESET RESTRICTION\n\n"
+                "CANCEL JORB: cancels the jorb (and clears the restriction).\n"
+                "RESET RESTRICTION: clears the restriction and lets it continue."
+            )
+        else:
+            # Clear wake scheduling for conversational jorbs to avoid background churn
+            # while the user is explicitly switching contexts.
+            awaiting = str(jorb.awaiting or "").strip()
+            if not (awaiting.startswith("android_task:") or awaiting.startswith("meta_task:")):
+                await self.update_jorb_status(
+                    jorb_id=jorb_id,
+                    awaiting="human_reply",
+                    wake_at=None,
+                )
+            text = (
+                f"OK — switching to {jorb_id}.\n"
+                "What do you want to do in this thread?"
+            )
+
+        sent_ok = False
+        if event.channel == "telegram_bot":
+            chat_id = str(
+                event.metadata.get("telegram_bot_chat_id") or jorb.metadata.get("telegram_bot_chat_id") or ""
+            ).strip()
+            if chat_id:
+                sent_ok = await self._send_telegram_bot_message(chat_id=chat_id, text=text)
+                if sent_ok:
+                    recipient = (event.sender or "").strip() or f"chat_id:{chat_id}"
+                    await self.store_outbound_message(
+                        jorb_id=jorb_id,
+                        channel="telegram_bot",
+                        recipient=recipient,
+                        content=text,
+                        reasoning="switch_ack",
+                    )
+        elif event.channel in ("telegram", "sms"):
+            sent_ok = await self._send_message(event.channel, event.sender, text)
+            if sent_ok:
+                await self.store_outbound_message(
+                    jorb_id=jorb_id,
+                    channel=event.channel,
+                    recipient=event.sender,
+                    content=text,
+                    reasoning="switch_ack",
+                )
+
+        if sent_ok:
+            self._record_message_sent(jorb_id)
+
+        return ProcessingResult(
+            jorb_id=jorb_id,
+            action_taken="switch_ack",
+            success=True,
+            message_sent=sent_ok,
+        )
 
     async def _handle_restriction_command(
         self,
