@@ -1,0 +1,26 @@
+{
+  "$schema": "https://claudia.contrived.com/schemas/prompt.schema.json",
+  "id": "diagnose-prod-api-outage",
+  "title": "Diagnose and Fix Production API Outage",
+  "description": "Analyze recent commits and codebase to diagnose why the frank_bot API is down in production and suggest a fix",
+  "authors": [
+    {
+      "name": "User",
+      "type": "human"
+    },
+    {
+      "name": "Claude",
+      "type": "model"
+    }
+  ],
+  "createdAt": "2026-02-16T12:00:00Z",
+  "status": "ready",
+  "tags": [
+    "production",
+    "debugging",
+    "api",
+    "ops"
+  ],
+  "content": "# Diagnose and Fix Production API Outage\n\nThe frank_bot API appears to be down in production. Perform a thorough code-level diagnosis and suggest a fix.\n\n## Investigation Steps\n\n### 1. Check Recent Commits\n- Run `git log --oneline -10` to see recent changes pushed to main\n- For each recent commit, run `git show <sha>` to review the diff\n- Identify any changes that could cause startup failures, crash loops, or runtime errors\n\n### 2. Analyze Startup Path\n- Read `server/app.py` to understand the application startup sequence\n- Read `entrypoint.sh` to check for any pre-start scripts that could hang or fail\n- Read `config.py` / settings to check for Vault dependencies that could block startup\n- Check `docker-compose.yml` for health check configuration and restart policies\n\n### 3. Analyze Worker/Agent Loop\n- Read `services/agent_runner.py` to check for unhandled exceptions in the worker loop\n- Look for any new code paths that could raise before being caught by try/except\n- Check that all imports used in new code are present at the top of the module\n- Verify error handling around jorb status updates and notification sends\n\n### 4. Check Entrypoint and Container Startup\n- Read `entrypoint.sh` for any inline Python or shell commands that could hang\n- Check if `set -e` could cause premature exit on non-critical failures\n- Look for commands that depend on external services (Vault, network) without timeouts\n\n### 5. Review Android/Device Integration Changes\n- Check `maybe_set_android_serial()` or similar entrypoint hooks\n- Verify they have proper timeouts and `|| true` guards\n- Ensure Vault calls during entrypoint have bounded execution time\n\n## Diagnosis Output\n\nProvide a ranked list of most likely failure scenarios with:\n1. **Root cause description** — what specifically would cause the API to be down\n2. **Evidence** — which code/commit/line supports this theory\n3. **Severity** — whether it's a crash loop, hang, or partial failure\n4. **Fix** — specific code change or operational step to resolve it\n\n## Suggested Fix\n\nFor the most likely cause, provide:\n- The exact code change needed (if it's a code issue)\n- The operational commands to run on the prod host (if it's a deployment/infra issue)\n- A rollback plan if the fix doesn't work\n\n## Files to Examine\n- `server/app.py` — app startup and health endpoint\n- `services/agent_runner.py` — worker loop and jorb processing\n- `entrypoint.sh` — container entrypoint script\n- `config.py` — settings and Vault integration\n- `docker-compose.yml` — container orchestration\n- Recent git diffs for any of the above",
+  "executions": []
+}
