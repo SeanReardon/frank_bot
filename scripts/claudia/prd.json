@@ -2094,6 +2094,105 @@
       "priority": 127,
       "passes": true,
       "notes": "Depends on frank_bot-00122, frank_bot-00123, frank_bot-00124, frank_bot-00125 (all new namespaces must exist). Ensures jorb sessions discover new capabilities via frank.learn()."
+    },
+    {
+      "id": "frank_bot-00128",
+      "title": "Add timeouts to entrypoint.sh ADB and Vault-dependent commands",
+      "acceptanceCriteria": [
+        "All adb commands in scripts/entrypoint.sh are wrapped with `timeout` (e.g. `timeout 10 adb ...`)",
+        "The maybe_set_android_serial inline Python block has a bounded execution time (timeout wrapper or VAULT_TIMEOUT env var)",
+        "The start_gnirehtet function's adb shell, install, and run commands each have explicit timeouts",
+        "If any adb or Vault command times out, entrypoint continues to app startup (|| true guards present)",
+        "Container starts successfully even when Android device is offline or Vault is unreachable",
+        "Existing behavior unchanged when Android device and Vault are both available"
+      ],
+      "priority": 128,
+      "passes": false,
+      "notes": "Highest priority fix — a hanging entrypoint blocks the entire container from starting, causing a crash loop. This is the most likely root cause of a production API outage when Vault or Android device is unreachable."
+    },
+    {
+      "id": "frank_bot-00129",
+      "title": "Guard app.py module-level get_settings() against Vault failures",
+      "acceptanceCriteria": [
+        "app.py wraps the module-level `settings = get_settings()` call in a try/except that logs the error and falls back to defaults or env vars",
+        "If get_settings() raises due to Vault being unreachable, the app still starts and serves the /health endpoint",
+        "A clear error message is logged indicating which secrets failed to load",
+        "The health endpoint response indicates degraded mode when secrets failed to load",
+        "Existing behavior unchanged when Vault is accessible and all secrets load successfully"
+      ],
+      "priority": 129,
+      "passes": false,
+      "notes": "Depends on frank_bot-00128 (entrypoint must not hang first). If entrypoint passes but Vault is still unreachable, an unhandled exception in get_settings() at module level crashes the app before any HTTP server binds."
+    },
+    {
+      "id": "frank_bot-00130",
+      "title": "Increase Docker health check start_period and add restart backoff",
+      "acceptanceCriteria": [
+        "docker-compose.yml health check start_period is increased from 15s to at least 45s to accommodate Vault retries",
+        "Health check interval, timeout, and retries are tuned for production reliability (e.g. interval 30s, timeout 10s, retries 3)",
+        "Container restart policy prevents tight crash loops (restart: unless-stopped or on-failure with max retries)",
+        "Health check test command (curl to /health) is correct and matches the app's actual health endpoint path"
+      ],
+      "priority": 130,
+      "passes": false,
+      "notes": "Depends on frank_bot-00128. Even with entrypoint timeouts, Vault retry logic (3 attempts, 10s backoff each) for 23+ secrets can legitimately take 30+ seconds. The health check must accommodate this."
+    },
+    {
+      "id": "frank_bot-00131",
+      "title": "Add bounded Vault client timeout and connection failure handling",
+      "acceptanceCriteria": [
+        "vault_client.py _get_vault_client() has a configurable total timeout (via VAULT_TIMEOUT_SECONDS env var, default 30s) that caps the entire retry sequence",
+        "If Vault is unreachable after the timeout, _get_vault_client() returns None instead of retrying indefinitely",
+        "get_secret() returns None gracefully when _get_vault_client() returns None (no exception raised)",
+        "A warning log is emitted once when Vault connection fails, not per-secret",
+        "config.py _load_secrets() handles None returns from get_secret() by falling back to env vars where available",
+        "Existing behavior unchanged when Vault is accessible within timeout"
+      ],
+      "priority": 131,
+      "passes": false,
+      "notes": "Depends on frank_bot-00129. This is the root defense against Vault outages — without bounded timeouts, any Vault slowdown cascades into app startup failure. The vault client already has MAX_RETRIES=3 and MAX_BACKOFF_SECONDS=10, but there's no overall timeout cap."
+    },
+    {
+      "id": "frank_bot-00132",
+      "title": "Harden agent_runner background loop against unhandled exceptions in new code paths",
+      "acceptanceCriteria": [
+        "The background loop in services/agent_runner.py catches and logs exceptions from new Android task polling logic without crashing the loop",
+        "The background loop catches and logs exceptions from new script result payload handling in jorb_session.py without crashing the loop",
+        "If the background loop crashes despite error handling, app.py startup_event logs the failure AND sets a flag queryable via /health",
+        "The /health endpoint reports background loop status (running vs crashed) in its response",
+        "A test verifies that an exception in process_jorb_event does not kill the background loop"
+      ],
+      "priority": 132,
+      "passes": false,
+      "notes": "Depends on frank_bot-00129 (app must start first). Recent commits ee26942 and 1567ee0 added ~150 lines to agent_runner.py and jorb_session.py. An unhandled exception in these new paths could silently kill jorb processing while the API appears healthy."
+    },
+    {
+      "id": "frank_bot-00133",
+      "title": "Review and fix recent commits for import errors and runtime exceptions",
+      "acceptanceCriteria": [
+        "git show for each of the 5 most recent commits (fb28472, ee26942, 1567ee0, 65b4317, a2d4537) is reviewed for missing imports, undefined variables, or type errors",
+        "Any module-level imports added in recent commits are verified to exist and be importable",
+        "Any new code paths that reference config settings or Vault secrets are verified to handle None/missing values",
+        "Any identified issues are fixed with minimal code changes",
+        "All existing tests still pass after fixes"
+      ],
+      "priority": 133,
+      "passes": false,
+      "notes": "Independent of other tasks but lower priority since it's a code review sweep. The most recent commits changed entrypoint behavior (65b4317), agent loop (ee26942, 1567ee0), and added a new prompt (fb28472). Any of these could introduce import-time or runtime errors."
+    },
+    {
+      "id": "frank_bot-00134",
+      "title": "Add production startup smoke test and rollback documentation",
+      "acceptanceCriteria": [
+        "A script or make target exists (e.g. scripts/smoke_test.sh) that verifies the app starts and /health returns 200 within a timeout",
+        "The smoke test checks that the background loop is running (via /health response body)",
+        "Documentation in the repo (e.g. in scripts/ or ops/) describes how to rollback to a previous git SHA if a deploy breaks production",
+        "Rollback docs include: docker commands to revert, how to check logs, and how to verify recovery",
+        "The smoke test can be run locally with `docker-compose up` to catch startup failures before deploying"
+      ],
+      "priority": 134,
+      "passes": false,
+      "notes": "Depends on frank_bot-00130 (health check must report meaningful status) and frank_bot-00132 (health endpoint must include loop status). This is the prevention layer — catch these issues before they hit production."
     }
   ]
 }
