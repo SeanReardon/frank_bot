@@ -89,9 +89,9 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 60s
     networks:
       - frank-bot
       - concordia  # Access to Vault (concordia-vault:8200)

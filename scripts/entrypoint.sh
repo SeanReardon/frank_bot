@@ -10,6 +10,11 @@ set -e
 GNIREHTET_BIN="/usr/local/bin/gnirehtet"
 GNIREHTET_LOG="/app/logs/gnirehtet.log"
 
+# Timeout (seconds) for ADB commands that could hang on missing devices
+ADB_TIMEOUT="${ADB_TIMEOUT:-10}"
+# Timeout (seconds) for the Vault-backed Python config lookup
+VAULT_TIMEOUT="${VAULT_TIMEOUT:-15}"
+
 maybe_set_android_serial() {
     # If ANDROID_DEVICE_SERIAL isn't set, try to load it from Vault-backed config.
     # This keeps docker-compose clean (Vault-first) while still enabling USB ADB
@@ -18,7 +23,7 @@ maybe_set_android_serial() {
         return
     fi
 
-    SERIAL="$(python - <<'PY' 2>/dev/null || true
+    SERIAL="$(timeout "$VAULT_TIMEOUT" python - <<'PY' 2>/dev/null || true
 from config import get_settings
 print((get_settings().android_device_serial or "").strip())
 PY
@@ -31,7 +36,7 @@ PY
 
     # Fallback: if exactly one USB-connected device is present, auto-select it.
     # (We intentionally ignore tcpip serials like 10.0.0.95:5555 here.)
-    USB_SERIALS="$(adb devices 2>/dev/null | awk 'NR>1 && $2==\"device\" && $1 !~ /:/ {print $1}')"
+    USB_SERIALS="$(timeout "$ADB_TIMEOUT" adb devices 2>/dev/null | awk 'NR>1 && $2==\"device\" && $1 !~ /:/ {print $1}' || true)"
     USB_COUNT="$(printf \"%s\" \"$USB_SERIALS\" | grep -c . || true)"
     if [ "$USB_COUNT" -eq 1 ]; then
         export ANDROID_DEVICE_SERIAL="$USB_SERIALS"
@@ -59,9 +64,9 @@ start_gnirehtet() {
     mkdir -p "$(dirname "$GNIREHTET_LOG")"
 
     # Install gnirehtet APK if not already installed
-    if ! adb -s "$ANDROID_DEVICE_SERIAL" shell pm list packages 2>/dev/null | grep -q gnirehtet; then
+    if ! timeout "$ADB_TIMEOUT" adb -s "$ANDROID_DEVICE_SERIAL" shell pm list packages 2>/dev/null | grep -q gnirehtet; then
         echo "[entrypoint] Installing gnirehtet APK..."
-        adb -s "$ANDROID_DEVICE_SERIAL" install -r /app/gnirehtet.apk 2>/dev/null || true
+        timeout 30 adb -s "$ANDROID_DEVICE_SERIAL" install -r /app/gnirehtet.apk 2>/dev/null || true
     fi
 
     # Use 'gnirehtet run' which handles everything:

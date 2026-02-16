@@ -246,8 +246,15 @@ def _load_secrets() -> dict[str, str | None]:
 
     # Env secret fallback:
     # - Allowed when Vault is NOT configured (local/dev)
+    # - Allowed when Vault connection failed (graceful degradation)
     # - Optionally allowed with Vault via ALLOW_ENV_SECRET_FALLBACK=true
-    if (not vault_is_enabled) or allow_env_secret_fallback:
+    import services.vault_client as _vc
+    vault_conn_failed = getattr(_vc, "_vault_connection_failed", False)
+    if vault_conn_failed:
+        logger.warning(
+            "Vault connection failed — falling back to environment variables for secrets"
+        )
+    if (not vault_is_enabled) or allow_env_secret_fallback or vault_conn_failed:
         if not secrets["google_client_id"]:
             secrets["google_client_id"] = os.getenv("GOOGLE_CLIENT_ID")
         if not secrets["google_client_secret"]:

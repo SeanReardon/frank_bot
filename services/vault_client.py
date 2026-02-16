@@ -35,9 +35,13 @@ INITIAL_BACKOFF_SECONDS = 1.0
 MAX_BACKOFF_SECONDS = 10.0
 BACKOFF_MULTIPLIER = 2.0
 
+# Overall timeout for the entire _get_vault_client() retry sequence
+VAULT_TIMEOUT_SECONDS = float(os.environ.get("VAULT_TIMEOUT_SECONDS", "30"))
+
 # Cache for Vault client and secrets
 _vault_client: hvac.Client | None = None
 _secret_cache: dict[str, dict[str, Any]] = {}
+_vault_connection_failed: bool = False
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +65,13 @@ def _get_vault_client(retry: bool = True) -> hvac.Client | None:
     """
     Get authenticated Vault client, or None if Vault is unavailable.
 
+    Bounded by VAULT_TIMEOUT_SECONDS (default 30s) to prevent indefinite
+    hangs when Vault is unreachable.
+
     Args:
         retry: If True, retry with backoff on transient failures.
     """
-    global _vault_client
+    global _vault_client, _vault_connection_failed
 
     if _vault_client is not None:
         # Check if still authenticated
@@ -82,9 +89,18 @@ def _get_vault_client(retry: bool = True) -> hvac.Client | None:
         return None
 
     max_attempts = MAX_RETRIES if retry else 1
-    last_error: Exception | None = None
+    deadline = time.monotonic() + VAULT_TIMEOUT_SECONDS
 
     for attempt in range(max_attempts):
+        if time.monotonic() >= deadline:
+            if not _vault_connection_failed:
+                _vault_connection_failed = True
+                logger.warning(
+                    "Vault connection timed out after %.0fs — secrets will be unavailable",
+                    VAULT_TIMEOUT_SECONDS,
+                )
+            return None
+
         try:
             client = hvac.Client(url=addr)
             client.auth.approle.login(
@@ -94,20 +110,26 @@ def _get_vault_client(retry: bool = True) -> hvac.Client | None:
 
             if client.is_authenticated():
                 _vault_client = client
+                _vault_connection_failed = False
                 if attempt > 0:
                     logger.info(f"Vault connection succeeded after {attempt + 1} attempts")
                 return _vault_client
             else:
                 logger.warning("Vault authentication failed: client not authenticated")
         except Exception as e:
-            last_error = e
-            if attempt < max_attempts - 1:
+            if attempt < max_attempts - 1 and time.monotonic() < deadline:
                 logger.warning(
                     f"Vault connection attempt {attempt + 1} failed: {e}, retrying..."
                 )
                 _sleep_with_backoff(attempt)
             else:
-                logger.error(f"Vault connection failed after {max_attempts} attempts: {e}")
+                if not _vault_connection_failed:
+                    _vault_connection_failed = True
+                    logger.warning(
+                        "Vault connection failed after %d attempts: %s — secrets will be unavailable",
+                        attempt + 1, e,
+                    )
+                return None
 
     return None
 

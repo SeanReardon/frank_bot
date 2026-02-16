@@ -48,10 +48,13 @@ def create_starlette_app() -> Starlette:
     actions_manifest = build_actions_manifest(settings)
 
     async def health_check(_request):
+        import app as _app_module
+        degraded = getattr(_app_module, "settings_degraded", False)
         return JSONResponse({
-            "status": "healthy",
+            "status": "degraded" if degraded else "healthy",
             "server": "frank-bot",
             "version": GIT_COMMIT,
+            **({"degraded_reason": "secrets_failed_to_load"} if degraded else {}),
         })
 
     async def version_endpoint(_request):

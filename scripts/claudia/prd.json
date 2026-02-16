@@ -2107,7 +2107,7 @@
         "Existing behavior unchanged when Android device and Vault are both available"
       ],
       "priority": 128,
-      "passes": false,
+      "passes": true,
       "notes": "Highest priority fix — a hanging entrypoint blocks the entire container from starting, causing a crash loop. This is the most likely root cause of a production API outage when Vault or Android device is unreachable."
     },
     {
@@ -2121,7 +2121,7 @@
         "Existing behavior unchanged when Vault is accessible and all secrets load successfully"
       ],
       "priority": 129,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00128 (entrypoint must not hang first). If entrypoint passes but Vault is still unreachable, an unhandled exception in get_settings() at module level crashes the app before any HTTP server binds."
     },
     {
@@ -2134,7 +2134,7 @@
         "Health check test command (curl to /health) is correct and matches the app's actual health endpoint path"
       ],
       "priority": 130,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00128. Even with entrypoint timeouts, Vault retry logic (3 attempts, 10s backoff each) for 23+ secrets can legitimately take 30+ seconds. The health check must accommodate this."
     },
     {
@@ -2149,7 +2149,7 @@
         "Existing behavior unchanged when Vault is accessible within timeout"
       ],
       "priority": 131,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00129. This is the root defense against Vault outages — without bounded timeouts, any Vault slowdown cascades into app startup failure. The vault client already has MAX_RETRIES=3 and MAX_BACKOFF_SECONDS=10, but there's no overall timeout cap."
     },
     {
@@ -2177,7 +2177,7 @@
         "All existing tests still pass after fixes"
       ],
       "priority": 133,
-      "passes": false,
+      "passes": true,
       "notes": "Independent of other tasks but lower priority since it's a code review sweep. The most recent commits changed entrypoint behavior (65b4317), agent loop (ee26942, 1567ee0), and added a new prompt (fb28472). Any of these could introduce import-time or runtime errors."
     },
     {

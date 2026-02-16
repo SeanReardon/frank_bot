@@ -23,6 +23,62 @@ Each entry documents what was implemented and lessons learned.
 - MessageBuffer supports metadata dict on BufferedMessage/BufferedEvent (for telegram_bot_chat_id)
 - _should_autocreate_jorb treats telegram_bot identically to telegram
 - api_learn_action test bypasses actions/__init__.py via importlib.util.spec_from_file_location
+- Vault client: VAULT_TIMEOUT_SECONDS env var (default 30s) caps entire retry sequence
+- app.py degraded mode: settings_degraded flag + fallback Settings when Vault unreachable
+- Docker healthcheck start_period=60s accommodates Vault retry delays
+- entrypoint.sh: ADB_TIMEOUT (10s) and VAULT_TIMEOUT (15s) env vars for bounding commands
+
+---
+
+## 2026-02-16: frank_bot-00128 - Add timeouts to entrypoint.sh ADB and Vault commands
+
+### Summary
+Wrapped all adb commands with `timeout $ADB_TIMEOUT` (default 10s) and the Vault-backed Python config lookup with `timeout $VAULT_TIMEOUT` (default 15s). All timeouts have `|| true` guards so entrypoint continues to app startup even when Android device is offline or Vault is unreachable.
+
+### Files Changed
+- scripts/entrypoint.sh
+
+---
+
+## 2026-02-16: frank_bot-00129 - Guard app.py module-level get_settings() against Vault failures
+
+### Summary
+Wrapped `settings = get_settings()` in try/except that falls back to a minimal env-var-only Settings when Vault is unreachable. Added `settings_degraded` flag queryable by the health endpoint. Health endpoint now reports `"status": "degraded"` with reason when secrets failed to load.
+
+### Files Changed
+- app.py
+- server/app.py (health endpoint reports degraded status)
+
+---
+
+## 2026-02-16: frank_bot-00130 - Increase Docker health check start_period and add restart backoff
+
+### Summary
+Increased health check start_period from 15s to 60s and timeout from 5s to 10s to accommodate Vault retry delays. Container already has `restart: unless-stopped` policy.
+
+### Files Changed
+- docker-compose.yml
+
+---
+
+## 2026-02-16: frank_bot-00131 - Add bounded Vault client timeout and connection failure handling
+
+### Summary
+Added VAULT_TIMEOUT_SECONDS env var (default 30s) that caps the entire `_get_vault_client()` retry sequence using `time.monotonic()` deadline. When Vault connection fails, a warning is logged once (not per-secret) via `_vault_connection_failed` flag. Updated `config.py _load_secrets()` to fall back to env vars when Vault connection fails, even when Vault is configured.
+
+### Files Changed
+- services/vault_client.py
+- config.py
+
+---
+
+## 2026-02-16: frank_bot-00133 - Review and fix recent commits for import errors
+
+### Summary
+Reviewed all 5 most recent commits (5d968cb, fb28472, ee26942, 1567ee0, 65b4317). No import errors, undefined variables, type errors, or runtime issues found. All 402 existing tests pass (1 pre-existing failure: test_custom_digest_time due to Vault env).
+
+### Files Changed
+- (none — review-only task)
 
 ---
 
