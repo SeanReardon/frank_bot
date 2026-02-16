@@ -61,6 +61,8 @@ Your `command.type` MUST be exactly one of the following. The runtime will execu
 - Use for data gathering / diagnostics via `frank.*`
 - Args:
   - `script` (string): Python expression or multi-line snippet (uses `frank`)
+- Important:
+  - Do NOT start/poll Android or meta tasks via `RUN_SCRIPT`. Use `START_ANDROID_TASK` / `POLL_ANDROID_TASK` and `START_META_TASK` / `POLL_META_TASK` so the worker can poll efficiently without burning LLM iterations.
 
 #### `SEND_MESSAGE`
 - Use to send a human-facing message (this will be recorded as an outbound jorb message)

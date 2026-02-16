@@ -1252,6 +1252,76 @@ class AgentRunner:
 
                 script_result = await self._execute_script(jwm.jorb, script_str)
 
+                # Defensive: some agents may start/poll Android tasks via RUN_SCRIPT
+                # (e.g. `frank.android.task_do(...)`). Detect common shapes and
+                # convert them into proper wake/awaiting state so the worker loop
+                # can poll efficiently without burning LLM iterations.
+                try:
+                    rv = script_result.get("result")
+                    if isinstance(rv, dict):
+                        # Shape A: task_do result
+                        task_id = str(rv.get("task_id") or "").strip()
+                        task_status = str(rv.get("status") or "").strip().lower()
+                        task_goal = rv.get("goal")
+                        if (
+                            task_id
+                            and task_status in ("pending", "running")
+                            and isinstance(task_goal, str)
+                            and task_goal.strip()
+                        ):
+                            try:
+                                poll_seconds_int = int(jwm.jorb.metadata.get("android_poll_seconds") or 10)
+                            except (TypeError, ValueError):
+                                poll_seconds_int = 10
+                            poll_seconds_int = max(1, min(300, poll_seconds_int))
+                            await _merge_metadata(
+                                {
+                                    "android_task_id": task_id,
+                                    "android_task_goal": task_goal.strip(),
+                                    "android_poll_seconds": poll_seconds_int,
+                                }
+                            )
+                            wake_at_iso = (
+                                datetime.now(timezone.utc) + timedelta(seconds=poll_seconds_int)
+                            ).isoformat()
+                            await self.update_jorb_status(
+                                jorb_id=jorb_id,
+                                awaiting=f"android_task:{task_id}",
+                                wake_at=wake_at_iso,
+                            )
+                        else:
+                            # Shape B: task_get result (AndroidTask.to_dict)
+                            polled_id = str(rv.get("id") or "").strip()
+                            polled_status = str(rv.get("status") or "").strip().lower()
+                            if polled_id and "steps_taken" in rv and "current_step" in rv and "goal" in rv:
+                                try:
+                                    poll_seconds_int = int(jwm.jorb.metadata.get("android_poll_seconds") or 10)
+                                except (TypeError, ValueError):
+                                    poll_seconds_int = 10
+                                poll_seconds_int = max(1, min(300, poll_seconds_int))
+
+                                if polled_status in ("pending", "running"):
+                                    wake_at_iso = (
+                                        datetime.now(timezone.utc)
+                                        + timedelta(seconds=poll_seconds_int)
+                                    ).isoformat()
+                                    await self.update_jorb_status(
+                                        jorb_id=jorb_id,
+                                        awaiting=f"android_task:{polled_id}",
+                                        wake_at=wake_at_iso,
+                                    )
+                                elif polled_status:
+                                    next_wake = (
+                                        datetime.now(timezone.utc) + timedelta(seconds=1)
+                                    ).isoformat()
+                                    await self.update_jorb_status(
+                                        jorb_id=jorb_id,
+                                        awaiting=None,
+                                        wake_at=next_wake,
+                                    )
+                except Exception:
+                    logger.exception("Failed to infer task state from RUN_SCRIPT result for jorb %s", jorb_id)
+
                 # Legacy async semantics: await_reply=true means wait for human.
                 if action.await_reply:
                     if not script_result.get("success", False):
@@ -2201,6 +2271,7 @@ class AgentRunner:
             "- For Android diagnostics: if automation fails (ADB/device/screenshot errors), report the exact error and avoid tight retry loops (use SCHEDULE_WAKE with backoff if retrying).",
             "- Use SEND_MESSAGE for human-facing replies (do NOT send via RUN_SCRIPT).",
             "- Use RUN_SCRIPT for diagnostics and API calls (frank.*).",
+            "- For long-running tasks: use START_ANDROID_TASK/POLL_ANDROID_TASK or START_META_TASK/POLL_META_TASK (not RUN_SCRIPT) so the worker can poll efficiently.",
             "- Use SCHEDULE_WAKE to yield and resume later (polling long-running tasks).",
             "- Only WAIT_FOR_HUMAN when you truly need a human reply.",
             "- When done: send the final answer, then COMPLETE.",
