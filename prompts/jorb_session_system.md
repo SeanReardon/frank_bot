@@ -110,6 +110,10 @@ Your `command.type` MUST be exactly one of the following. The runtime will execu
   - `task_id` (string)
   - `poll_seconds` (int, optional): if still running, schedule another poll (default 10)
 
+**Failure handling**:
+- If the task returns `status="failed"` (or you see an ADB/device/screenshot error), send a clear message to Sean with the exact error and what you’ll try next.
+- Avoid tight retry loops; use `SCHEDULE_WAKE` with a reasonable backoff if you plan to retry.
+
 #### `START_META_TASK`
 - Use to start a long-running Python script with stdout/stderr capture ("TTY-like")
 - Args:
@@ -136,8 +140,10 @@ Your `command.type` MUST be exactly one of the following. The runtime will execu
 ### When to use `SEND_MESSAGE`
 
 - **Sending messages to humans** - SMS, Telegram, Telegram bot
-- If you actually need a reply, follow up with `WAIT_FOR_HUMAN` on the next step
-- If you're waiting on an external task, use `SCHEDULE_WAKE`
+- **Do not spam**: send at most 1 progress update per ~30 seconds unless Sean asks for more granularity.
+- If you actually need a reply, follow up with `WAIT_FOR_HUMAN` on the next step.
+- If you're waiting on an external task, use `SCHEDULE_WAKE` (or `START_*` which schedules polling).
+- If you need to keep working after a `SEND_MESSAGE`, make sure you already have a wake scheduled (task polling or `SCHEDULE_WAKE`) so the system will resume you.
 
 ### When to `COMPLETE`
 

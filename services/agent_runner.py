@@ -1345,7 +1345,7 @@ class AgentRunner:
                         if sent_ok:
                             await self.store_outbound_message(
                                 jorb_id=jorb_id,
-                                channel="telegram",
+                                channel="telegram_bot",
                                 recipient=store_recipient,
                                 content=text,
                                 reasoning=session_response.reasoning,
@@ -1395,11 +1395,14 @@ class AgentRunner:
                 # SEND_MESSAGE once results are ready.
                 if sent_ok:
                     awaiting = "human_reply" if started_with_event else None
+                    # Preserve any existing wait/wake (e.g. long-running task polling).
+                    awaiting = jwm.jorb.awaiting or awaiting
+                    wake_at = jwm.jorb.wake_at
                     await self.update_jorb_status(
                         jorb_id=jorb_id,
                         status="running",
                         awaiting=awaiting,
-                        wake_at=None,
+                        wake_at=wake_at,
                     )
                     return ProcessingResult(
                         jorb_id=jorb_id,
@@ -1453,6 +1456,7 @@ class AgentRunner:
                         {
                             "android_task_id": task_id,
                             "android_task_goal": goal,
+                            "android_poll_seconds": poll_seconds_int,
                         }
                     )
                     wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds_int)).isoformat()
@@ -1510,13 +1514,21 @@ class AgentRunner:
                         message_sent=message_sent,
                     )
 
-                # Terminal: clear waiting and let LLM interpret results
+                # Terminal: clear waiting and schedule a short wake so the LLM can
+                # interpret results in a fresh run (prevents tight in-process loops).
+                next_wake = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()
                 await self.update_jorb_status(
                     jorb_id=jorb_id,
                     awaiting=None,
-                    wake_at=None,
+                    wake_at=next_wake,
                 )
-                continue
+                terminal_action = f"android_task_{status}" if status else "android_task_terminal"
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken=terminal_action,
+                    success=True,
+                    message_sent=message_sent,
+                )
 
             if cmd_type == "START_META_TASK":
                 from meta.executor import execute_new_script
@@ -1568,7 +1580,13 @@ class AgentRunner:
 
                 job_id = str(job_dict.get("job_id") or "").strip()
                 if job_id:
-                    await _merge_metadata({"meta_task_id": job_id, "meta_task_slug": slug})
+                    await _merge_metadata(
+                        {
+                            "meta_task_id": job_id,
+                            "meta_task_slug": slug,
+                            "meta_poll_seconds": poll_seconds_int,
+                        }
+                    )
                     wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds_int)).isoformat()
                     await self.update_jorb_status(
                         jorb_id=jorb_id,
@@ -1634,13 +1652,18 @@ class AgentRunner:
                         message_sent=message_sent,
                     )
 
-                # Terminal: clear waiting and let LLM interpret results
+                next_wake = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()
                 await self.update_jorb_status(
                     jorb_id=jorb_id,
                     awaiting=None,
-                    wake_at=None,
+                    wake_at=next_wake,
                 )
-                continue
+                return ProcessingResult(
+                    jorb_id=jorb_id,
+                    action_taken=f"meta_task_{status}" if status else "meta_task_terminal",
+                    success=True,
+                    message_sent=message_sent,
+                )
 
             if cmd_type == "NOOP":
                 return ProcessingResult(
@@ -2157,6 +2180,8 @@ class AgentRunner:
             "Reply requirements:",
             f"- Reply via transport={transport}.",
             f"- Default recipient is {event.sender}.",
+            "- Keep Sean loosely appraised: send short progress updates when you start long work, hit errors, and when finished. Avoid spam (max 1 update per ~30s).",
+            "- For Android diagnostics: if automation fails (ADB/device/screenshot errors), report the exact error and avoid tight retry loops (use SCHEDULE_WAKE with backoff if retrying).",
             "- Use SEND_MESSAGE for human-facing replies (do NOT send via RUN_SCRIPT).",
             "- Use RUN_SCRIPT for diagnostics and API calls (frank.*).",
             "- Use SCHEDULE_WAKE to yield and resume later (polling long-running tasks).",

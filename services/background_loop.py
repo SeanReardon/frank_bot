@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
-from datetime import datetime, timezone, time as dt_time
+from datetime import datetime, timezone, time as dt_time, timedelta
 from typing import Any
 
 from services.agent_runner import AgentRunner
@@ -278,6 +278,113 @@ class BackgroundLoopService:
         """
         runner = AgentRunner(storage=self._storage)
 
+        async def _poll_android_task_if_awaiting(jorb) -> bool:
+            awaiting = str(getattr(jorb, "awaiting", "") or "").strip()
+            if not awaiting.startswith("android_task:"):
+                return False
+
+            task_id = awaiting.split(":", 1)[1].strip()
+            if not task_id:
+                return False
+
+            meta = getattr(jorb, "metadata", {}) or {}
+            try:
+                poll_seconds = int(meta.get("android_poll_seconds") or 10)
+            except (TypeError, ValueError):
+                poll_seconds = 10
+            poll_seconds = max(1, min(300, poll_seconds))
+
+            from actions.android_phone import task_get_action
+
+            success = True
+            try:
+                task = await task_get_action({"task_id": task_id})
+            except Exception as exc:
+                success = False
+                task = {
+                    "id": task_id,
+                    "status": "error",
+                    "error": str(exc),
+                }
+
+            await self._storage.add_script_result(
+                jorb.id,
+                {
+                    "script": "android.task_get",
+                    "result": task,
+                    "success": success,
+                },
+            )
+
+            status = str((task or {}).get("status") or "").strip().lower()
+            if status in ("pending", "running"):
+                wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds)).isoformat()
+                await self._storage.update_jorb(
+                    jorb.id,
+                    awaiting=f"android_task:{task_id}",
+                    wake_at=wake_at_iso,
+                )
+                return True
+
+            # Terminal/error: clear waiting and let the LLM interpret results once.
+            await self._storage.update_jorb(jorb.id, awaiting=None, wake_at=None)
+            refreshed = await self._storage.get_jorb(jorb.id) or jorb
+            await runner.process_jorb_event(refreshed, event=None)
+            return True
+
+        async def _poll_meta_task_if_awaiting(jorb) -> bool:
+            awaiting = str(getattr(jorb, "awaiting", "") or "").strip()
+            if not awaiting.startswith("meta_task:"):
+                return False
+
+            task_id = awaiting.split(":", 1)[1].strip()
+            if not task_id:
+                return False
+
+            meta = getattr(jorb, "metadata", {}) or {}
+            try:
+                poll_seconds = int(meta.get("meta_poll_seconds") or 5)
+            except (TypeError, ValueError):
+                poll_seconds = 5
+            poll_seconds = max(1, min(60, poll_seconds))
+
+            from meta.jobs import JobStatus, get_job
+
+            job = await asyncio.to_thread(get_job, task_id)
+            job_dict = job.to_dict() if job else {"job_id": task_id, "status": "not_found"}
+
+            # Add stdout/stderr tail (TTY-like)
+            stdout = str(job_dict.get("stdout") or "")
+            stderr = str(job_dict.get("stderr") or "")
+            job_dict["stdout_tail"] = stdout[-2000:]
+            job_dict["stderr_tail"] = stderr[-2000:]
+            job_dict["stdout_len"] = len(stdout)
+            job_dict["stderr_len"] = len(stderr)
+
+            await self._storage.add_script_result(
+                jorb.id,
+                {
+                    "script": "meta.poll_task",
+                    "result": job_dict,
+                    "success": bool(job),
+                },
+            )
+
+            status = str(job_dict.get("status") or "").strip().lower()
+            if status in ("pending", "running") or (job and job.status == JobStatus.RUNNING):
+                wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds)).isoformat()
+                await self._storage.update_jorb(
+                    jorb.id,
+                    awaiting=f"meta_task:{task_id}",
+                    wake_at=wake_at_iso,
+                )
+                return True
+
+            await self._storage.update_jorb(jorb.id, awaiting=None, wake_at=None)
+            refreshed = await self._storage.get_jorb(jorb.id) or jorb
+            await runner.process_jorb_event(refreshed, event=None)
+            return True
+
         while self._running and self._shutdown_event and not self._shutdown_event.is_set():
             self._last_tick_at = datetime.now(timezone.utc).isoformat()
 
@@ -305,6 +412,14 @@ class BackgroundLoopService:
                     logger.exception("Failed to clear wake_at for jorb %s", jorb.id)
 
                 try:
+                    # Fast-path: poll awaited long-running tasks without invoking the LLM
+                    # on every poll tick. Only invoke the LLM once when the task reaches
+                    # a terminal state so it can interpret results and message the human.
+                    if await _poll_android_task_if_awaiting(jorb):
+                        continue
+                    if await _poll_meta_task_if_awaiting(jorb):
+                        continue
+
                     await runner.process_jorb_event(jorb, event=None)
                 except Exception:
                     logger.exception("Worker loop error processing jorb %s", jorb.id)
