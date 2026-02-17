@@ -225,6 +225,49 @@ class TestHandleBotMessage:
         mock_send.assert_called_once_with(chat_id="12345")
         mock_buffer.buffer_message.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_screen_recovers_from_blank_screenshot(self):
+        """If screenshot looks blank (tiny), it retries after wake/unlock/home."""
+        from services.android_client import ADBResult
+
+        # Fake AndroidClient with two screenshots: tiny then normal.
+        mock_client = MagicMock()
+        mock_client.take_screenshot = AsyncMock(side_effect=[
+            ADBResult(success=True, output="/tmp/blank.png"),
+            ADBResult(success=True, output="/tmp/ok.png"),
+        ])
+        mock_client.wake_device = AsyncMock()
+        mock_client.unlock_device = AsyncMock()
+        mock_client.press_key = AsyncMock()
+
+        mock_bot = MagicMock()
+        mock_bot.send_notification = AsyncMock(return_value=MagicMock(success=True))
+        mock_bot.send_photo = AsyncMock(return_value=MagicMock(success=True, error=None))
+
+        with patch("services.android_client.AndroidClient", return_value=mock_client), patch(
+            "services.telegram_bot.TelegramBot",
+            return_value=mock_bot,
+        ), patch(
+            "config.get_settings",
+            return_value=MagicMock(telegram_bot_token="t"),
+        ), patch(
+            "services.telegram_bot_router.os.path.exists",
+            side_effect=lambda p: True,
+        ), patch(
+            "services.telegram_bot_router.os.path.getsize",
+            side_effect=lambda p: 12_000 if p.endswith("blank.png") else 200_000,
+        ):
+            from services.telegram_bot_router import _send_android_screen_via_bot
+
+            ok = await _send_android_screen_via_bot(chat_id="123")
+
+        assert ok is True
+        assert mock_client.take_screenshot.call_count == 2
+        mock_client.wake_device.assert_called()
+        mock_client.unlock_device.assert_called()
+        mock_client.press_key.assert_called_with("home")
+        mock_bot.send_photo.assert_called_once()
+
 
 class TestLifecycle:
     """Tests for initialization and shutdown."""

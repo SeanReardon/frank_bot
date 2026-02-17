@@ -15,6 +15,7 @@ through the Switchboard → AgentRunner pipeline with channel='telegram_bot'.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -78,9 +79,45 @@ async def _send_android_screen_via_bot(chat_id: str) -> bool:
     bot = TelegramBot(token=settings.telegram_bot_token, chat_id=chat_id)
     client = AndroidClient()
 
-    result = await client.take_screenshot()
-    if not result.success or not result.output:
-        err = result.error or result.output or "unknown adb error"
+    async def _capture_once() -> tuple[str, str | None]:
+        r = await client.take_screenshot()
+        if not r.success or not r.output:
+            return "", r.error or r.output or "unknown adb error"
+        return r.output.strip(), None
+
+    def _file_size(path: str) -> int:
+        try:
+            if path and os.path.exists(path):
+                return int(os.path.getsize(path))
+        except Exception:
+            pass
+        return 0
+
+    async def _recover_and_recapture_if_blank(path: str) -> str:
+        """
+        If the screenshot looks blank (tiny PNG), try a best-effort recovery:
+        wake -> unlock -> HOME -> recapture.
+        """
+        if _file_size(path) >= 50_000:
+            return path
+
+        logger.warning(
+            "Android screenshot looks blank (bytes=%s); attempting recovery capture",
+            _file_size(path),
+        )
+        try:
+            await client.wake_device()
+            await client.unlock_device()
+            await client.press_key("home")
+            await asyncio.sleep(0.6)
+        except Exception as exc:
+            logger.warning("Recovery actions failed before recapture: %s", exc)
+
+        new_path, _err = await _capture_once()
+        return new_path or path
+
+    path, err = await _capture_once()
+    if not path:
         await bot.send_notification(
             f"Failed to take screenshot: {err}",
             parse_mode=None,
@@ -88,7 +125,18 @@ async def _send_android_screen_via_bot(chat_id: str) -> bool:
         )
         return False
 
-    path = result.output.strip()
+    path = await _recover_and_recapture_if_blank(path)
+
+    # If still tiny, it's probably an "empty" capture (screen off / secure app).
+    if 0 < _file_size(path) < 50_000:
+        await bot.send_notification(
+            "Screenshot captured but looks blank (black). This usually means the "
+            "screen is off/locked, or the foreground app blocks screenshots. "
+            "Try unlocking the phone or switching to the home screen, then retry /screen.",
+            parse_mode=None,
+            chat_id=chat_id,
+        )
+
     caption = f"Android screen @ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')}"
     send_res = await bot.send_photo(path, caption=caption, chat_id=chat_id)
 
