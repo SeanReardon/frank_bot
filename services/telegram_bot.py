@@ -601,11 +601,24 @@ class TelegramBotListener:
         from services.telegram_allowlist import is_allowed_username
 
         if not is_allowed_username(username):
-            logger.debug(
-                "Dropping bot message from non-allowlisted user: %s",
-                username,
-            )
-            return
+            # Username can be empty (Telegram users without a public username).
+            # For bot control-plane, allow the configured chat_id even if the
+            # username isn't allowlisted.
+            allowed_by_chat_id = False
+            try:
+                settings = get_settings()
+                allowed_chat_id = str(settings.telegram_bot_chat_id or "").strip()
+                allowed_by_chat_id = bool(allowed_chat_id and allowed_chat_id == chat_id)
+            except Exception:
+                allowed_by_chat_id = False
+
+            if not allowed_by_chat_id:
+                logger.info(
+                    "Dropping bot message from non-allowlisted sender: @%s chat_id=%s",
+                    username or "",
+                    chat_id,
+                )
+                return
 
         logger.info(
             "Bot message from %s (@%s) in chat %s: %s",

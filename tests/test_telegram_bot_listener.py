@@ -300,3 +300,35 @@ class TestTelegramBotListenerPollLoop:
         # Should have recovered and continued
         assert call_count == 2
         callback.assert_not_called()
+
+
+class TestTelegramBotListenerAllowlistByChatId:
+    """Allow bot messages by configured chat_id even without username allowlist."""
+
+    @pytest.mark.asyncio
+    async def test_process_update_allows_configured_chat_id(self) -> None:
+        callback = AsyncMock()
+        listener = TelegramBotListener(on_message=callback, token="test-token")
+
+        update = {
+            "update_id": 100,
+            "message": {
+                "text": "screen please",
+                "from": {"username": ""},  # user may have no username
+                "chat": {"id": 777},
+            },
+        }
+
+        with patch(
+            "services.telegram_allowlist.is_allowed_username",
+            return_value=False,
+        ), patch(
+            "services.telegram_bot.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value = MagicMock(
+                telegram_bot_token="test-token",
+                telegram_bot_chat_id="777",
+            )
+            await listener._process_update(update)
+
+        callback.assert_called_once()
