@@ -200,6 +200,31 @@ class TestHandleBotMessage:
         call_kwargs = mock_buffer.buffer_message.call_args[1]
         assert call_kwargs["sender"] == "Bob Smith"
 
+    @pytest.mark.asyncio
+    async def test_android_screen_command_bypasses_buffer(self):
+        """Android screen command is handled directly (no LLM, no buffering)."""
+        mock_buffer = MagicMock()
+        mock_buffer.buffer_message = AsyncMock(return_value=True)
+
+        mock_send = AsyncMock(return_value=True)
+
+        with patch(
+            "services.telegram_bot_router._send_android_screen_via_bot",
+            mock_send,
+        ), patch(
+            "services.telegram_bot_router._get_message_buffer",
+            return_value=mock_buffer,
+        ):
+            await _handle_bot_message(
+                "show me the android screen",
+                "alice",
+                "12345",
+                "Alice",
+            )
+
+        mock_send.assert_called_once_with(chat_id="12345")
+        mock_buffer.buffer_message.assert_not_called()
+
 
 class TestLifecycle:
     """Tests for initialization and shutdown."""

@@ -85,7 +85,7 @@ def test_script_results_include_error_one_line() -> None:
                 "result": {
                     "id": "deadbeef",
                     "status": "failed",
-                    "error": "adb: device '10.0.0.95:5555' not found\n",
+                    "error": "adb: device '192.0.2.10:5555' not found\n",
                 },
             }
         ],
@@ -97,5 +97,5 @@ def test_script_results_include_error_one_line() -> None:
     prompt = session._build_system_prompt()
 
     assert "Status: failed" in prompt
-    assert "Error: adb: device '10.0.0.95:5555' not found" in prompt
+    assert "Error: adb: device '192.0.2.10:5555' not found" in prompt
 

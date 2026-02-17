@@ -32,7 +32,7 @@ Apply the Vault terraform changes for frank_bot to create/update these secrets:
 android_device_serial = "48151FDKD001UD"
 #
 # Optional fallback: wireless debugging host/port
-# android_adb_host = "10.0.0.95"
+# android_adb_host = ""
 # android_adb_port = "5555"
 
 # Actions API key (for X-API-Key header authentication)

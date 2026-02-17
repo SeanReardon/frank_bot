@@ -288,7 +288,7 @@ class TestGetScreenAction:
         # Connection returns success=False but says "already connected"
         mock_client.connect = AsyncMock(return_value=ADBResult(
             success=False,
-            output="already connected to 10.0.0.95:5555"
+            output="already connected to 192.0.2.10:5555"
         ))
         mock_client.take_screenshot = AsyncMock(return_value=ADBResult(success=True, output="/tmp/screenshot.png"))
         mock_client.get_screen_xml = AsyncMock(return_value=ADBResult(success=True, output="<xml/>"))
@@ -447,7 +447,7 @@ class TestAndroidPhoneStatusAction:
     async def test_returns_connected_with_device_info(self) -> None:
         """Returns connected status and device info when device responds."""
         mock_client = MagicMock()
-        mock_client.device_serial = "10.0.0.95:5555"
+        mock_client.device_serial = "192.0.2.10:5555"
         mock_client.connect = AsyncMock(return_value=ADBResult(success=True, output="connected"))
         mock_client.check_connection = AsyncMock(return_value=True)
         mock_client.get_device_info = AsyncMock(return_value={
@@ -462,7 +462,7 @@ class TestAndroidPhoneStatusAction:
             result = await android_phone_status_action({})
 
             assert result["connected"] is True
-            assert result["device"] == "10.0.0.95:5555"
+            assert result["device"] == "192.0.2.10:5555"
             assert result["model"] == "Pixel 9 Pro"
             assert result["android_version"] == "15"
 
@@ -470,7 +470,7 @@ class TestAndroidPhoneStatusAction:
     async def test_returns_not_connected_on_connection_failure(self) -> None:
         """Returns connected: false when connection fails."""
         mock_client = MagicMock()
-        mock_client.device_serial = "10.0.0.95:5555"
+        mock_client.device_serial = "192.0.2.10:5555"
         mock_client.connect = AsyncMock(return_value=ADBResult(
             success=False,
             output="",
@@ -489,7 +489,7 @@ class TestAndroidPhoneStatusAction:
     async def test_returns_not_connected_when_device_not_responding(self) -> None:
         """Returns connected: false when device doesn't respond to ping."""
         mock_client = MagicMock()
-        mock_client.device_serial = "10.0.0.95:5555"
+        mock_client.device_serial = "192.0.2.10:5555"
         mock_client.connect = AsyncMock(return_value=ADBResult(success=True, output="connected"))
         mock_client.check_connection = AsyncMock(return_value=False)
 

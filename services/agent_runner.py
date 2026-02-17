@@ -865,6 +865,9 @@ class AgentRunner:
         # New assistant message arrived.
         if digest and digest != prev_digest and last_content.strip():
             state["last_assistant_digest"] = digest
+            # Persist the full assistant content so it can be recovered even if
+            # downstream transports (Telegram) truncate or fail.
+            state["last_assistant_content"] = last_content
             state["consecutive_polls"] = 0
             state["poll_seconds"] = 20
             claudia_state[key] = state
@@ -875,7 +878,7 @@ class AgentRunner:
             if digest != forwarded and not self._check_rate_limit(jorb_id):
                 text = (
                     "Claudia replied with a suggested patch:\n\n"
-                    f"{last_content.strip()[:1800]}"
+                    f"{last_content.strip()}"
                 )
                 # Pick transport: prefer current jorb metadata, fall back to origin_event.
                 transport = str(meta.get("preferred_transport") or "").strip()

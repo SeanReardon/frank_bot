@@ -9,7 +9,7 @@ The `androidPhone*` family of actions enables Frank Bot to control mobile apps o
 | Setting | Value |
 |---------|-------|
 | USB Serial (preferred) | 48151FDKD001UD |
-| Wi‑Fi Debug Host (optional) | 10.0.0.95 |
+| Wi‑Fi Debug Host (optional) | _unset_ (set explicitly if used) |
 | Wi‑Fi Debug Port (optional) | 5555 |
 | Device | Google Pixel 9 Pro Fold |
 | OS | Android 16 |

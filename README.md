@@ -300,7 +300,7 @@ ADB transport options:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ANDROID_DEVICE_SERIAL` | _unset_ | **USB ADB** serial (preferred). Example: `48151FDKD001UD` |
-| `ANDROID_ADB_HOST` | `10.0.0.95` | **TCP/IP ADB** host (fallback) |
+| `ANDROID_ADB_HOST` | _unset_ | **TCP/IP ADB** host (fallback). Set explicitly (no baked-in default). |
 | `ANDROID_ADB_PORT` | `5555` | **TCP/IP ADB** port (fallback) |
 | `ANDROID_LLM_MODEL` | `gpt-5.2` | Vision-capable LLM for automation |
 | `ANDROID_LLM_API_KEY` | _unset_ | Dev fallback only (prefer Vault; falls back to OpenAI key) |

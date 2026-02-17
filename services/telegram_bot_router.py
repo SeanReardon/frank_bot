@@ -16,6 +16,8 @@ through the Switchboard → AgentRunner pipeline with channel='telegram_bot'.
 from __future__ import annotations
 
 import logging
+import os
+import re
 from datetime import datetime, timezone
 
 from services.agent_runner import AgentRunner, IncomingEvent
@@ -41,6 +43,71 @@ def _normalize_sender(username: str, sender_name: str | None) -> str:
     if username:
         return f"@{username}"
     return (sender_name or "unknown").strip() or "unknown"
+
+
+_ANDROID_SCREEN_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^/screen(?:@\w+)?\b", re.IGNORECASE),
+    re.compile(r"^/screenshot(?:@\w+)?\b", re.IGNORECASE),
+    re.compile(r"\bshow\s+me\s+(?:the\s+)?android\s+screen\b", re.IGNORECASE),
+    re.compile(r"\bandroid\s+screenshot\b", re.IGNORECASE),
+)
+
+
+def _is_android_screen_request(text: str) -> bool:
+    normalized = (text or "").strip()
+    if not normalized:
+        return False
+    return any(p.search(normalized) for p in _ANDROID_SCREEN_PATTERNS)
+
+
+async def _send_android_screen_via_bot(chat_id: str) -> bool:
+    """
+    Take an Android screenshot and send it to the requesting Telegram chat.
+
+    This bypasses Switchboard/AgentRunner entirely: it's a deterministic command.
+    """
+    from config import get_settings
+    from services.android_client import AndroidClient
+    from services.telegram_bot import TelegramBot
+
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        logger.warning("Telegram bot token not configured; cannot send screenshot")
+        return False
+
+    bot = TelegramBot(token=settings.telegram_bot_token, chat_id=chat_id)
+    client = AndroidClient()
+
+    result = await client.take_screenshot()
+    if not result.success or not result.output:
+        err = result.error or result.output or "unknown adb error"
+        await bot.send_notification(
+            f"Failed to take screenshot: {err}",
+            parse_mode=None,
+            chat_id=chat_id,
+        )
+        return False
+
+    path = result.output.strip()
+    caption = f"Android screen @ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')}"
+    send_res = await bot.send_photo(path, caption=caption, chat_id=chat_id)
+
+    # Best-effort cleanup of the local temp file.
+    try:
+        if path.startswith("/tmp/") and os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        logger.debug("Failed to clean up screenshot temp file: %s", path)
+
+    if not send_res.success:
+        await bot.send_notification(
+            f"Screenshot captured but failed to send via Telegram: {send_res.error}",
+            parse_mode=None,
+            chat_id=chat_id,
+        )
+        return False
+
+    return True
 
 
 async def _on_bot_message_flush(event: BufferedEvent) -> None:
@@ -144,6 +211,15 @@ async def _handle_bot_message(
     Buffers the message for debouncing; the flush callback will
     route it through Switchboard → AgentRunner.
     """
+    # Deterministic command: bypass the LLM path.
+    if _is_android_screen_request(text):
+        try:
+            ok = await _send_android_screen_via_bot(chat_id=str(chat_id))
+            logger.info("Handled android screen request via bot (ok=%s)", ok)
+        except Exception as exc:
+            logger.exception("Failed handling android screen request: %s", exc)
+        return
+
     sender = _normalize_sender(username, sender_name)
     timestamp = datetime.now(timezone.utc).isoformat()
 

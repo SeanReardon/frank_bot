@@ -307,7 +307,7 @@ def _load_secrets() -> dict[str, str | None]:
             )
         if not secrets["android_adb_host"]:
             secrets["android_adb_host"] = os.getenv(
-                "ANDROID_ADB_HOST", "10.0.0.95"
+                "ANDROID_ADB_HOST", ""
             )
         if not secrets["android_adb_port"]:
             secrets["android_adb_port"] = os.getenv(
@@ -461,7 +461,7 @@ def get_settings() -> Settings:
         claudia_api_key=secrets["claudia_api_key"],
         # Android phone settings
         android_device_serial=secrets["android_device_serial"] or "",
-        android_adb_host=secrets["android_adb_host"] or "10.0.0.95",
+        android_adb_host=secrets["android_adb_host"] or "",
         android_adb_port=int(secrets["android_adb_port"] or "5555"),
         android_llm_model=os.getenv("ANDROID_LLM_MODEL", "gpt-5.2"),
         android_llm_api_key=secrets.get("android_llm_api_key"),

@@ -473,15 +473,28 @@ class TelegramClientService:
             client = await self._ensure_connected()
             logger.info("Sending Telegram message to %s", recipient)
 
-            message = await client.send_message(recipient, text)
+            # Telegram hard-limits message text length; chunk long payloads.
+            from services.telegram_text import TELEGRAM_MAX_TEXT_LEN, chunk_telegram_text
+
+            chunked = chunk_telegram_text(
+                text,
+                max_len=TELEGRAM_MAX_TEXT_LEN,
+                add_part_headers=True,
+                max_chunks=50,
+            )
+
+            last_message_id: int | None = None
+            for chunk in chunked.chunks:
+                message = await client.send_message(recipient, chunk)
+                last_message_id = message.id
             elapsed_ms = (time.time() - start) * 1000
             tg_stats.record_request(elapsed_ms, success=True)
 
-            logger.info("Telegram message sent successfully, id=%s", message.id)
+            logger.info("Telegram message sent successfully, id=%s", last_message_id)
 
             return TelegramMessageResult(
                 success=True,
-                message_id=message.id,
+                message_id=last_message_id,
                 recipient=recipient,
             )
 

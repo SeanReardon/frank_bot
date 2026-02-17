@@ -8,8 +8,8 @@ Transport selection:
   - USB (preferred): Set ANDROID_DEVICE_SERIAL (e.g., "48151FDKD001UD"),
     or set Vault secret `secret/frank-bot/android` key `device_serial`.
     Requires USB passthrough to container.
-  - TCP/IP (wireless debugging fallback): Set ANDROID_ADB_HOST (default 10.0.0.95)
-    and ANDROID_ADB_PORT (default 5555), or set Vault `adb_host`/`adb_port`.
+  - TCP/IP (wireless debugging fallback): Set ANDROID_ADB_HOST and ANDROID_ADB_PORT
+    (default 5555), or set Vault `adb_host`/`adb_port`.
 
 USB is preferred when available -- it doesn't require WiFi and
 survives network changes.
@@ -29,7 +29,9 @@ from services.stats import stats
 logger = logging.getLogger(__name__)
 
 # Default ADB connection settings
-DEFAULT_ADB_HOST = "10.0.0.95"
+# NOTE: We intentionally do NOT bake in a default TCP/IP host.
+# If you want ADB-over-TCP, set ANDROID_ADB_HOST explicitly.
+# Historical value (removed to avoid confusion): 10.0.0.95
 DEFAULT_ADB_PORT = 5555
 DEFAULT_ADB_TIMEOUT = 30  # seconds
 
@@ -129,15 +131,18 @@ class AndroidClient:
                 except Exception:
                     pass
 
-            self._host = host_val or DEFAULT_ADB_HOST
+            self._host = (host_val or "").strip()
             self._port = int(port_val or DEFAULT_ADB_PORT)
-            self._device_serial = (
-                f"{self._host}:{self._port}"
-            )
-            logger.info(
-                "ADB transport: TCP/IP (%s)",
-                self._device_serial,
-            )
+            if self._host:
+                self._device_serial = f"{self._host}:{self._port}"
+                logger.info("ADB transport: TCP/IP (%s)", self._device_serial)
+            else:
+                # Leave unconfigured instead of guessing a LAN IP.
+                self._device_serial = ""
+                logger.warning(
+                    "ADB transport: TCP/IP (host not configured). "
+                    "Set ANDROID_DEVICE_SERIAL for USB, or ANDROID_ADB_HOST for TCP/IP."
+                )
 
         self._timeout = timeout
         self._connected = False
@@ -173,6 +178,13 @@ class AndroidClient:
         Returns:
             ADBResult with success status and output
         """
+        if not self._device_serial:
+            return ADBResult(
+                success=False,
+                output="",
+                error="Android ADB device not configured (set ANDROID_DEVICE_SERIAL or ANDROID_ADB_HOST)",
+            )
+
         cmd_timeout = timeout or self._timeout
         cmd = ["adb", "-s", self._device_serial, *args]
         
@@ -320,6 +332,13 @@ class AndroidClient:
             return ADBResult(
                 success=True,
                 output="USB device (always connected)",
+            )
+
+        if not self._device_serial:
+            return ADBResult(
+                success=False,
+                output="",
+                error="ANDROID_ADB_HOST not configured for TCP/IP ADB",
             )
 
         result = await self._run_adb_global("connect", self._device_serial)

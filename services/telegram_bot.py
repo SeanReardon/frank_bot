@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -31,6 +32,8 @@ class NotificationResult:
 
     success: bool
     message_id: int | None = None
+    # When a long message is chunked, all resulting message IDs are captured here.
+    message_ids: list[int] | None = None
     error: str | None = None
 
 
@@ -104,55 +107,49 @@ class TelegramBot:
         try:
             url = f"{TELEGRAM_BOT_API_BASE}/bot{self._token}/sendMessage"
 
+            from services.telegram_text import TELEGRAM_MAX_TEXT_LEN, chunk_telegram_text
+
+            chunked = chunk_telegram_text(
+                text,
+                max_len=TELEGRAM_MAX_TEXT_LEN,
+                add_part_headers=True,
+                max_chunks=50,
+            )
+
+            message_ids: list[int] = []
             async with httpx.AsyncClient(timeout=30.0) as client:
-                payload: dict[str, Any] = {
-                    "chat_id": target_chat,
-                    "text": text,
-                }
-                # Telegram parse_mode is optional; omit when None to send plain text.
-                if parse_mode:
-                    payload["parse_mode"] = parse_mode
-                response = await client.post(
-                    url,
-                    json=payload,
-                )
+                for chunk in chunked.chunks:
+                    payload: dict[str, Any] = {
+                        "chat_id": target_chat,
+                        "text": chunk,
+                    }
+                    # Telegram parse_mode is optional; omit when None to send plain text.
+                    if parse_mode:
+                        payload["parse_mode"] = parse_mode
+                    response = await client.post(url, json=payload)
+
+                    # Handle response per chunk; if any chunk fails, stop.
+                    if response.status_code != 200:
+                        raise RuntimeError(f"HTTP {response.status_code}: {response.text}")
+
+                    data = response.json()
+                    if not data.get("ok"):
+                        raise RuntimeError(str(data.get("description", "Unknown error")))
+
+                    msg_id = data.get("result", {}).get("message_id")
+                    if isinstance(msg_id, int):
+                        message_ids.append(msg_id)
 
             elapsed_ms = (time.time() - start) * 1000
 
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("ok"):
-                    message_id = data.get("result", {}).get("message_id")
-                    bot_stats.record_request(elapsed_ms, success=True)
-                    logger.info(
-                        "Telegram notification sent, message_id=%s",
-                        message_id,
-                    )
-                    return NotificationResult(
-                        success=True,
-                        message_id=message_id,
-                    )
-                else:
-                    error = data.get("description", "Unknown error")
-                    bot_stats.record_request(elapsed_ms, success=False, error=error)
-                    logger.error("Telegram API error: %s", error)
-                    return NotificationResult(
-                        success=False,
-                        error=error,
-                    )
-            else:
-                error = f"HTTP {response.status_code}: {response.text}"
-                bot_stats.record_request(elapsed_ms, success=False, error=error)
-                stats.record_error(
-                    "telegram_bot",
-                    error,
-                    {"method": "send_notification"},
-                )
-                logger.error("Telegram API HTTP error: %s", error)
-                return NotificationResult(
-                    success=False,
-                    error=error,
-                )
+            bot_stats.record_request(elapsed_ms, success=True)
+            last_id = message_ids[-1] if message_ids else None
+            logger.info("Telegram notification sent (%d parts), last_id=%s", len(message_ids), last_id)
+            return NotificationResult(
+                success=True,
+                message_id=last_id,
+                message_ids=message_ids or None,
+            )
 
         except httpx.TimeoutException as exc:
             elapsed_ms = (time.time() - start) * 1000
@@ -168,6 +165,99 @@ class TelegramBot:
                 success=False,
                 error=error,
             )
+
+        except Exception as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            error = str(exc)
+            bot_stats.record_request(elapsed_ms, success=False, error=error)
+            stats.record_error(
+                "telegram_bot",
+                error,
+                {"method": "send_notification"},
+            )
+            logger.exception("Telegram notification failed: %s", exc)
+            return NotificationResult(
+                success=False,
+                error=error,
+            )
+
+    async def send_photo(
+        self,
+        photo_path: str,
+        *,
+        caption: str | None = None,
+        parse_mode: str | None = None,
+        chat_id: str | None = None,
+    ) -> NotificationResult:
+        """
+        Send a photo to Telegram via the Bot API.
+
+        Used for Android screenshots and other binary artifacts that should not
+        go through the LLM path.
+        """
+        if not self._token:
+            return NotificationResult(success=False, error="Telegram bot token not configured")
+
+        target_chat = chat_id or self._chat_id
+        if not target_chat:
+            return NotificationResult(success=False, error="Telegram bot chat_id not configured")
+
+        if not photo_path or not os.path.exists(photo_path):
+            return NotificationResult(success=False, error=f"Photo not found: {photo_path}")
+
+        bot_stats = stats.get_service_stats("telegram_bot")
+        start = time.time()
+
+        # Telegram captions have a smaller limit than messages; keep it conservative.
+        if caption and len(caption) > 900:
+            caption = caption[:900] + "..."
+
+        try:
+            url = f"{TELEGRAM_BOT_API_BASE}/bot{self._token}/sendPhoto"
+            data: dict[str, Any] = {"chat_id": target_chat}
+            if caption:
+                data["caption"] = caption
+            if parse_mode:
+                data["parse_mode"] = parse_mode
+
+            filename = os.path.basename(photo_path) or "photo.png"
+            with open(photo_path, "rb") as f:
+                files = {"photo": (filename, f, "image/png")}
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    resp = await client.post(url, data=data, files=files)
+
+            elapsed_ms = (time.time() - start) * 1000
+
+            if resp.status_code != 200:
+                error = f"HTTP {resp.status_code}: {resp.text}"
+                bot_stats.record_request(elapsed_ms, success=False, error=error)
+                stats.record_error("telegram_bot", error, {"method": "send_photo"})
+                return NotificationResult(success=False, error=error)
+
+            payload = resp.json()
+            if not payload.get("ok"):
+                error = str(payload.get("description", "Unknown error"))
+                bot_stats.record_request(elapsed_ms, success=False, error=error)
+                stats.record_error("telegram_bot", error, {"method": "send_photo"})
+                return NotificationResult(success=False, error=error)
+
+            message_id = payload.get("result", {}).get("message_id")
+            bot_stats.record_request(elapsed_ms, success=True)
+            return NotificationResult(success=True, message_id=message_id if isinstance(message_id, int) else None)
+
+        except httpx.TimeoutException as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            error = f"Request timeout: {exc}"
+            bot_stats.record_request(elapsed_ms, success=False, error=error)
+            stats.record_error("telegram_bot", error, {"method": "send_photo"})
+            return NotificationResult(success=False, error=error)
+        except Exception as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            error = str(exc)
+            bot_stats.record_request(elapsed_ms, success=False, error=error)
+            stats.record_error("telegram_bot", error, {"method": "send_photo"})
+            logger.exception("Telegram send_photo failed: %s", exc)
+            return NotificationResult(success=False, error=error)
 
         except Exception as exc:
             elapsed_ms = (time.time() - start) * 1000

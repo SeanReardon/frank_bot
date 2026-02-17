@@ -32,9 +32,9 @@ Connection: adb -s 48151FDKD001UD shell getprop ro.product.model
 If the phone is on Wi‑Fi and you prefer TCP/IP:
 
 ```
-Host: 10.0.0.95
+Host: <PHONE_IP>
 Port: 5555
-Connection: adb connect 10.0.0.95:5555
+Connection: adb connect <PHONE_IP>:5555
 ```
 
 ## Installed Apps (Automation Targets)

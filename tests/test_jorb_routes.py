@@ -88,7 +88,7 @@ def settings():
         claudia_api_url=None,
         claudia_api_key=None,
         android_device_serial="",
-        android_adb_host="10.0.0.95",
+        android_adb_host="",
         android_adb_port=5555,
         android_llm_model="gpt-5.2",
         android_llm_api_key=None,

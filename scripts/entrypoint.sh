@@ -35,7 +35,8 @@ PY
     fi
 
     # Fallback: if exactly one USB-connected device is present, auto-select it.
-    # (We intentionally ignore tcpip serials like 10.0.0.95:5555 here.)
+    # (We intentionally ignore tcpip serials like 192.0.2.10:5555 here.)
+    # Historical example (removed from code/docs): 10.0.0.95:5555
     USB_SERIALS="$(timeout "$ADB_TIMEOUT" adb devices 2>/dev/null | awk 'NR>1 && $2==\"device\" && $1 !~ /:/ {print $1}' || true)"
     USB_COUNT="$(printf \"%s\" \"$USB_SERIALS\" | grep -c . || true)"
     if [ "$USB_COUNT" -eq 1 ]; then

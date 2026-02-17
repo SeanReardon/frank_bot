@@ -14,7 +14,7 @@ I've added a new device to the home network that frank_bot uses for mobile app a
 name: android-automation-phone
 usb_serial: 48151FDKD001UD
 protocol: ADB over USB (preferred)
-wifi_debug_host: 10.0.0.95  # optional
+wifi_debug_host: ""         # optional (set explicitly if used)
 wifi_debug_port: 5555       # optional
 device: Google Pixel 9 Pro Fold
 os: Android 16
