@@ -226,6 +226,32 @@ class TestHandleBotMessage:
         mock_buffer.buffer_message.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_android_screen_natural_language_bypasses_buffer(self):
+        """Natural language screenshot requests should also bypass the LLM path."""
+        with patch(
+            "services.telegram_bot_router._send_android_screen_via_bot",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_send, patch(
+            "services.telegram_bot_router._get_message_buffer"
+        ) as mock_get_buffer:
+            mock_buffer = MagicMock()
+            mock_buffer.buffer_message = AsyncMock()
+            mock_get_buffer.return_value = mock_buffer
+
+            from services.telegram_bot_router import _handle_bot_message
+
+            await _handle_bot_message(
+                "can you take a screenshot of my android device and send it to me?",
+                "SeanReardon",
+                "12345",
+                "Sean Reardon",
+            )
+
+        mock_send.assert_called_once_with(chat_id="12345")
+        mock_buffer.buffer_message.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_screen_recovers_from_blank_screenshot(self):
         """If screenshot looks blank (tiny), it retries after wake/unlock/home."""
         from services.android_client import ADBResult

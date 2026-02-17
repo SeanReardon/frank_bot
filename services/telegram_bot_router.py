@@ -58,6 +58,13 @@ def _is_android_screen_request(text: str) -> bool:
     normalized = (text or "").strip()
     if not normalized:
         return False
+    # Heuristic: catch common natural language requests that don't exactly match
+    # our regex set (e.g. "take a screenshot of my android device and send it").
+    lowered = normalized.lower()
+    if "android" in lowered and ("screenshot" in lowered or "screen" in lowered):
+        if any(k in lowered for k in ("send", "show", "pic", "photo", "picture")):
+            return True
+
     return any(p.search(normalized) for p in _ANDROID_SCREEN_PATTERNS)
 
 
