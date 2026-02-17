@@ -268,6 +268,47 @@ class TestHandleBotMessage:
         mock_client.press_key.assert_called_with("home")
         mock_bot.send_photo.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_screen_does_not_send_black_image(self):
+        """If screenshot stays blank after recovery, it should not send a photo."""
+        from services.android_client import ADBResult
+
+        mock_client = MagicMock()
+        mock_client.take_screenshot = AsyncMock(side_effect=[
+            ADBResult(success=True, output="/tmp/blank1.png"),
+            ADBResult(success=True, output="/tmp/blank2.png"),
+        ])
+        mock_client.wake_device = AsyncMock()
+        mock_client.unlock_device = AsyncMock()
+        mock_client.press_key = AsyncMock()
+        # Used for lockscreen hint; return a non-success result to keep it simple.
+        mock_client._run_adb = AsyncMock(return_value=ADBResult(success=False, output="", error="no"))
+
+        mock_bot = MagicMock()
+        mock_bot.send_notification = AsyncMock(return_value=MagicMock(success=True))
+        mock_bot.send_photo = AsyncMock(return_value=MagicMock(success=True, error=None))
+
+        with patch("services.android_client.AndroidClient", return_value=mock_client), patch(
+            "services.telegram_bot.TelegramBot",
+            return_value=mock_bot,
+        ), patch(
+            "config.get_settings",
+            return_value=MagicMock(telegram_bot_token="t"),
+        ), patch(
+            "services.telegram_bot_router.os.path.exists",
+            side_effect=lambda p: True,
+        ), patch(
+            "services.telegram_bot_router.os.path.getsize",
+            side_effect=lambda p: 12_000,
+        ):
+            from services.telegram_bot_router import _send_android_screen_via_bot
+
+            ok = await _send_android_screen_via_bot(chat_id="123")
+
+        assert ok is False
+        mock_bot.send_notification.assert_called()
+        mock_bot.send_photo.assert_not_called()
+
 
 class TestLifecycle:
     """Tests for initialization and shutdown."""

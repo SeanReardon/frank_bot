@@ -156,6 +156,8 @@ async def _send_android_screen_via_bot(chat_id: str) -> bool:
             parse_mode=None,
             chat_id=chat_id,
         )
+        # Don't spam a useless black image.
+        return False
 
     caption = f"Android screen @ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')}"
     send_res = await bot.send_photo(path, caption=caption, chat_id=chat_id)
