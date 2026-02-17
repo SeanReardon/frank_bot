@@ -72,6 +72,11 @@ services:
 
       # Version (default if not in .env)
       APP_VERSION: "${APP_VERSION:-0.3.0}"
+    # gnirehtet reverse tether requires a TUN device + NET_ADMIN.
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
     volumes:
       # USB passthrough for Android phone (ADB over USB).
       #
@@ -91,6 +96,8 @@ services:
     # Allow access to newly-enumerated USB device nodes under /dev/bus/usb.
     device_cgroup_rules:
       - "c 189:* rwm"
+    sysctls:
+      net.ipv4.ip_forward: "1"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
