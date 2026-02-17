@@ -90,6 +90,15 @@ Return the following fields (use null if not available):
 - **humidity**: Humidity percentage (integer, null if not shown)
 - **status**: One of: "heating", "cooling", "idle", "off"
 
+### IMPORTANT (strict schema)
+- Use the exact key names above. Do not emit alternate keys like `current_temperature`, `setpoints`, `heat_setpoint`, etc.
+- Values must be integers (or null). Do not include degree symbols, units, or explanatory strings in the values.
+- Only return `"action": "done"` when you have at least:
+  - `current_temp` (int)
+  - `mode` (one of the allowed strings)
+  - at least one of `target_low` / `target_high` (int)
+- If you cannot read the numbers reliably, return `"action": "error"` with a concise message and stop.
+
 ## Known UI Patterns
 
 ### Temperature Display

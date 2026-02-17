@@ -11,16 +11,15 @@ Orchestrates multi-step phone control tasks by:
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 from config import get_settings
+from services.android_audit import get_android_audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +268,9 @@ class AndroidPhoneRunner:
                 "type": "image_url",
                 "image_url": {
                     "url": f"data:image/png;base64,{screenshot_b64}",
-                    "detail": "high",
+                    # Prefer low detail by default to reduce vision token burn.
+                    # If we need a higher-fidelity pass later, we'll add a handshake.
+                    "detail": "low",
                 },
             })
 
@@ -312,18 +313,48 @@ class AndroidPhoneRunner:
         # Screen state
         parts.append("\n## Screen State")
         parts.append(f"Total elements on screen: {screen_state.get('element_count', 0)}")
+        dominant_package = screen_state.get("dominant_package")
+        if dominant_package:
+            parts.append(f"Dominant package on screen: {dominant_package}")
 
         # Clickable elements summary
         elements = screen_state.get("clickable_elements", [])
         if elements:
-            parts.append(f"\n### Interactive Elements ({len(elements)} elements)")
-            for i, el in enumerate(elements[:30]):  # Limit to 30 most relevant
-                text = el.get("text", "") or el.get("content_desc", "")
+            labeled = []
+            unlabeled_clickable = []
+            for el in elements:
+                text = (el.get("text", "") or el.get("content_desc", "") or "").strip()
                 if text:
-                    resource = el.get("resource_id", "")
+                    labeled.append(el)
+                elif el.get("clickable"):
+                    unlabeled_clickable.append(el)
+
+            parts.append(f"\n### Interactive Elements ({len(elements)} total)")
+            if labeled:
+                parts.append("Labeled elements (up to 25):")
+                for i, el in enumerate(labeled[:25]):
+                    text = (el.get("text", "") or el.get("content_desc", "") or "").strip()
+                    resource = (el.get("resource_id", "") or "").strip()
                     x, y = el.get("center_x", 0), el.get("center_y", 0)
                     clickable = "clickable" if el.get("clickable") else "text-only"
-                    parts.append(f"  [{i}] \"{text}\" at ({x}, {y}) - {clickable}")
+                    label = f" [{i}] \"{text}\" at ({x}, {y}) - {clickable}"
+                    if resource:
+                        label += f" (id={resource})"
+                    parts.append(label)
+
+            # Google Home (and many apps) rely heavily on icon buttons with no text.
+            # Include a small set so the model can still act deterministically.
+            if unlabeled_clickable:
+                parts.append("\nUnlabeled clickable elements (up to 10):")
+                for i, el in enumerate(unlabeled_clickable[:10]):
+                    resource = (el.get("resource_id", "") or "").strip() or "unknown"
+                    cls = (el.get("class_name", "") or "").strip() or "unknown"
+                    x, y = el.get("center_x", 0), el.get("center_y", 0)
+                    b = el.get("bounds") or {}
+                    bounds_str = ""
+                    if isinstance(b, dict) and all(k in b for k in ("left", "top", "right", "bottom")):
+                        bounds_str = f" bounds=({b.get('left')},{b.get('top')})-({b.get('right')},{b.get('bottom')})"
+                    parts.append(f"  [u{i}] id={resource} class={cls} at ({x}, {y}){bounds_str}")
 
         # Raw XML snippet (truncated for context efficiency)
         xml = screen_state.get("xml", "")
@@ -545,6 +576,12 @@ class AndroidPhoneRunner:
             self._model,
         )
 
+        audit_logger = None
+        try:
+            audit_logger = get_android_audit_logger()
+        except Exception:
+            audit_logger = None
+
         for step_num in range(1, effective_max_steps + 1):
             start_time = time.time()
 
@@ -583,6 +620,30 @@ class AndroidPhoneRunner:
                     action.reasoning[:100] if action.reasoning else "",
                 )
 
+                # Audit the decision + screen metadata (no raw screenshot/xml persisted).
+                if audit_logger is not None:
+                    try:
+                        audit_logger.log_action(
+                            action="runner_step",
+                            parameters={
+                                "task": task_prompt,
+                                "step": step_num,
+                                "action": action.action,
+                                "done": action.done,
+                                "params": action.params,
+                            },
+                            result={
+                                "screenshot_base64": final_screenshot or "",
+                                "element_count": screen_state.get("element_count"),
+                            },
+                            success=True,
+                            tokens_used=input_tokens + output_tokens,
+                            duration_ms=int(elapsed_ms),
+                            api_key=self._api_key,
+                        )
+                    except Exception:
+                        pass
+
                 # Step 4: Execute action
                 if action.action != "done":
                     success, error = await self._execute_action(action)
@@ -611,6 +672,22 @@ class AndroidPhoneRunner:
                     total_tokens = total_input_tokens + total_output_tokens
                     total_cost = _calculate_token_cost(total_input_tokens, total_output_tokens)
 
+                    if audit_logger is not None:
+                        try:
+                            audit_logger.log_action(
+                                action="runner_complete",
+                                parameters={"task": task_prompt},
+                                result={
+                                    "element_count": screen_state.get("element_count"),
+                                },
+                                success=True,
+                                tokens_used=total_tokens,
+                                duration_ms=int((time.time() - start_time) * 1000),
+                                api_key=self._api_key,
+                            )
+                        except Exception:
+                            pass
+
                     return RunResult(
                         success=True,
                         final_action=action.action,
@@ -626,6 +703,24 @@ class AndroidPhoneRunner:
                 if not success:
                     logger.warning("Step %d action failed: %s", step_num, error)
                     # Don't fail immediately - let LLM see the error and decide
+                    if audit_logger is not None:
+                        try:
+                            audit_logger.log_action(
+                                action="runner_action_failed",
+                                parameters={
+                                    "task": task_prompt,
+                                    "step": step_num,
+                                    "action": action.action,
+                                    "params": action.params,
+                                },
+                                success=False,
+                                error=error,
+                                tokens_used=input_tokens + output_tokens,
+                                duration_ms=int(elapsed_ms),
+                                api_key=self._api_key,
+                            )
+                        except Exception:
+                            pass
 
                 # Add delay between steps to allow UI to settle
                 if self._step_delay > 0:
@@ -646,6 +741,20 @@ class AndroidPhoneRunner:
                 total_tokens = total_input_tokens + total_output_tokens
                 total_cost = _calculate_token_cost(total_input_tokens, total_output_tokens)
 
+                if audit_logger is not None:
+                    try:
+                        audit_logger.log_action(
+                            action="runner_exception",
+                            parameters={"task": task_prompt, "step": step_num},
+                            success=False,
+                            error=str(e),
+                            tokens_used=total_tokens,
+                            duration_ms=int(elapsed_ms),
+                            api_key=self._api_key,
+                        )
+                    except Exception:
+                        pass
+
                 return RunResult(
                     success=False,
                     final_action="error",
@@ -661,6 +770,19 @@ class AndroidPhoneRunner:
         logger.warning("Task did not complete within %d steps", effective_max_steps)
         total_tokens = total_input_tokens + total_output_tokens
         total_cost = _calculate_token_cost(total_input_tokens, total_output_tokens)
+
+        if audit_logger is not None:
+            try:
+                audit_logger.log_action(
+                    action="runner_max_steps",
+                    parameters={"task": task_prompt, "max_steps": effective_max_steps},
+                    success=False,
+                    error=f"Task did not complete within {effective_max_steps} steps",
+                    tokens_used=total_tokens,
+                    api_key=self._api_key,
+                )
+            except Exception:
+                pass
 
         return RunResult(
             success=False,

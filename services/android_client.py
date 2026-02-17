@@ -141,6 +141,9 @@ class AndroidClient:
 
         self._timeout = timeout
         self._connected = False
+        # Cache the screen size to avoid repeated `wm size` calls.
+        self._screen_size_cache: tuple[int, int] | None = None
+        self._screen_size_cache_time: float = 0.0
 
     @property
     def device_serial(self) -> str:
@@ -367,6 +370,40 @@ class AndroidClient:
         
         return info
 
+    async def get_screen_size(self, *, cache_ttl_seconds: int = 60) -> tuple[int, int] | None:
+        """
+        Get the device's physical screen size (width, height).
+
+        Used to make swipe/unlock gestures robust across devices (Fold, rotation, etc).
+        """
+        now = time.time()
+        if self._screen_size_cache and (now - self._screen_size_cache_time) < cache_ttl_seconds:
+            return self._screen_size_cache
+
+        result = await self._run_adb("shell", "wm", "size")
+        if not result.success:
+            return self._screen_size_cache
+
+        # Typical output:
+        #   Physical size: 1080x2400
+        #   Override size: 1080x2400
+        m = re.search(r"(?:Physical|Override)\s+size:\s*(\d+)\s*x\s*(\d+)", result.output)
+        if not m:
+            return self._screen_size_cache
+
+        try:
+            width = int(m.group(1))
+            height = int(m.group(2))
+        except (TypeError, ValueError):
+            return self._screen_size_cache
+
+        if width <= 0 or height <= 0:
+            return self._screen_size_cache
+
+        self._screen_size_cache = (width, height)
+        self._screen_size_cache_time = now
+        return self._screen_size_cache
+
     async def get_screen_xml(self) -> ADBResult:
         """
         Dump the UI accessibility tree as XML.
@@ -469,27 +506,63 @@ class AndroidClient:
         Returns:
             ADBResult indicating success
         """
-        # Screen center and swipe distances (assuming 1080x2400 screen)
-        # Adjust based on your device
-        cx, cy = 540, 1200
-        distance = 500
-        
-        coords = {
-            "up": (cx, cy + distance, cx, cy - distance),
-            "down": (cx, cy - distance, cx, cy + distance),
-            "left": (cx + distance, cy, cx - distance, cy),
-            "right": (cx - distance, cy, cx + distance, cy),
-        }
-        
-        if direction.lower() not in coords:
+        d = (direction or "").lower().strip()
+        if d not in ("up", "down", "left", "right"):
             return ADBResult(
                 success=False,
                 output="",
                 error=f"Invalid direction: {direction}. Use up/down/left/right.",
             )
-        
-        x1, y1, x2, y2 = coords[direction.lower()]
-        logger.info("Swiping %s", direction)
+
+        # Use dynamic device size when possible (Fold / rotation / DPI changes).
+        size = await self.get_screen_size()
+        if size:
+            width, height = size
+        else:
+            # Fallback: a common Android portrait size.
+            width, height = 1080, 2400
+
+        def _clamp(val: float, lo: int, hi: int) -> int:
+            return int(max(lo, min(hi, round(val))))
+
+        # Keep coordinates comfortably within the display to avoid nav bars/edges.
+        cx = width / 2
+        cy = height / 2
+        x_left = width * 0.2
+        x_right = width * 0.8
+        y_top = height * 0.25
+        y_bottom = height * 0.75
+
+        coords: dict[str, tuple[int, int, int, int]] = {
+            # "up" means swipe up (content scrolls down)
+            "up": (
+                _clamp(cx, 1, width - 2),
+                _clamp(y_bottom, 1, height - 2),
+                _clamp(cx, 1, width - 2),
+                _clamp(y_top, 1, height - 2),
+            ),
+            "down": (
+                _clamp(cx, 1, width - 2),
+                _clamp(y_top, 1, height - 2),
+                _clamp(cx, 1, width - 2),
+                _clamp(y_bottom, 1, height - 2),
+            ),
+            "left": (
+                _clamp(x_right, 1, width - 2),
+                _clamp(cy, 1, height - 2),
+                _clamp(x_left, 1, width - 2),
+                _clamp(cy, 1, height - 2),
+            ),
+            "right": (
+                _clamp(x_left, 1, width - 2),
+                _clamp(cy, 1, height - 2),
+                _clamp(x_right, 1, width - 2),
+                _clamp(cy, 1, height - 2),
+            ),
+        }
+
+        x1, y1, x2, y2 = coords[d]
+        logger.info("Swiping %s (%dx%d)", d, width, height)
         return await self._run_adb(
             "shell", "input", "swipe",
             str(x1), str(y1), str(x2), str(y2), str(duration_ms)
@@ -602,17 +675,31 @@ class AndroidClient:
         Returns:
             ADBResult indicating success
         """
-        # Check if screen is on
-        result = await self._run_adb(
-            "shell", "dumpsys", "power", "|", "grep", "'Display Power'"
-        )
-        
-        # Send power button if screen is off
-        if "OFF" in result.output.upper():
-            logger.info("Waking device")
-            return await self._run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
-        
-        return ADBResult(success=True, output="Screen already on")
+        # `KEYCODE_WAKEUP` is idempotent enough for our purposes, but we try to
+        # avoid spamming it by best-effort detection.
+        result = await self._run_adb("shell", "dumpsys", "power")
+        if result.success:
+            out = result.output
+            # Common patterns across Android versions:
+            # - "Display Power: state=ON|OFF"
+            # - "mWakefulness=Awake|Asleep"
+            is_off = False
+            if re.search(r"Display Power:\s*state=OFF", out, re.IGNORECASE):
+                is_off = True
+            if re.search(r"mWakefulness=\s*Asleep", out, re.IGNORECASE):
+                is_off = True
+            if re.search(r"\bstate=OFF\b", out, re.IGNORECASE) and "Display Power" in out:
+                is_off = True
+            if not is_off and re.search(r"Display Power:\s*state=ON", out, re.IGNORECASE):
+                return ADBResult(success=True, output="Screen already on")
+
+            if is_off:
+                logger.info("Waking device (screen appears OFF)")
+                return await self._run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+
+        # Fallback: still attempt to wake (safe even if already awake).
+        logger.info("Waking device (fallback)")
+        return await self._run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 
     async def unlock_device(self) -> ADBResult:
         """
@@ -732,12 +819,16 @@ class AndroidClient:
         elements = []
         
         # Simple regex-based parsing (avoids XML library overhead)
-        node_pattern = re.compile(r'<node\s+([^>]+)/>')
+        # uiautomator dumps usually use self-closing nodes, but some builds emit
+        # `<node ...></node>`; we only need the attributes from the opening tag.
+        node_pattern = re.compile(r"<node\s+([^>]+?)(?:/?>)")
         attr_pattern = re.compile(r'(\w+(?:-\w+)?)="([^"]*)"')
         bounds_pattern = re.compile(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]')
         
         for node_match in node_pattern.finditer(xml_content):
-            attrs_str = node_match.group(1)
+            attrs_str = (node_match.group(1) or "").strip()
+            if attrs_str.endswith("/"):
+                attrs_str = attrs_str[:-1].strip()
             attrs = dict(attr_pattern.findall(attrs_str))
             
             # Parse bounds

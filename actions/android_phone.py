@@ -11,10 +11,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import time
 from typing import Any
 
+from services.android_audit import get_android_audit_logger
 from services.android_client import get_android_client
+from services.android_thermostat import normalize_get_status, normalize_set_range
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +74,21 @@ async def get_screen_action(
     # Parse UI elements
     elements = client.parse_ui_elements(raw_xml)
 
+    # Best-effort: identify the dominant package on screen. Useful for debugging
+    # "wrong screen" / "app didn't launch" failures.
+    dominant_package = None
+    try:
+        pkg_counts: dict[str, int] = {}
+        for el in elements:
+            pkg = (el.package or "").strip()
+            if not pkg:
+                continue
+            pkg_counts[pkg] = pkg_counts.get(pkg, 0) + 1
+        if pkg_counts:
+            dominant_package = max(pkg_counts.items(), key=lambda kv: kv[1])[0]
+    except Exception:
+        dominant_package = None
+
     # Build clickable elements list with required fields
     clickable_elements = []
     for el in elements:
@@ -93,11 +111,26 @@ async def get_screen_action(
             }
             clickable_elements.append(element_info)
 
+    # Audit log (metadata only; screenshot/xml content is not persisted).
+    try:
+        get_android_audit_logger().log_action(
+            action="get_screen",
+            result={
+                "screenshot_base64": screenshot_base64,
+                "element_count": len(elements),
+            },
+            success=True,
+        )
+    except Exception:
+        # Never break the main functionality on audit failures.
+        pass
+
     return {
         "screenshot_base64": screenshot_base64,
         "xml": raw_xml,
         "clickable_elements": clickable_elements,
         "element_count": len(elements),
+        "dominant_package": dominant_package,
         "message": f"Screen captured with {len(clickable_elements)} interactive elements",
     }
 
@@ -328,6 +361,15 @@ async def android_phone_tap_action(
     if not result.success:
         raise ValueError(f"Tap failed: {result.error}")
 
+    try:
+        get_android_audit_logger().log_action(
+            action="tap",
+            parameters={"x": x, "y": y},
+            success=True,
+        )
+    except Exception:
+        pass
+
     return {
         "success": True,
         "action": "tap",
@@ -361,6 +403,15 @@ async def android_phone_type_action(
 
     if not result.success:
         raise ValueError(f"Type failed: {result.error}")
+
+    try:
+        get_android_audit_logger().log_action(
+            action="type",
+            parameters={"text": text[:200]},
+            success=True,
+        )
+    except Exception:
+        pass
 
     return {
         "success": True,
@@ -396,6 +447,15 @@ async def android_phone_swipe_action(
     if not result.success:
         raise ValueError(f"Swipe failed: {result.error}")
 
+    try:
+        get_android_audit_logger().log_action(
+            action="swipe",
+            parameters={"direction": direction},
+            success=True,
+        )
+    except Exception:
+        pass
+
     return {
         "success": True,
         "action": "swipe",
@@ -428,6 +488,15 @@ async def android_phone_key_action(
 
     if not result.success:
         raise ValueError(f"Key press failed: {result.error}")
+
+    try:
+        get_android_audit_logger().log_action(
+            action="press_key",
+            parameters={"key": key},
+            success=True,
+        )
+    except Exception:
+        pass
 
     return {
         "success": True,
@@ -464,6 +533,15 @@ async def android_phone_launch_action(
     if not result.success:
         raise ValueError(f"Failed to launch app: {result.error}")
 
+    try:
+        get_android_audit_logger().log_action(
+            action="launch_app",
+            parameters={"app": app},
+            success=True,
+        )
+    except Exception:
+        pass
+
     # Wait a moment for app to start
     await asyncio.sleep(1)
 
@@ -491,6 +569,17 @@ async def android_phone_wake_action(
 
     if not result.success:
         raise ValueError(f"Wake failed: {result.error}")
+
+    # Try to unlock as a convenience (swipe-only devices).
+    try:
+        await client.unlock_device()
+    except Exception:
+        pass
+
+    try:
+        get_android_audit_logger().log_action(action="wake_device", success=True)
+    except Exception:
+        pass
 
     return {
         "success": True,
@@ -651,6 +740,10 @@ async def thermostat_set_range_action(
     client = get_android_client()
     await client.connect()
     await client.wake_device()
+    try:
+        await client.unlock_device()
+    except Exception:
+        pass
     launch_result = await client.launch_app("com.google.android.apps.chromecast.app")
     if not launch_result.success:
         raise ValueError(f"Failed to launch Google Home: {launch_result.error}")
@@ -687,14 +780,27 @@ async def thermostat_set_range_action(
             "estimated_cost": result.total_cost,
         }
 
-    # Extract final temperatures from result
+    # Extract + normalize final temperatures from result
     extracted = result.extracted_data or {}
+    normalized = normalize_set_range(extracted)
+
+    # If we can't parse the final values, treat as failure (otherwise the user
+    # gets a "success" response with meaningless fields).
+    if normalized.get("final_low_temp") is None or normalized.get("final_high_temp") is None:
+        return {
+            "success": False,
+            "error": "Thermostat set completed but could not parse final temperatures from the screen.",
+            "steps_taken": result.steps_taken,
+            "tokens_used": result.total_tokens_used,
+            "estimated_cost": result.total_cost,
+            "debug": {"raw_extracted": extracted},
+        }
 
     return {
         "success": True,
-        "final_low_temp": extracted.get("final_low_temp", low_temp),
-        "final_high_temp": extracted.get("final_high_temp", high_temp),
-        "mode": extracted.get("mode", "heat_cool"),
+        "final_low_temp": normalized.get("final_low_temp", low_temp),
+        "final_high_temp": normalized.get("final_high_temp", high_temp),
+        "mode": normalized.get("mode") or "heat_cool",
         "steps_taken": result.steps_taken,
         "tokens_used": result.total_tokens_used,
         "estimated_cost": result.total_cost,
@@ -729,6 +835,10 @@ async def thermostat_get_status_action(
     client = get_android_client()
     await client.connect()
     await client.wake_device()
+    try:
+        await client.unlock_device()
+    except Exception:
+        pass
     launch_result = await client.launch_app("com.google.android.apps.chromecast.app")
     if not launch_result.success:
         raise ValueError(f"Failed to launch Google Home: {launch_result.error}")
@@ -764,15 +874,33 @@ async def thermostat_get_status_action(
 
     # Extract status from result
     extracted = result.extracted_data or {}
+    normalized = normalize_get_status(extracted)
+
+    # If we can't parse anything, surface an actionable error instead of a
+    # misleading "success" payload.
+    if (
+        normalized.get("current_temp") is None
+        and normalized.get("target_low") is None
+        and normalized.get("target_high") is None
+    ):
+        return {
+            "success": False,
+            "error": "Thermostat read completed but could not parse the numbers from the screen.",
+            "steps_taken": result.steps_taken,
+            "tokens_used": result.total_tokens_used,
+            "estimated_cost": result.total_cost,
+            "debug": {"raw_extracted": extracted},
+        }
 
     return {
         "success": True,
-        "current_temp": extracted.get("current_temp"),
-        "target_low": extracted.get("target_low"),
-        "target_high": extracted.get("target_high"),
-        "mode": extracted.get("mode"),
-        "humidity": extracted.get("humidity"),
-        "status": extracted.get("status"),
+        "current_temp": normalized.get("current_temp"),
+        "target_low": normalized.get("target_low"),
+        "target_high": normalized.get("target_high"),
+        "mode": normalized.get("mode"),
+        "humidity": normalized.get("humidity"),
+        "status": normalized.get("status"),
+        "device_name": normalized.get("device_name"),
         "steps_taken": result.steps_taken,
         "tokens_used": result.total_tokens_used,
         "estimated_cost": result.total_cost,
@@ -1096,6 +1224,12 @@ async def _execute_task_background(task_id: str, goal: str, app: str | None) -> 
         client = get_android_client()
         await client.connect()
         await client.wake_device()
+        # Unlock is required in practice for swipe-only lock screens (common on the
+        # automation phone). Don't fail the task if unlock is unnecessary.
+        try:
+            await client.unlock_device()
+        except Exception:
+            pass
 
         await storage.update_task(task_id, current_step="Device ready")
 
@@ -1160,7 +1294,27 @@ async def _execute_task_background(task_id: str, goal: str, app: str | None) -> 
                     "set range",
                 )
             )
-            if looks_like_thermostat and not looks_like_set_action:
+
+            # If the goal includes an explicit range, prefer setRange.
+            def _extract_range(text: str) -> tuple[int, int] | None:
+                # Matches "65-68", "65 to 68", "65–68"
+                m = re.search(r"\b(\d{2})\s*(?:-|–|to)\s*(\d{2})\b", text)
+                if not m:
+                    return None
+                try:
+                    a = int(m.group(1))
+                    b = int(m.group(2))
+                except (TypeError, ValueError):
+                    return None
+                return (a, b)
+
+            temp_range = _extract_range(goal_lower) if looks_like_thermostat else None
+            if looks_like_thermostat and looks_like_set_action and temp_range:
+                low, high = temp_range
+                task_prompt = "thermostat-setRange"
+                parameters = {"low_temp": low, "high_temp": high}
+            elif looks_like_thermostat:
+                # Default to getStatus for "settings"/"check"/"what's it set to" style intents.
                 task_prompt = "thermostat-getStatus"
                 parameters = {}
 
@@ -1173,13 +1327,55 @@ async def _execute_task_background(task_id: str, goal: str, app: str | None) -> 
         # Update with final result
         if result.success:
             extracted = result.extracted_data or {}
+            extracted_payload: dict[str, Any]
+
+            # Normalize thermostat results into canonical fields so downstream
+            # agents don't need to guess schema.
+            if task_prompt == "thermostat-getStatus":
+                norm = normalize_get_status(extracted)
+                # If the model "completed" without extracting anything useful,
+                # treat it as a failure so we can retry instead of replying with
+                # empty data.
+                if (
+                    norm.get("current_temp") is None
+                    and norm.get("target_low") is None
+                    and norm.get("target_high") is None
+                ):
+                    await storage.update_task(
+                        task_id,
+                        status="failed",
+                        error="Thermostat read completed but extracted data was empty/unparseable.",
+                        steps_taken=result.steps_taken,
+                        tokens_used=result.total_tokens_used,
+                        estimated_cost=result.total_cost,
+                        current_step=None,
+                    )
+                    return
+                extracted_payload = {k: v for k, v in norm.items() if k != "raw"}
+            elif task_prompt == "thermostat-setRange":
+                norm = normalize_set_range(extracted)
+                if norm.get("final_low_temp") is None or norm.get("final_high_temp") is None:
+                    await storage.update_task(
+                        task_id,
+                        status="failed",
+                        error="Thermostat set completed but extracted final temperatures were empty/unparseable.",
+                        steps_taken=result.steps_taken,
+                        tokens_used=result.total_tokens_used,
+                        estimated_cost=result.total_cost,
+                        current_step=None,
+                    )
+                    return
+                extracted_payload = {k: v for k, v in norm.items() if k != "raw"}
+            else:
+                extracted_payload = extracted
+
             await storage.update_task(
                 task_id,
                 status="completed",
                 result={
                     "success": True,
                     "result": extracted.get("result", "Task completed"),
-                    "extracted_data": extracted.get("extracted_data", extracted),
+                    "extracted_data": extracted_payload.get("extracted_data", extracted_payload),
                 },
                 steps_taken=result.steps_taken,
                 tokens_used=result.total_tokens_used,
