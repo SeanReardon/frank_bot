@@ -2211,6 +2211,92 @@
       "priority": 135,
       "passes": true,
       "notes": "No dependencies on other tasks. Single-file change (~20 lines) in web/src/components/system-status-card.ts. Uses Lit's 'nothing' import (should already be available). No new dependencies, no API changes, no structural changes."
+    },
+    {
+      "id": "frank_bot-00136",
+      "title": "Persist final screenshot from android task runs to disk",
+      "acceptanceCriteria": [
+        "In _execute_task_background() in services/android_phone_runner.py, after run completes, decode result.final_screenshot_base64 and write to ./data/screenshots/{task_id}.png",
+        "Create ./data/screenshots/ directory if it doesn't exist (os.makedirs with exist_ok=True)",
+        "Sanitize task_id before using in file path to prevent path traversal (reject or strip ../ and absolute paths)",
+        "Set file permissions to 0o600 on written screenshot files",
+        "Include 'final_screenshot_path' key in the result dict written to task storage",
+        "Handle None/missing final_screenshot_base64 gracefully (no file written, no path in result)",
+        "Do not log base64 screenshot data — log only metadata (file size, path)",
+        "Tests in tests/test_android_phone_actions.py verify screenshot file is written when final_screenshot_base64 is present",
+        "Tests verify final_screenshot_path is absent when final_screenshot_base64 is None",
+        "Tests use a mock 1x1 pixel PNG for final_screenshot_base64"
+      ],
+      "priority": 136,
+      "passes": false,
+      "notes": "Foundation task — frank_bot-00137, frank_bot-00138, and frank_bot-00139 all depend on this. Modifies services/android_phone_runner.py and tests/test_android_phone_actions.py."
+    },
+    {
+      "id": "frank_bot-00137",
+      "title": "Return final_screenshot_path in task_get_action response",
+      "acceptanceCriteria": [
+        "task_get_action() in actions/android_phone.py includes 'final_screenshot_path' in its response when present in task storage",
+        "Optionally support an 'include_screenshot_base64' parameter that reads the PNG from disk and returns inline base64",
+        "If the screenshot file does not exist on disk (deleted or missing), return final_screenshot_path as null rather than erroring",
+        "Tests verify task_get response includes final_screenshot_path when available",
+        "Tests verify graceful handling when screenshot file is missing from disk"
+      ],
+      "priority": 137,
+      "passes": false,
+      "notes": "Depends on frank_bot-00136 (screenshot must be persisted first). Modifies actions/android_phone.py and tests/test_android_phone_actions.py."
+    },
+    {
+      "id": "frank_bot-00138",
+      "title": "Add TelegramClient.send_photo() method and telegram_send_photo action",
+      "acceptanceCriteria": [
+        "New async method send_photo(recipient, photo_path, caption=None) added to services/telegram_client.py",
+        "send_photo uses Telethon's client.send_file(recipient, photo_path, caption=caption)",
+        "Error handling mirrors send_message() — handles FloodWaitError, UserNotMutualContactError, etc.",
+        "Returns TelegramMessageResult (or equivalent) consistent with send_message return type",
+        "Path validation: photo_path must be within allowed directories (./data/screenshots/, /tmp/android_screenshot_*) — reject paths outside allowlist",
+        "Path validation rejects traversal attacks like ../../etc/passwd",
+        "New telegram_send_photo_action(recipient, photo_path, caption) added to actions/telegram_bot.py",
+        "Tests mock client.send_file() and verify it is called with correct arguments",
+        "Tests verify FloodWaitError handling behavior",
+        "Tests verify caption passthrough",
+        "Tests verify path validation rejects disallowed paths"
+      ],
+      "priority": 138,
+      "passes": false,
+      "notes": "Independent of frank_bot-00136 (no dependency on screenshot persistence), but frank_bot-00139 depends on both this and frank_bot-00136. Modifies services/telegram_client.py, actions/telegram_bot.py, and adds tests."
+    },
+    {
+      "id": "frank_bot-00139",
+      "title": "Wire screenshot delivery into task completion pipeline",
+      "acceptanceCriteria": [
+        "task_do_action() accepts a new 'notify_screenshot' bool parameter (default False)",
+        "When notify_screenshot=True and a final screenshot exists, _execute_task_background() sends the screenshot to Sean via TelegramClient.send_photo() after persisting it",
+        "Caption includes the task description and completion status (success/failure)",
+        "When notify_screenshot=False (default), no photo is sent",
+        "Telegram recipient is restricted to Sean's username (allowlist check)",
+        "Integration test mocks both android runner and telegram client, verifies photo is sent when notify_screenshot=True",
+        "Integration test verifies photo is NOT sent when notify_screenshot=False"
+      ],
+      "priority": 139,
+      "passes": false,
+      "notes": "Depends on frank_bot-00136 (screenshot persistence) and frank_bot-00138 (send_photo capability). Modifies services/android_phone_runner.py and actions/android_phone.py."
+    },
+    {
+      "id": "frank_bot-00140",
+      "title": "Add per-step screenshot archival with TTL-based cleanup",
+      "acceptanceCriteria": [
+        "Intermediate StepResult screenshots are saved as ./data/screenshots/{task_id}_step_{n}.png during task execution",
+        "task_get_action() supports an 'include_steps' parameter that returns step screenshot paths when True",
+        "TTL-based cleanup deletes screenshot files older than 24 hours, following the pattern from android_audit.py 30-day log rotation",
+        "Cleanup runs periodically (e.g., on task completion or via a scheduled check)",
+        "Step screenshots use the same 0o600 file permissions and path sanitization as final screenshots",
+        "Tests verify step screenshots are written during multi-step runs",
+        "Tests verify TTL cleanup removes old files and preserves recent ones",
+        "Tests verify include_steps=True returns step screenshot paths in task_get response"
+      ],
+      "priority": 140,
+      "passes": false,
+      "notes": "Optional enhancement. Depends on frank_bot-00136 (screenshot persistence infrastructure). Modifies services/android_phone_runner.py, actions/android_phone.py, and tests."
     }
   ]
 }
