@@ -27,6 +27,55 @@ Each entry documents what was implemented and lessons learned.
 - app.py degraded mode: settings_degraded flag + fallback Settings when Vault unreachable
 - Docker healthcheck start_period=60s accommodates Vault retry delays
 - entrypoint.sh: ADB_TIMEOUT (10s) and VAULT_TIMEOUT (15s) env vars for bounding commands
+- Screenshot persistence: _persist_screenshot() writes to ./data/screenshots/{task_id}.png with 0o600 perms
+- TelegramClientService.send_photo() validates paths via _PHOTO_ALLOWED_PREFIXES (./data/screenshots/, /tmp/android_screenshot_*)
+- _execute_task_background lazy imports: patch at source module (services.android_task_storage, services.android_phone_runner), not at actions.android_phone
+- Sean's Telegram username is @SeanReardon (from services/telegram_allowlist.py)
+
+---
+
+## 2026-02-17: frank_bot-00136 - Persist final screenshot from android task runs to disk
+
+### Summary
+Added screenshot persistence in `_execute_task_background()`: after the runner completes, decode `result.final_screenshot_base64` and write to `./data/screenshots/{task_id}.png` with 0o600 permissions. Added `_sanitize_task_id()` for path traversal prevention and `_persist_screenshot()` helper. The `final_screenshot_path` key is included in the result dict stored in task storage.
+
+### Files Changed
+- actions/android_phone.py (added _sanitize_task_id, _persist_screenshot, SCREENSHOTS_DIR, modified _execute_task_background)
+- tests/test_android_phone_actions.py (added TestSanitizeTaskId, TestPersistScreenshot, TestExecuteTaskBackgroundScreenshot)
+
+---
+
+## 2026-02-17: frank_bot-00137 - Return final_screenshot_path in task_get_action response
+
+### Summary
+Modified `task_get_action()` to surface `final_screenshot_path` from the nested result dict to the top-level response. Added `include_screenshot_base64` parameter that reads the PNG from disk and returns inline base64. Returns `null` path when the file no longer exists on disk.
+
+### Files Changed
+- actions/android_phone.py (modified task_get_action)
+- tests/test_android_phone_actions.py (added TestTaskGetActionScreenshot)
+
+---
+
+## 2026-02-17: frank_bot-00138 - Add TelegramClient.send_photo() method and telegram_send_photo action
+
+### Summary
+Added `send_photo()` method to `TelegramClientService` using Telethon's `client.send_file()`. Includes path validation against an allowlist of directories (`./data/screenshots/`, `/tmp/android_screenshot_*`). Error handling mirrors `send_message()`. Added `telegram_send_photo_action()` in `actions/telegram_bot.py`.
+
+### Files Changed
+- services/telegram_client.py (added _validate_photo_path, send_photo, _PHOTO_ALLOWED_PREFIXES)
+- actions/telegram_bot.py (added telegram_send_photo_action)
+- tests/test_telegram_client_service.py (added TestSendPhoto)
+
+---
+
+## 2026-02-17: frank_bot-00139 - Wire screenshot delivery into task completion pipeline
+
+### Summary
+Added `notify_screenshot` parameter to `task_do_action()` (default False). When True and a final screenshot exists, `_execute_task_background()` sends it to Sean via `TelegramClientService.send_photo()` after persisting. Caption includes task description and completion status. Added `_send_screenshot_notification()` helper and `SCREENSHOT_NOTIFY_RECIPIENT` constant.
+
+### Files Changed
+- actions/android_phone.py (modified task_do_action, _execute_task_background, added _send_screenshot_notification, SCREENSHOT_NOTIFY_RECIPIENT)
+- tests/test_android_phone_actions.py (added TestScreenshotNotification)
 
 ---
 

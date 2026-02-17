@@ -156,8 +156,62 @@ async def send_telegram_bot_message(
     }
 
 
+async def telegram_send_photo_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Send a photo via the Telegram user account (Telethon).
+
+    Args (in arguments dict):
+        recipient: Username or phone number (required)
+        photo_path: Path to image file on disk (required, must be in allowed dirs)
+        caption: Optional caption for the photo
+
+    Returns:
+        dict with:
+            - success: bool
+            - message_id: int | None
+            - error: str | None
+    """
+    from services.telegram_client import TelegramClientService
+
+    args = arguments or {}
+
+    recipient = (args.get("recipient") or "").strip()
+    if not recipient:
+        raise ValueError("'recipient' is required")
+
+    photo_path = (args.get("photo_path") or "").strip()
+    if not photo_path:
+        raise ValueError("'photo_path' is required")
+
+    caption = args.get("caption")
+    if caption:
+        caption = str(caption).strip() or None
+
+    client_service = TelegramClientService()
+    result = await client_service.send_photo(
+        recipient=recipient,
+        photo_path=photo_path,
+        caption=caption,
+    )
+
+    if result.success:
+        return {
+            "success": True,
+            "message_id": result.message_id,
+        }
+
+    return {
+        "success": False,
+        "message_id": None,
+        "error": result.error,
+    }
+
+
 __all__ = [
     "get_telegram_bot_status",
     "test_telegram_bot",
     "send_telegram_bot_message",
+    "telegram_send_photo_action",
 ]

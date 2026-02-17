@@ -539,6 +539,143 @@ class TelegramClientService:
                 error=error_msg,
             )
 
+    # Allowed directories for send_photo path validation
+    _PHOTO_ALLOWED_PREFIXES: list[str] = [
+        os.path.abspath(os.path.join(".", "data", "screenshots")),
+        "/tmp/android_screenshot_",
+    ]
+
+    def _validate_photo_path(self, photo_path: str) -> str:
+        """Validate that photo_path is within allowed directories.
+
+        Returns the resolved absolute path, or raises ValueError if disallowed.
+        """
+        resolved = os.path.abspath(photo_path)
+        for prefix in self._PHOTO_ALLOWED_PREFIXES:
+            if resolved.startswith(prefix):
+                return resolved
+        raise ValueError(
+            f"Photo path not in allowed directories: {photo_path}"
+        )
+
+    async def send_photo(
+        self,
+        recipient: str,
+        photo_path: str,
+        caption: str | None = None,
+    ) -> TelegramMessageResult:
+        """
+        Send a photo file to a user/bot by username or phone number.
+
+        Args:
+            recipient: Username (with or without @) or phone number in E.164 format.
+            photo_path: Path to the image file on disk. Must be within allowed
+                directories (./data/screenshots/ or /tmp/android_screenshot_*).
+            caption: Optional caption to include with the photo.
+
+        Returns:
+            TelegramMessageResult with success status and message details.
+        """
+        if not self.is_configured:
+            return TelegramMessageResult(
+                success=False,
+                message_id=None,
+                recipient=recipient,
+                error="Telegram is not configured.",
+            )
+
+        # Path validation — reject anything outside the allowlist
+        try:
+            validated_path = self._validate_photo_path(photo_path)
+        except ValueError as exc:
+            return TelegramMessageResult(
+                success=False,
+                message_id=None,
+                recipient=recipient,
+                error=str(exc),
+            )
+
+        if not os.path.isfile(validated_path):
+            return TelegramMessageResult(
+                success=False,
+                message_id=None,
+                recipient=recipient,
+                error=f"Photo file not found: {photo_path}",
+            )
+
+        tg_stats = stats.get_service_stats("telegram")
+        start = time.time()
+
+        try:
+            client = await self._ensure_connected()
+            logger.info("Sending Telegram photo to %s: %s", recipient, photo_path)
+
+            message = await client.send_file(recipient, validated_path, caption=caption)
+            elapsed_ms = (time.time() - start) * 1000
+            tg_stats.record_request(elapsed_ms, success=True)
+
+            logger.info("Telegram photo sent successfully, id=%s", message.id)
+
+            return TelegramMessageResult(
+                success=True,
+                message_id=message.id,
+                recipient=recipient,
+            )
+
+        except FloodWaitError as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            error_msg = f"Rate limited. Please wait {exc.seconds} seconds."
+            tg_stats.record_request(elapsed_ms, success=False, error=error_msg)
+            stats.record_error(
+                "telegram",
+                error_msg,
+                {"method": "send_photo", "to": recipient},
+            )
+            logger.error("Telegram rate limit: %s", error_msg)
+
+            return TelegramMessageResult(
+                success=False,
+                message_id=None,
+                recipient=recipient,
+                error=error_msg,
+            )
+
+        except (UserNotMutualContactError, ValueError) as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            error_msg = f"Recipient not found or not accessible: {exc}"
+            tg_stats.record_request(elapsed_ms, success=False, error=error_msg)
+            stats.record_error(
+                "telegram",
+                error_msg,
+                {"method": "send_photo", "to": recipient},
+            )
+            logger.error("Telegram recipient error: %s", error_msg)
+
+            return TelegramMessageResult(
+                success=False,
+                message_id=None,
+                recipient=recipient,
+                error=error_msg,
+            )
+
+        except Exception as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            error_msg = str(exc)
+            tg_stats.record_request(elapsed_ms, success=False, error=error_msg)
+            stats.record_error(
+                "telegram",
+                error_msg,
+                {"method": "send_photo", "to": recipient},
+            )
+            logger.exception("Unexpected error sending Telegram photo to %s", recipient)
+
+            return TelegramMessageResult(
+                success=False,
+                message_id=None,
+                recipient=recipient,
+                error=error_msg,
+            )
+
     async def get_messages(
         self,
         chat_id: str | int,

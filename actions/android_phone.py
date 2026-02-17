@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
 import re
 import time
 from typing import Any
@@ -1205,7 +1206,91 @@ def _detect_app_from_goal(goal: str) -> str | None:
     return None
 
 
-async def _execute_task_background(task_id: str, goal: str, app: str | None) -> None:
+SCREENSHOTS_DIR = os.path.join(".", "data", "screenshots")
+
+
+def _sanitize_task_id(task_id: str) -> str | None:
+    """Sanitize task_id for safe use in file paths.
+
+    Returns the sanitized ID, or None if the ID is invalid (contains
+    path traversal or absolute path components).
+    """
+    if not task_id:
+        return None
+    # Reject absolute paths and traversal
+    if os.path.isabs(task_id) or ".." in task_id or "/" in task_id or "\\" in task_id:
+        return None
+    return task_id
+
+
+def _persist_screenshot(task_id: str, screenshot_base64: str) -> str | None:
+    """Decode and persist a base64 screenshot to disk.
+
+    Returns the file path on success, or None on failure.
+    Does not log the base64 data itself.
+    """
+    safe_id = _sanitize_task_id(task_id)
+    if safe_id is None:
+        logger.warning("Refusing to persist screenshot: invalid task_id")
+        return None
+
+    try:
+        png_bytes = base64.b64decode(screenshot_base64)
+    except Exception:
+        logger.warning("Failed to decode screenshot base64 for task %s", safe_id)
+        return None
+
+    os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+    file_path = os.path.join(SCREENSHOTS_DIR, f"{safe_id}.png")
+
+    try:
+        fd = os.open(file_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, png_bytes)
+        finally:
+            os.close(fd)
+        logger.info(
+            "Persisted screenshot for task %s: path=%s, size=%d bytes",
+            safe_id,
+            file_path,
+            len(png_bytes),
+        )
+        return file_path
+    except Exception:
+        logger.exception("Failed to write screenshot file for task %s", safe_id)
+        return None
+
+
+SCREENSHOT_NOTIFY_RECIPIENT = "@SeanReardon"
+
+
+async def _send_screenshot_notification(
+    screenshot_path: str, goal: str, success: bool,
+) -> None:
+    """Send the final screenshot to Sean via Telegram (best-effort)."""
+    from services.telegram_client import TelegramClientService
+
+    status_emoji = "Completed" if success else "Failed"
+    caption = f"Task {status_emoji}: {goal[:200]}"
+
+    try:
+        tg = TelegramClientService()
+        result = await tg.send_photo(
+            recipient=SCREENSHOT_NOTIFY_RECIPIENT,
+            photo_path=screenshot_path,
+            caption=caption,
+        )
+        if result.success:
+            logger.info("Screenshot notification sent to %s", SCREENSHOT_NOTIFY_RECIPIENT)
+        else:
+            logger.warning("Screenshot notification failed: %s", result.error)
+    except Exception:
+        logger.exception("Error sending screenshot notification")
+
+
+async def _execute_task_background(
+    task_id: str, goal: str, app: str | None, notify_screenshot: bool = False,
+) -> None:
     """Execute a task in the background. Updates task storage with progress."""
     from services.android_phone_runner import get_android_phone_runner
     from services.android_task_storage import get_android_task_storage
@@ -1324,6 +1409,11 @@ async def _execute_task_background(task_id: str, goal: str, app: str | None) -> 
             max_steps=25,
         )
 
+        # Persist final screenshot to disk if present
+        final_screenshot_path: str | None = None
+        if result.final_screenshot_base64:
+            final_screenshot_path = _persist_screenshot(task_id, result.final_screenshot_base64)
+
         # Update with final result
         if result.success:
             extracted = result.extracted_data or {}
@@ -1369,31 +1459,51 @@ async def _execute_task_background(task_id: str, goal: str, app: str | None) -> 
             else:
                 extracted_payload = extracted
 
+            result_dict: dict[str, Any] = {
+                "success": True,
+                "result": extracted.get("result", "Task completed"),
+                "extracted_data": extracted_payload.get("extracted_data", extracted_payload),
+            }
+            if final_screenshot_path:
+                result_dict["final_screenshot_path"] = final_screenshot_path
+
             await storage.update_task(
                 task_id,
                 status="completed",
-                result={
-                    "success": True,
-                    "result": extracted.get("result", "Task completed"),
-                    "extracted_data": extracted_payload.get("extracted_data", extracted_payload),
-                },
+                result=result_dict,
                 steps_taken=result.steps_taken,
                 tokens_used=result.total_tokens_used,
                 estimated_cost=result.total_cost,
                 current_step=None,
             )
             logger.info("Task %s: Completed successfully", task_id)
+
+            # Send screenshot notification if requested
+            if notify_screenshot and final_screenshot_path:
+                await _send_screenshot_notification(
+                    final_screenshot_path, goal, success=True,
+                )
         else:
+            fail_result: dict[str, Any] = {}
+            if final_screenshot_path:
+                fail_result["final_screenshot_path"] = final_screenshot_path
             await storage.update_task(
                 task_id,
                 status="failed",
                 error=result.error,
+                result=fail_result or None,
                 steps_taken=result.steps_taken,
                 tokens_used=result.total_tokens_used,
                 estimated_cost=result.total_cost,
                 current_step=None,
             )
             logger.info("Task %s: Failed - %s", task_id, result.error)
+
+            # Send screenshot notification on failure too if requested
+            if notify_screenshot and final_screenshot_path:
+                await _send_screenshot_notification(
+                    final_screenshot_path, goal, success=False,
+                )
 
     except asyncio.CancelledError:
         await storage.update_task(task_id, status="cancelled", error="Task was cancelled")
@@ -1444,6 +1554,7 @@ async def task_do_action(
         raise ValueError("'goal' is required - describe what you want to accomplish")
 
     app = args.get("app", "").strip().lower() if args.get("app") else None
+    notify_screenshot = str(args.get("notify_screenshot", "")).lower() in ("true", "1", "yes")
 
     # Auto-detect app from goal if not specified
     if not app:
@@ -1454,7 +1565,9 @@ async def task_do_action(
     task = await storage.create_task(goal=goal, app=app)
 
     # Start background execution
-    future = asyncio.create_task(_execute_task_background(task.id, goal, app))
+    future = asyncio.create_task(
+        _execute_task_background(task.id, goal, app, notify_screenshot=notify_screenshot)
+    )
     storage.register_future(task.id, future)
 
     logger.info("Created async task %s: %s (app=%s)", task.id, goal[:50], app or "auto")
@@ -1476,15 +1589,19 @@ async def task_get_action(
 
     Args:
         task_id: The task ID returned by androidPhoneTaskDo
+        include_screenshot_base64: If true, read the screenshot PNG from disk
+            and return it as inline base64 in the response
 
     Returns:
         Task details including status, progress, and results (if completed).
         Status values: pending, running, completed, failed, cancelled
+        Includes final_screenshot_path when a screenshot was persisted.
     """
     from services.android_task_storage import get_android_task_storage
 
     args = arguments or {}
     task_id = args.get("task_id", "").strip()
+    include_b64 = str(args.get("include_screenshot_base64", "")).lower() in ("true", "1", "yes")
 
     if not task_id:
         raise ValueError("'task_id' is required")
@@ -1495,7 +1612,27 @@ async def task_get_action(
     if not task:
         raise ValueError(f"Task '{task_id}' not found")
 
-    return task.to_dict()
+    response = task.to_dict()
+
+    # Surface final_screenshot_path from nested result dict to top level
+    screenshot_path: str | None = None
+    if task.result and isinstance(task.result, dict):
+        screenshot_path = task.result.get("final_screenshot_path")
+
+    if screenshot_path:
+        # Verify the file still exists on disk
+        if os.path.isfile(screenshot_path):
+            response["final_screenshot_path"] = screenshot_path
+            if include_b64:
+                try:
+                    with open(screenshot_path, "rb") as f:
+                        response["final_screenshot_base64"] = base64.b64encode(f.read()).decode("utf-8")
+                except Exception:
+                    logger.warning("Failed to read screenshot file: %s", screenshot_path)
+        else:
+            response["final_screenshot_path"] = None
+
+    return response
 
 
 async def task_list_action(

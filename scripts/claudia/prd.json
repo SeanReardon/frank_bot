@@ -2228,7 +2228,7 @@
         "Tests use a mock 1x1 pixel PNG for final_screenshot_base64"
       ],
       "priority": 136,
-      "passes": false,
+      "passes": true,
       "notes": "Foundation task — frank_bot-00137, frank_bot-00138, and frank_bot-00139 all depend on this. Modifies services/android_phone_runner.py and tests/test_android_phone_actions.py."
     },
     {
@@ -2242,7 +2242,7 @@
         "Tests verify graceful handling when screenshot file is missing from disk"
       ],
       "priority": 137,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00136 (screenshot must be persisted first). Modifies actions/android_phone.py and tests/test_android_phone_actions.py."
     },
     {
@@ -2262,7 +2262,7 @@
         "Tests verify path validation rejects disallowed paths"
       ],
       "priority": 138,
-      "passes": false,
+      "passes": true,
       "notes": "Independent of frank_bot-00136 (no dependency on screenshot persistence), but frank_bot-00139 depends on both this and frank_bot-00136. Modifies services/telegram_client.py, actions/telegram_bot.py, and adds tests."
     },
     {
@@ -2278,7 +2278,7 @@
         "Integration test verifies photo is NOT sent when notify_screenshot=False"
       ],
       "priority": 139,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on frank_bot-00136 (screenshot persistence) and frank_bot-00138 (send_photo capability). Modifies services/android_phone_runner.py and actions/android_phone.py."
     },
     {

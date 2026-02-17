@@ -6,7 +6,9 @@ phone automation.
 """
 
 import base64
+import os
 import sys
+import tempfile
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, mock_open
 
@@ -852,3 +854,394 @@ class TestThermostatGetStatusAction:
                 # Test with empty dict
                 result2 = await thermostat_get_status_action({})
                 assert result2["success"] is True
+
+
+# Minimal valid 1x1 transparent PNG for testing
+MOCK_1X1_PNG_B64 = base64.b64encode(
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02"
+    b"\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f"
+    b"\x00\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+).decode("utf-8")
+
+
+class TestSanitizeTaskId:
+    """Tests for _sanitize_task_id helper."""
+
+    def test_valid_task_id(self) -> None:
+        from actions.android_phone import _sanitize_task_id
+
+        assert _sanitize_task_id("abc123") == "abc123"
+
+    def test_rejects_empty(self) -> None:
+        from actions.android_phone import _sanitize_task_id
+
+        assert _sanitize_task_id("") is None
+
+    def test_rejects_traversal(self) -> None:
+        from actions.android_phone import _sanitize_task_id
+
+        assert _sanitize_task_id("../etc/passwd") is None
+        assert _sanitize_task_id("foo/../bar") is None
+
+    def test_rejects_absolute_path(self) -> None:
+        from actions.android_phone import _sanitize_task_id
+
+        assert _sanitize_task_id("/etc/passwd") is None
+
+    def test_rejects_slashes(self) -> None:
+        from actions.android_phone import _sanitize_task_id
+
+        assert _sanitize_task_id("foo/bar") is None
+        assert _sanitize_task_id("foo\\bar") is None
+
+
+class TestPersistScreenshot:
+    """Tests for _persist_screenshot helper."""
+
+    def test_writes_png_file_when_base64_present(self) -> None:
+        from actions.android_phone import _persist_screenshot
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("actions.android_phone.SCREENSHOTS_DIR", tmpdir):
+                path = _persist_screenshot("task123", MOCK_1X1_PNG_B64)
+
+                assert path is not None
+                assert path.endswith("task123.png")
+                assert os.path.isfile(path)
+                # Verify file permissions (owner read/write only)
+                mode = os.stat(path).st_mode & 0o777
+                assert mode == 0o600
+
+    def test_returns_none_when_base64_is_invalid(self) -> None:
+        from actions.android_phone import _persist_screenshot
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("actions.android_phone.SCREENSHOTS_DIR", tmpdir):
+                path = _persist_screenshot("task123", "not-valid-base64!!!")
+                assert path is None
+
+    def test_returns_none_for_traversal_task_id(self) -> None:
+        from actions.android_phone import _persist_screenshot
+
+        path = _persist_screenshot("../../etc/passwd", MOCK_1X1_PNG_B64)
+        assert path is None
+
+    def test_creates_directory_if_missing(self) -> None:
+        from actions.android_phone import _persist_screenshot
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nested = os.path.join(tmpdir, "sub", "screenshots")
+            with patch("actions.android_phone.SCREENSHOTS_DIR", nested):
+                path = _persist_screenshot("task456", MOCK_1X1_PNG_B64)
+                assert path is not None
+                assert os.path.isdir(nested)
+
+
+class TestExecuteTaskBackgroundScreenshot:
+    """Tests for screenshot persistence in _execute_task_background."""
+
+    @pytest.mark.asyncio
+    async def test_screenshot_persisted_when_present(self) -> None:
+        """Screenshot file is written and path included in result when base64 present."""
+        from services.android_phone_runner import RunResult
+        from services.android_client import ADBResult
+        from services.android_task_storage import AndroidTask, AndroidTaskStorage
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock(return_value=ADBResult(success=True, output="connected"))
+        mock_client.wake_device = AsyncMock(return_value=ADBResult(success=True, output="awake"))
+        mock_client.unlock_device = AsyncMock(return_value=ADBResult(success=True, output="unlocked"))
+
+        mock_runner = MagicMock()
+        mock_runner.is_configured = True
+        mock_runner.run_task = AsyncMock(return_value=RunResult(
+            success=True,
+            final_action="done",
+            steps_taken=2,
+            total_tokens_used=1000,
+            total_cost=0.02,
+            steps=[],
+            final_screenshot_base64=MOCK_1X1_PNG_B64,
+            extracted_data={"result": "done"},
+        ))
+
+        task = AndroidTask(id="t1", goal="test goal", status="pending")
+        mock_storage = MagicMock(spec=AndroidTaskStorage)
+        mock_storage.update_task = AsyncMock(return_value=task)
+        mock_storage.is_cancel_requested = MagicMock(return_value=False)
+        mock_storage.unregister_future = MagicMock()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("actions.android_phone.get_android_client", return_value=mock_client), \
+                 patch("services.android_task_storage.get_android_task_storage", return_value=mock_storage), \
+                 patch("services.android_phone_runner.get_android_phone_runner", return_value=mock_runner), \
+                 patch("actions.android_phone.SCREENSHOTS_DIR", tmpdir):
+
+                from actions.android_phone import _execute_task_background
+                await _execute_task_background("t1", "test goal", None)
+
+            # Check that update_task was called with result containing final_screenshot_path
+            final_call = None
+            for call in mock_storage.update_task.call_args_list:
+                kwargs = call.kwargs if call.kwargs else {}
+                if kwargs.get("status") == "completed":
+                    final_call = kwargs
+                    break
+
+            assert final_call is not None
+            assert "final_screenshot_path" in final_call["result"]
+            assert final_call["result"]["final_screenshot_path"].endswith("t1.png")
+
+    @pytest.mark.asyncio
+    async def test_no_screenshot_path_when_base64_none(self) -> None:
+        """No screenshot path in result when final_screenshot_base64 is None."""
+        from services.android_phone_runner import RunResult
+        from services.android_client import ADBResult
+        from services.android_task_storage import AndroidTask, AndroidTaskStorage
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock(return_value=ADBResult(success=True, output="connected"))
+        mock_client.wake_device = AsyncMock(return_value=ADBResult(success=True, output="awake"))
+        mock_client.unlock_device = AsyncMock(return_value=ADBResult(success=True, output="unlocked"))
+
+        mock_runner = MagicMock()
+        mock_runner.is_configured = True
+        mock_runner.run_task = AsyncMock(return_value=RunResult(
+            success=True,
+            final_action="done",
+            steps_taken=2,
+            total_tokens_used=1000,
+            total_cost=0.02,
+            steps=[],
+            final_screenshot_base64=None,  # No screenshot
+            extracted_data={"result": "done"},
+        ))
+
+        task = AndroidTask(id="t2", goal="test goal", status="pending")
+        mock_storage = MagicMock(spec=AndroidTaskStorage)
+        mock_storage.update_task = AsyncMock(return_value=task)
+        mock_storage.is_cancel_requested = MagicMock(return_value=False)
+        mock_storage.unregister_future = MagicMock()
+
+        with patch("actions.android_phone.get_android_client", return_value=mock_client), \
+             patch("services.android_task_storage.get_android_task_storage", return_value=mock_storage), \
+             patch("services.android_phone_runner.get_android_phone_runner", return_value=mock_runner):
+
+            from actions.android_phone import _execute_task_background
+            await _execute_task_background("t2", "test goal", None)
+
+        # Check that result does NOT contain final_screenshot_path
+        final_call = None
+        for call in mock_storage.update_task.call_args_list:
+            kwargs = call.kwargs if call.kwargs else {}
+            if kwargs.get("status") == "completed":
+                final_call = kwargs
+                break
+
+        assert final_call is not None
+        assert "final_screenshot_path" not in final_call["result"]
+
+
+class TestTaskGetActionScreenshot:
+    """Tests for final_screenshot_path in task_get_action response."""
+
+    @pytest.mark.asyncio
+    async def test_includes_screenshot_path_when_available(self) -> None:
+        """task_get response includes final_screenshot_path when present in result."""
+        from services.android_task_storage import AndroidTask, AndroidTaskStorage
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            f.write(base64.b64decode(MOCK_1X1_PNG_B64))
+            screenshot_file = f.name
+
+        try:
+            task = AndroidTask(
+                id="t3",
+                goal="test goal",
+                status="completed",
+                result={
+                    "success": True,
+                    "result": "done",
+                    "extracted_data": {},
+                    "final_screenshot_path": screenshot_file,
+                },
+            )
+            mock_storage = MagicMock(spec=AndroidTaskStorage)
+            mock_storage.get_task = AsyncMock(return_value=task)
+
+            with patch("services.android_task_storage.get_android_task_storage", return_value=mock_storage):
+                from actions.android_phone import task_get_action
+
+                result = await task_get_action({"task_id": "t3"})
+
+            assert result["final_screenshot_path"] == screenshot_file
+            assert "final_screenshot_base64" not in result  # not requested
+        finally:
+            os.unlink(screenshot_file)
+
+    @pytest.mark.asyncio
+    async def test_includes_base64_when_requested(self) -> None:
+        """task_get response includes base64 when include_screenshot_base64=true."""
+        from services.android_task_storage import AndroidTask, AndroidTaskStorage
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            png_bytes = base64.b64decode(MOCK_1X1_PNG_B64)
+            f.write(png_bytes)
+            screenshot_file = f.name
+
+        try:
+            task = AndroidTask(
+                id="t4",
+                goal="test goal",
+                status="completed",
+                result={
+                    "success": True,
+                    "result": "done",
+                    "extracted_data": {},
+                    "final_screenshot_path": screenshot_file,
+                },
+            )
+            mock_storage = MagicMock(spec=AndroidTaskStorage)
+            mock_storage.get_task = AsyncMock(return_value=task)
+
+            with patch("services.android_task_storage.get_android_task_storage", return_value=mock_storage):
+                from actions.android_phone import task_get_action
+
+                result = await task_get_action({
+                    "task_id": "t4",
+                    "include_screenshot_base64": "true",
+                })
+
+            assert result["final_screenshot_path"] == screenshot_file
+            assert result["final_screenshot_base64"] == MOCK_1X1_PNG_B64
+        finally:
+            os.unlink(screenshot_file)
+
+    @pytest.mark.asyncio
+    async def test_returns_null_path_when_file_missing(self) -> None:
+        """task_get returns null screenshot path when file deleted from disk."""
+        from services.android_task_storage import AndroidTask, AndroidTaskStorage
+
+        task = AndroidTask(
+            id="t5",
+            goal="test goal",
+            status="completed",
+            result={
+                "success": True,
+                "result": "done",
+                "extracted_data": {},
+                "final_screenshot_path": "/tmp/nonexistent_screenshot.png",
+            },
+        )
+        mock_storage = MagicMock(spec=AndroidTaskStorage)
+        mock_storage.get_task = AsyncMock(return_value=task)
+
+        with patch("services.android_task_storage.get_android_task_storage", return_value=mock_storage):
+            from actions.android_phone import task_get_action
+
+            result = await task_get_action({"task_id": "t5"})
+
+        assert result["final_screenshot_path"] is None
+
+
+class TestScreenshotNotification:
+    """Tests for screenshot delivery via Telegram (task 00139)."""
+
+    @pytest.mark.asyncio
+    async def test_sends_photo_when_notify_screenshot_true(self) -> None:
+        """When notify_screenshot=True and screenshot exists, send_photo is called."""
+        from services.android_phone_runner import RunResult
+        from services.android_client import ADBResult
+        from services.android_task_storage import AndroidTask, AndroidTaskStorage
+        from services.telegram_client import TelegramMessageResult
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock(return_value=ADBResult(success=True, output="connected"))
+        mock_client.wake_device = AsyncMock(return_value=ADBResult(success=True, output="awake"))
+        mock_client.unlock_device = AsyncMock(return_value=ADBResult(success=True, output="unlocked"))
+
+        mock_runner = MagicMock()
+        mock_runner.is_configured = True
+        mock_runner.run_task = AsyncMock(return_value=RunResult(
+            success=True,
+            final_action="done",
+            steps_taken=2,
+            total_tokens_used=1000,
+            total_cost=0.02,
+            steps=[],
+            final_screenshot_base64=MOCK_1X1_PNG_B64,
+            extracted_data={"result": "done"},
+        ))
+
+        task = AndroidTask(id="tn1", goal="test goal", status="pending")
+        mock_storage = MagicMock(spec=AndroidTaskStorage)
+        mock_storage.update_task = AsyncMock(return_value=task)
+        mock_storage.is_cancel_requested = MagicMock(return_value=False)
+        mock_storage.unregister_future = MagicMock()
+
+        mock_tg_service = MagicMock()
+        mock_tg_service.send_photo = AsyncMock(return_value=TelegramMessageResult(
+            success=True, message_id=99, recipient="@SeanReardon",
+        ))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("actions.android_phone.get_android_client", return_value=mock_client), \
+                 patch("services.android_task_storage.get_android_task_storage", return_value=mock_storage), \
+                 patch("services.android_phone_runner.get_android_phone_runner", return_value=mock_runner), \
+                 patch("actions.android_phone.SCREENSHOTS_DIR", tmpdir), \
+                 patch("services.telegram_client.TelegramClientService", return_value=mock_tg_service):
+
+                from actions.android_phone import _execute_task_background
+                await _execute_task_background("tn1", "test goal", None, notify_screenshot=True)
+
+            mock_tg_service.send_photo.assert_called_once()
+            call_kwargs = mock_tg_service.send_photo.call_args
+            assert call_kwargs.kwargs["recipient"] == "@SeanReardon"
+            assert "test goal" in call_kwargs.kwargs["caption"]
+
+    @pytest.mark.asyncio
+    async def test_no_photo_sent_when_notify_screenshot_false(self) -> None:
+        """When notify_screenshot=False (default), no photo is sent."""
+        from services.android_phone_runner import RunResult
+        from services.android_client import ADBResult
+        from services.android_task_storage import AndroidTask, AndroidTaskStorage
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock(return_value=ADBResult(success=True, output="connected"))
+        mock_client.wake_device = AsyncMock(return_value=ADBResult(success=True, output="awake"))
+        mock_client.unlock_device = AsyncMock(return_value=ADBResult(success=True, output="unlocked"))
+
+        mock_runner = MagicMock()
+        mock_runner.is_configured = True
+        mock_runner.run_task = AsyncMock(return_value=RunResult(
+            success=True,
+            final_action="done",
+            steps_taken=2,
+            total_tokens_used=1000,
+            total_cost=0.02,
+            steps=[],
+            final_screenshot_base64=MOCK_1X1_PNG_B64,
+            extracted_data={"result": "done"},
+        ))
+
+        task = AndroidTask(id="tn2", goal="test goal", status="pending")
+        mock_storage = MagicMock(spec=AndroidTaskStorage)
+        mock_storage.update_task = AsyncMock(return_value=task)
+        mock_storage.is_cancel_requested = MagicMock(return_value=False)
+        mock_storage.unregister_future = MagicMock()
+
+        mock_tg_service = MagicMock()
+        mock_tg_service.send_photo = AsyncMock()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("actions.android_phone.get_android_client", return_value=mock_client), \
+                 patch("services.android_task_storage.get_android_task_storage", return_value=mock_storage), \
+                 patch("services.android_phone_runner.get_android_phone_runner", return_value=mock_runner), \
+                 patch("actions.android_phone.SCREENSHOTS_DIR", tmpdir), \
+                 patch("services.telegram_client.TelegramClientService", return_value=mock_tg_service):
+
+                from actions.android_phone import _execute_task_background
+                await _execute_task_background("tn2", "test goal", None, notify_screenshot=False)
+
+            mock_tg_service.send_photo.assert_not_called()

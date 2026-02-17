@@ -12,8 +12,19 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
+import base64
+import tempfile
+
 from services.telegram_client import _get_session_path, TelegramClientService, TelegramMessage
 from telethon.tl.types import User
+
+# Minimal 1x1 PNG for test fixtures
+_MOCK_PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02"
+    b"\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f"
+    b"\x00\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 
 class TestGetSessionPath:
@@ -271,3 +282,139 @@ class TestGetAllMessages:
         assert m.is_outgoing is True
         assert m.is_contact is True
         assert m.is_mutual_contact is True
+
+
+class TestSendPhoto:
+    """Tests for TelegramClientService.send_photo()."""
+
+    @pytest.fixture
+    def mock_settings(self) -> MagicMock:
+        settings = MagicMock()
+        settings.telegram_api_id = 12345
+        settings.telegram_api_hash = "test_hash"
+        settings.telegram_phone = "+15551234567"
+        settings.telegram_session_name = "frank_bot"
+        return settings
+
+    @pytest.mark.asyncio
+    async def test_send_photo_calls_send_file(self, mock_settings: MagicMock) -> None:
+        """send_photo calls client.send_file with correct arguments."""
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False, dir="/tmp") as f:
+            f.write(_MOCK_PNG_BYTES)
+            photo_file = f.name
+
+        try:
+            mock_message = MagicMock()
+            mock_message.id = 42
+
+            mock_client = AsyncMock()
+            mock_client.send_file = AsyncMock(return_value=mock_message)
+
+            with patch("services.telegram_client.get_settings", return_value=mock_settings):
+                service = TelegramClientService()
+                # Override allowed prefixes for test
+                service._PHOTO_ALLOWED_PREFIXES = ["/tmp/"]
+
+                with patch.object(service, "_ensure_connected", return_value=mock_client):
+                    result = await service.send_photo(
+                        recipient="@sean",
+                        photo_path=photo_file,
+                        caption="Test caption",
+                    )
+
+            assert result.success is True
+            assert result.message_id == 42
+            mock_client.send_file.assert_called_once()
+            call_kwargs = mock_client.send_file.call_args
+            assert call_kwargs[0][0] == "@sean"
+            assert call_kwargs[1]["caption"] == "Test caption"
+        finally:
+            os.unlink(photo_file)
+
+    @pytest.mark.asyncio
+    async def test_send_photo_flood_wait_handling(self, mock_settings: MagicMock) -> None:
+        """send_photo handles FloodWaitError gracefully."""
+        from telethon.errors import FloodWaitError
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False, dir="/tmp") as f:
+            f.write(_MOCK_PNG_BYTES)
+            photo_file = f.name
+
+        try:
+            mock_client = AsyncMock()
+            exc = FloodWaitError("flood wait")
+            exc.seconds = 30
+            mock_client.send_file = AsyncMock(side_effect=exc)
+
+            with patch("services.telegram_client.get_settings", return_value=mock_settings):
+                service = TelegramClientService()
+                service._PHOTO_ALLOWED_PREFIXES = ["/tmp/"]
+
+                with patch.object(service, "_ensure_connected", return_value=mock_client):
+                    result = await service.send_photo(
+                        recipient="@sean",
+                        photo_path=photo_file,
+                    )
+
+            assert result.success is False
+            assert "Rate limited" in result.error
+        finally:
+            os.unlink(photo_file)
+
+    @pytest.mark.asyncio
+    async def test_send_photo_caption_passthrough(self, mock_settings: MagicMock) -> None:
+        """Caption is passed through to send_file."""
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False, dir="/tmp") as f:
+            f.write(_MOCK_PNG_BYTES)
+            photo_file = f.name
+
+        try:
+            mock_message = MagicMock()
+            mock_message.id = 99
+            mock_client = AsyncMock()
+            mock_client.send_file = AsyncMock(return_value=mock_message)
+
+            with patch("services.telegram_client.get_settings", return_value=mock_settings):
+                service = TelegramClientService()
+                service._PHOTO_ALLOWED_PREFIXES = ["/tmp/"]
+
+                with patch.object(service, "_ensure_connected", return_value=mock_client):
+                    result = await service.send_photo(
+                        recipient="@sean",
+                        photo_path=photo_file,
+                        caption="My caption here",
+                    )
+
+            assert result.success is True
+            call_kwargs = mock_client.send_file.call_args
+            assert call_kwargs[1]["caption"] == "My caption here"
+        finally:
+            os.unlink(photo_file)
+
+    @pytest.mark.asyncio
+    async def test_send_photo_rejects_disallowed_paths(self, mock_settings: MagicMock) -> None:
+        """send_photo rejects paths outside the allowlist."""
+        with patch("services.telegram_client.get_settings", return_value=mock_settings):
+            service = TelegramClientService()
+
+            result = await service.send_photo(
+                recipient="@sean",
+                photo_path="/etc/passwd",
+            )
+
+        assert result.success is False
+        assert "not in allowed directories" in result.error
+
+    @pytest.mark.asyncio
+    async def test_send_photo_rejects_traversal(self, mock_settings: MagicMock) -> None:
+        """send_photo rejects path traversal attacks."""
+        with patch("services.telegram_client.get_settings", return_value=mock_settings):
+            service = TelegramClientService()
+
+            result = await service.send_photo(
+                recipient="@sean",
+                photo_path="./data/screenshots/../../etc/passwd",
+            )
+
+        assert result.success is False
+        assert "not in allowed directories" in result.error
