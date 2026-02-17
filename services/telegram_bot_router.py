@@ -107,6 +107,11 @@ async def _send_android_screen_via_bot(chat_id: str) -> bool:
         )
         try:
             await client.wake_device()
+            # Best-effort: only works when keyguard isn't PIN/pattern protected.
+            try:
+                await client._run_adb("shell", "wm", "dismiss-keyguard")
+            except Exception:
+                pass
             await client.unlock_device()
             await client.press_key("home")
             await asyncio.sleep(0.6)
@@ -129,10 +134,25 @@ async def _send_android_screen_via_bot(chat_id: str) -> bool:
 
     # If still tiny, it's probably an "empty" capture (screen off / secure app).
     if 0 < _file_size(path) < 50_000:
+        lock_hint = ""
+        try:
+            win = await client._run_adb("shell", "dumpsys", "window")
+            if win.success:
+                out = win.output or ""
+                if re.search(r"mDreamingLockscreen\\s*=\\s*true", out):
+                    lock_hint = " Phone appears to be on the lockscreen/ambient display."
+                elif re.search(r"mShowingLockscreen\\s*=\\s*true", out):
+                    lock_hint = " Phone appears to be locked."
+                elif re.search(r"isStatusBarKeyguard\\s*=\\s*true", out):
+                    lock_hint = " Keyguard appears active."
+        except Exception:
+            lock_hint = ""
+
         await bot.send_notification(
             "Screenshot captured but looks blank (black). This usually means the "
-            "screen is off/locked, or the foreground app blocks screenshots. "
-            "Try unlocking the phone or switching to the home screen, then retry /screen.",
+            f"screen is off/locked, or the foreground app blocks screenshots.{lock_hint} "
+            "If the device has a PIN/pattern, frank_bot cannot unlock it—please unlock it "
+            "manually once, then retry /screen.",
             parse_mode=None,
             chat_id=chat_id,
         )
