@@ -927,7 +927,17 @@ class AgentRunner:
             except SyntaxError:
                 # Fall back to exec for multi-line scripts
                 exec(script_str, namespace)
-                return namespace.get("result")
+                # Convention: scripts should assign their final payload to `result`.
+                #
+                # In practice, models often use `res = {...}` (or `out`/`output`).
+                # Returning a best-effort fallback here avoids "successful-but-None"
+                # loops where the agent keeps retrying because it can't see output.
+                if "result" in namespace:
+                    return namespace.get("result")
+                for key in ("res", "out", "output", "data"):
+                    if key in namespace:
+                        return namespace.get(key)
+                return None
 
         try:
             try:
@@ -1098,8 +1108,15 @@ class AgentRunner:
                     success=True,
                     message_sent=message_sent,
                 )
-            # Check rate limit before each LLM invocation
-            rate_limit_msg = self._check_iteration_rate_limit(jorb_id)
+            # Check rate limit before each LLM invocation.
+            #
+            # Important nuance: this limiter is intended to stop unattended background
+            # loops (scheduled wakes, async polling, etc). When we are actively handling
+            # a fresh inbound human message, we already have a tighter per-run safety
+            # stop (`max_steps_this_run`). Applying the global limiter during that same
+            # interactive turn can yield confusing UX (the user just spoke, but we still
+            # demand "RESET RESTRICTION"), and can block legitimate multi-step tool use.
+            rate_limit_msg = None if started_with_event else self._check_iteration_rate_limit(jorb_id)
             if rate_limit_msg:
                 logger.warning("Rate limit hit for jorb %s: %s", jorb_id, rate_limit_msg)
                 self._record_policy_violation(
@@ -1366,6 +1383,7 @@ class AgentRunner:
                 # (e.g. `frank.android.task_do(...)`). Detect common shapes and
                 # convert them into proper wake/awaiting state so the worker loop
                 # can poll efficiently without burning LLM iterations.
+                scheduled_android_wake = False
                 try:
                     rv = script_result.get("result")
                     if isinstance(rv, dict):
@@ -1399,6 +1417,7 @@ class AgentRunner:
                                 awaiting=f"android_task:{task_id}",
                                 wake_at=wake_at_iso,
                             )
+                            scheduled_android_wake = True
                         else:
                             # Shape B: task_get result (AndroidTask.to_dict)
                             polled_id = str(rv.get("id") or "").strip()
@@ -1420,17 +1439,32 @@ class AgentRunner:
                                         awaiting=f"android_task:{polled_id}",
                                         wake_at=wake_at_iso,
                                     )
+                                    scheduled_android_wake = True
                                 elif polled_status:
-                                    next_wake = (
-                                        datetime.now(timezone.utc) + timedelta(seconds=1)
-                                    ).isoformat()
+                                    # Terminal task state: do not schedule an immediate
+                                    # wake. The current run already has the terminal
+                                    # result in `script_results`, and the agent should
+                                    # respond to the human (or await a new message).
                                     await self.update_jorb_status(
                                         jorb_id=jorb_id,
                                         awaiting=None,
-                                        wake_at=next_wake,
+                                        wake_at=None,
                                     )
                 except Exception:
                     logger.exception("Failed to infer task state from RUN_SCRIPT result for jorb %s", jorb_id)
+
+                # If the agent started/polled an Android task via RUN_SCRIPT and we
+                # scheduled a future wake, return immediately so we don't keep invoking
+                # the LLM in the same turn. This is the common runaway pattern:
+                # RUN_SCRIPT(android.task_get) → status=running → LLM again → RUN_SCRIPT(...)
+                # which burns iterations and can trip restriction limits.
+                if scheduled_android_wake:
+                    return ProcessingResult(
+                        jorb_id=jorb_id,
+                        action_taken="run_script_android_task_scheduled",
+                        success=True,
+                        message_sent=message_sent,
+                    )
 
                 # Legacy async semantics: await_reply=true means wait for human.
                 if action.await_reply:

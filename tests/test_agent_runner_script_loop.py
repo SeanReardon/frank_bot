@@ -235,6 +235,32 @@ class TestExecuteScript:
         assert result["success"] is True
         assert result["result"] == {"got_time": True}
 
+    @pytest.mark.asyncio
+    async def test_execute_script_multiline_res_fallback(self, runner, storage, sample_jorb):
+        """
+        Multi-line scripts that populate `res` (common model habit) still return
+        a value, so we don't get stuck re-running scripts that "succeed" but
+        produce None.
+        """
+        await storage.create_jorb(
+            name=sample_jorb.name,
+            plan=sample_jorb.original_plan,
+        )
+        jorbs = await storage.list_jorbs()
+        jorb = jorbs[0]
+
+        mock_api = MagicMock()
+        mock_api.time.now.return_value = {"time": "12:00"}
+
+        script = "t = frank.time.now()\nres = {'got_time': True, 't': t}"
+
+        with patch("meta.api.FrankAPI", return_value=mock_api):
+            result = await runner._execute_script(jorb, script)
+
+        assert result["success"] is True
+        assert isinstance(result["result"], dict)
+        assert result["result"].get("got_time") is True
+
     def test_script_timeout_constant(self):
         """SCRIPT_EXECUTION_TIMEOUT default is 300."""
         assert SCRIPT_EXECUTION_TIMEOUT == 300
