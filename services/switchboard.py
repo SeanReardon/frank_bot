@@ -27,6 +27,13 @@ logger = logging.getLogger(__name__)
 _JORB_ID_PATTERN = re.compile(r"\bjorb_[0-9a-f]{8}\b", re.IGNORECASE)
 _THREAD_NUM_PATTERN = re.compile(r"\bthread\s*(\d{1,3})\b", re.IGNORECASE)
 
+# Control-plane directive: explicitly request a brand new jorb/thread.
+_START_NEW_JORB_RE = re.compile(
+    r"^\s*(?:can\s+we\s+|can\s+you\s+|please\s+)?(?:start|create|make)\s+(?:a\s+)?new\s+jorb\b",
+    re.IGNORECASE,
+)
+_NEW_JORB_PREFIX_RE = re.compile(r"^\s*new\s+jorb\s*[:\\-]\s*", re.IGNORECASE)
+
 # The model used for switchboard routing (can be lighter/faster than main model)
 SWITCHBOARD_MODEL = os.getenv("SWITCHBOARD_MODEL", "gpt-5.2")
 
@@ -260,6 +267,19 @@ class Switchboard:
                 jorb_id=thread_match,
                 confidence="high",
                 reasoning="Message referenced a thread number that matches exactly one open jorb name",
+                tokens_used=0,
+                is_human_intervention=is_human_intervention,
+            )
+
+        # If the user explicitly asks to start a new jorb, do NOT fast-route by
+        # conversation/contact. Let the main pipeline create a new jorb (or the
+        # switchboard LLM decide) rather than forcing continuity.
+        if _START_NEW_JORB_RE.match(content or "") or _NEW_JORB_PREFIX_RE.match(content or ""):
+            return RoutingDecision(
+                jorb_id=None,
+                confidence="high",
+                reasoning="Explicit request to start a new jorb",
+                might_be_new_jorb=True,
                 tokens_used=0,
                 is_human_intervention=is_human_intervention,
             )

@@ -55,10 +55,10 @@ def _parse_contacts(contacts_arg: Any) -> list[JorbContact]:
             raise ValueError(f"contact[{i}] missing 'identifier' field")
         if "channel" not in c:
             raise ValueError(f"contact[{i}] missing 'channel' field")
-        if c["channel"] not in ("sms", "telegram", "email"):
+        if c["channel"] not in ("sms", "telegram", "telegram_bot", "email"):
             raise ValueError(f"contact[{i}] has invalid channel: {c['channel']}")
 
-        if c["channel"] == "telegram":
+        if c["channel"] in ("telegram", "telegram_bot"):
             from services.telegram_allowlist import is_allowed_username
 
             if not is_allowed_username(c["identifier"]):
@@ -99,6 +99,8 @@ async def create_jorb_action(
     name = (args.get("name") or "").strip()
     plan = (args.get("plan") or "").strip()
     contacts_arg = args.get("contacts")
+    metadata_arg = args.get("metadata")
+    metadata_json_arg = args.get("metadata_json")
     personality = (args.get("personality") or "default").strip().lower()
     start_immediately = args.get("start_immediately", True)
 
@@ -125,6 +127,23 @@ async def create_jorb_action(
     # Parse contacts
     contacts = _parse_contacts(contacts_arg)
 
+    # Optional metadata blob (routing/transports). Accept dict or JSON string.
+    metadata: dict[str, Any] | None = None
+    if metadata_arg is not None:
+        if not isinstance(metadata_arg, dict):
+            raise ValueError("metadata must be an object")
+        metadata = metadata_arg
+    elif metadata_json_arg is not None:
+        if not isinstance(metadata_json_arg, str):
+            raise ValueError("metadata_json must be a JSON string")
+        try:
+            parsed = json.loads(metadata_json_arg)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"metadata_json must be valid JSON: {e}")
+        if parsed is not None and not isinstance(parsed, dict):
+            raise ValueError("metadata_json must decode to an object")
+        metadata = parsed or {}
+
     # Create the jorb
     storage = JorbStorage()
     jorb = await storage.create_jorb(
@@ -133,6 +152,14 @@ async def create_jorb_action(
         contacts=contacts,
         personality=personality,
     )
+
+    if metadata:
+        # Best-effort: persist metadata for routing (e.g. telegram_bot_chat_id).
+        try:
+            await storage.update_jorb(jorb.id, metadata_json=json.dumps(metadata))
+            jorb = await storage.get_jorb(jorb.id) or jorb
+        except Exception:
+            logger.exception("Failed to persist metadata_json for new jorb %s", jorb.id)
 
     logger.info("Created jorb %s: %s", jorb.id, jorb.name)
 

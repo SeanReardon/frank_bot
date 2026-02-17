@@ -88,6 +88,30 @@ class TestCreateJorbAction:
         assert result["contacts"][1]["identifier"] == "+15551234567"
         assert result["contacts"][1]["channel"] == "sms"
 
+    async def test_create_with_telegram_bot_contact_and_metadata(self, mock_storage):
+        """telegram_bot contacts are allowed (control-plane) and metadata can be persisted."""
+        contacts = [
+            {"identifier": "@SeanReardon", "channel": "telegram_bot", "name": "Sean"},
+        ]
+        meta = {"source": "telegram_bot", "telegram_bot_chat_id": "12345", "preferred_transport": "telegram_bot"}
+
+        result = await create_jorb_action({
+            "name": "Bot Task",
+            "plan": "Do the bot thing",
+            "contacts": contacts,
+            "metadata": meta,
+            "start_immediately": False,
+        })
+
+        assert result["jorb_id"].startswith("jorb_")
+        assert len(result["contacts"]) == 1
+        assert result["contacts"][0]["channel"] == "telegram_bot"
+
+        j = await mock_storage.get_jorb(result["jorb_id"])
+        assert j is not None
+        assert j.metadata.get("telegram_bot_chat_id") == "12345"
+        assert j.metadata.get("preferred_transport") == "telegram_bot"
+
     async def test_create_with_contacts_list(self, mock_storage):
         """Test creating a jorb with contacts as list."""
         contacts = [

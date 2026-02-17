@@ -117,6 +117,52 @@ class TestSwitchboardTelegramBotChannel:
             assert created_event.channel == "telegram_bot"
 
     @pytest.mark.asyncio
+    async def test_explicit_start_new_jorb_directive_bypasses_switchboard(self, runner):
+        """
+        If Sean explicitly asks to start a new jorb, we should honor that even if
+        a conversation-key fast route would otherwise map to an existing jorb.
+        """
+        event = IncomingEvent(
+            channel="telegram_bot",
+            sender="@alloweduser",
+            sender_name="Allowed User",
+            content="can we start a new jorb? this one is a totally different task",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            metadata={"source": "telegram_bot", "telegram_bot_chat_id": "12345"},
+        )
+
+        with patch(
+            "services.telegram_allowlist.is_allowed_username",
+            return_value=True,
+        ), patch.object(
+            runner,
+            "_enrich_event_with_contact",
+            new_callable=AsyncMock,
+            side_effect=lambda e: e,
+        ), patch.object(
+            runner,
+            "get_open_jorbs",
+            new_callable=AsyncMock,
+            return_value=[],
+        ), patch.object(
+            runner,
+            "_create_new_jorb_from_event",
+            new_callable=AsyncMock,
+            return_value=MagicMock(
+                jorb_id="jorb_new_2",
+                action_taken="jorb_created",
+                success=True,
+            ),
+        ) as mock_create, patch(
+            "services.agent_runner.get_switchboard",
+            side_effect=AssertionError("switchboard should not be called"),
+        ):
+            result = await runner.process_incoming_message(event)
+
+        assert result.success is True
+        mock_create.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_telegram_bot_catch_up_for_trusted_sender_no_match(self, runner):
         """telegram_bot from trusted sender with no match creates catch-up jorb."""
         event = IncomingEvent(

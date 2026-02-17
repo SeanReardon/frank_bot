@@ -12,6 +12,8 @@ Each jorb has its own dedicated LLM session with personality and full history.
 from __future__ import annotations
 
 import asyncio
+import ast
+import hashlib
 import json
 import logging
 import os
@@ -67,6 +69,16 @@ _CANCEL_ALL_JORBS_RE = re.compile(
     r"^\s*(?:can\s+you\s+)?cancel\s+all\s+(?:running\s+)?jorbs\s*\??\s*$",
     re.IGNORECASE,
 )
+
+# Control-plane directive: explicitly start a new jorb thread.
+#
+# This needs to be handled *before* switchboard fast-routing by conversation key,
+# otherwise "start a new jorb" can get incorrectly routed into an existing jorb.
+_START_NEW_JORB_RE = re.compile(
+    r"^\s*(?:can\s+we\s+|can\s+you\s+|please\s+)?(?:start|create|make)\s+(?:a\s+)?new\s+jorb\b",
+    re.IGNORECASE,
+)
+_NEW_JORB_PREFIX_RE = re.compile(r"^\s*new\s+jorb\s*[:\-]\s*", re.IGNORECASE)
 
 # Sentinel to distinguish "no update" from "set NULL".
 _UNSET = object()
@@ -765,6 +777,180 @@ class AgentRunner:
             self._message_counts[jorb_id] = []
         self._message_counts[jorb_id].append(now)
 
+    async def _maybe_handle_claudia_script(
+        self,
+        *,
+        jorb_id: str,
+        script_str: str,
+        script_result: dict,
+        origin_event: IncomingEvent | None,
+    ) -> bool:
+        """
+        Guardrails for Claudia chat scripts.
+
+        Claudia chat interactions are asynchronous: the request returns quickly,
+        but a meaningful assistant response may arrive later. Without backoff,
+        the agent can burn LLM iterations in a tight loop polling `chat_get`.
+
+        Returns:
+            True if the guardrail scheduled a wake and the caller should yield.
+        """
+        lower = (script_str or "").lower()
+        if "claudia.chat_" not in lower:
+            return False
+
+        # Chat send/create: yield and let the worker wake us later.
+        if ("claudia.chat_send" in lower) or ("claudia.chat_create" in lower):
+            poll_seconds = 20
+            wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds)).isoformat()
+            await self.update_jorb_status(
+                jorb_id=jorb_id,
+                status="running",
+                awaiting="claudia:wait",
+                wake_at=wake_at_iso,
+                progress_summary="Sent message to Claudia; waiting for reply.",
+            )
+            return True
+
+        # Chat get: apply backoff + forward new assistant messages once.
+        if "claudia.chat_get" not in lower:
+            return False
+
+        payload = script_result.get("result")
+        chat = payload.get("chat") if isinstance(payload, dict) else None
+        messages = chat.get("messages") if isinstance(chat, dict) else None
+        if not isinstance(messages, list):
+            # No usable chat payload; just back off (don't spam the API/LLM).
+            wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
+            await self.update_jorb_status(
+                jorb_id=jorb_id,
+                status="running",
+                awaiting="claudia:poll",
+                wake_at=wake_at_iso,
+            )
+            return True
+
+        chat_id = str(chat.get("id") or "").strip() if isinstance(chat, dict) else ""
+        last_assistant = None
+        for msg in reversed(messages):
+            if isinstance(msg, dict) and str(msg.get("role") or "").lower() == "assistant":
+                last_assistant = msg
+                break
+
+        last_id = ""
+        last_content = ""
+        if isinstance(last_assistant, dict):
+            last_id = str(last_assistant.get("id") or "").strip()
+            last_content = str(last_assistant.get("content") or "")
+
+        # Stable digest even if IDs change.
+        digest = hashlib.sha1((last_id + "\n" + last_content).encode("utf-8")).hexdigest()
+
+        jorb = await self._storage.get_jorb(jorb_id)
+        meta = jorb.metadata if jorb else {}
+        claudia_state = meta.get("claudia_state")
+        if not isinstance(claudia_state, dict):
+            claudia_state = {}
+
+        key = chat_id or "unknown_chat"
+        state = claudia_state.get(key)
+        if not isinstance(state, dict):
+            state = {}
+
+        prev_digest = str(state.get("last_assistant_digest") or "")
+        forwarded = str(state.get("forwarded_assistant_digest") or "")
+        consecutive = int(state.get("consecutive_polls") or 0)
+        poll_seconds = int(state.get("poll_seconds") or 20)
+
+        # New assistant message arrived.
+        if digest and digest != prev_digest and last_content.strip():
+            state["last_assistant_digest"] = digest
+            state["consecutive_polls"] = 0
+            state["poll_seconds"] = 20
+            claudia_state[key] = state
+            meta["claudia_state"] = claudia_state
+            await self.update_jorb_status(jorb_id=jorb_id, metadata_json=json.dumps(meta))
+
+            # Forward once, then wait for Sean.
+            if digest != forwarded and not self._check_rate_limit(jorb_id):
+                text = (
+                    "Claudia replied with a suggested patch:\n\n"
+                    f"{last_content.strip()[:1800]}"
+                )
+                # Pick transport: prefer current jorb metadata, fall back to origin_event.
+                transport = str(meta.get("preferred_transport") or "").strip()
+                chat_id_to_use = str(meta.get("telegram_bot_chat_id") or "").strip()
+                recipient = (jorb.contacts[0].identifier if (jorb and jorb.contacts) else None) or (
+                    origin_event.sender if origin_event else None
+                )
+
+                sent_ok = False
+                if transport == "telegram_bot" and chat_id_to_use:
+                    sent_ok = await self._send_telegram_bot_message(chat_id=chat_id_to_use, text=text)
+                    if sent_ok:
+                        await self.store_outbound_message(
+                            jorb_id=jorb_id,
+                            channel="telegram_bot",
+                            recipient=recipient or f"chat_id:{chat_id_to_use}",
+                            content=text,
+                            reasoning="claudia_forward",
+                        )
+                elif transport in ("telegram", "sms") and recipient:
+                    sent_ok = await self._send_message(transport, recipient, text)
+                    if sent_ok:
+                        await self.store_outbound_message(
+                            jorb_id=jorb_id,
+                            channel=transport,  # type: ignore[arg-type]
+                            recipient=recipient,
+                            content=text,
+                            reasoning="claudia_forward",
+                        )
+
+                if sent_ok:
+                    self._record_message_sent(jorb_id)
+                    state["forwarded_assistant_digest"] = digest
+                    claudia_state[key] = state
+                    meta["claudia_state"] = claudia_state
+                    await self.update_jorb_status(
+                        jorb_id=jorb_id,
+                        metadata_json=json.dumps(meta),
+                        status="running",
+                        awaiting="human_reply",
+                        wake_at=None,
+                        progress_summary="Claudia replied; forwarded the patch. Awaiting your next instruction.",
+                    )
+                    return True
+
+            # Even if we couldn't forward (rate limit), still stop polling.
+            await self.update_jorb_status(
+                jorb_id=jorb_id,
+                status="running",
+                awaiting="human_reply",
+                wake_at=None,
+                progress_summary="Claudia replied; awaiting your next instruction.",
+            )
+            return True
+
+        # No new assistant message: exponential backoff and yield.
+        consecutive += 1
+        poll_seconds = min(300, max(15, poll_seconds * 2 if consecutive >= 2 else poll_seconds))
+        state["consecutive_polls"] = consecutive
+        state["poll_seconds"] = poll_seconds
+        state["last_assistant_digest"] = prev_digest or digest
+        claudia_state[key] = state
+        meta["claudia_state"] = claudia_state
+
+        wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds)).isoformat()
+        await self.update_jorb_status(
+            jorb_id=jorb_id,
+            metadata_json=json.dumps(meta),
+            status="running",
+            awaiting=f"claudia:poll:{key}",
+            wake_at=wake_at_iso,
+            progress_summary="Waiting for Claudia to reply…",
+        )
+        return True
+
     def _record_policy_violation(
         self,
         jorb_id: str,
@@ -925,8 +1111,30 @@ class AgentRunner:
             try:
                 return eval(script_str, namespace)
             except SyntaxError:
-                # Fall back to exec for multi-line scripts
-                exec(script_str, namespace)
+                # Fall back to exec for multi-line scripts.
+                #
+                # Critical: many model-generated scripts end with a bare expression like:
+                #   d = frank.diagnostics.full()
+                #   {'diagnostics': d, ...}
+                # In that case, `exec()` discards the final value, so the agent "can't see"
+                # the output and may retry in a tight loop. We capture a trailing expression
+                # by rewriting the final AST node into an assignment.
+                try:
+                    tree = ast.parse(script_str, mode="exec")
+                except SyntaxError:
+                    tree = None
+
+                if tree and tree.body and isinstance(tree.body[-1], ast.Expr):
+                    tree.body[-1] = ast.Assign(  # type: ignore[assignment]
+                        targets=[ast.Name(id="__frank_last_expr__", ctx=ast.Store())],
+                        value=tree.body[-1].value,  # type: ignore[attr-defined]
+                    )
+                    ast.fix_missing_locations(tree)
+                    code = compile(tree, "<jorb_script>", "exec")
+                    exec(code, namespace)
+                else:
+                    exec(script_str, namespace)
+
                 # Convention: scripts should assign their final payload to `result`.
                 #
                 # In practice, models often use `res = {...}` (or `out`/`output`).
@@ -934,6 +1142,8 @@ class AgentRunner:
                 # loops where the agent keeps retrying because it can't see output.
                 if "result" in namespace:
                     return namespace.get("result")
+                if "__frank_last_expr__" in namespace:
+                    return namespace.get("__frank_last_expr__")
                 for key in ("res", "out", "output", "data"):
                     if key in namespace:
                         return namespace.get(key)
@@ -1070,6 +1280,7 @@ class AgentRunner:
         """
         jorb_id = jorb.id
         started_with_event = event is not None
+        origin_event = event  # Preserve for this run (event is cleared after first LLM call)
         message_sent = False
         last_action = "no_action"
         steps_this_run = 0
@@ -1378,6 +1589,76 @@ class AgentRunner:
                     )
 
                 script_result = await self._execute_script(jwm.jorb, script_str)
+
+                # If the agent created a new jorb via `frank.jorbs.create(...)` from within
+                # an existing Telegram/SMS conversation, proactively attach the new jorb to
+                # the current conversation identity (contact + telegram_bot_chat_id).
+                #
+                # This prevents the new jorb from being "orphaned" (no contacts/metadata),
+                # which would cause subsequent messages to keep routing to the old jorb.
+                try:
+                    if origin_event and isinstance(script_result.get("result"), dict):
+                        created = script_result.get("result") or {}
+                        new_jorb_id = str(created.get("jorb_id") or "").strip()
+                        if new_jorb_id and "frank.jorbs.create" in script_str.lower():
+                            new_jorb = await self._storage.get_jorb(new_jorb_id)
+                            if new_jorb:
+                                # Contacts
+                                if not new_jorb.contacts:
+                                    contact = JorbContact(
+                                        identifier=origin_event.sender,
+                                        channel=origin_event.channel,
+                                        name=origin_event.sender_name,
+                                    )
+                                    await self._storage.update_jorb(
+                                        new_jorb_id,
+                                        contacts_json=json.dumps([contact.to_dict()]),
+                                    )
+
+                                # Metadata (conversation key + preferred transport)
+                                meta = new_jorb.metadata
+                                if isinstance(origin_event.metadata, dict):
+                                    meta.update(origin_event.metadata)
+                                src = str(origin_event.metadata.get("source") or "").strip() if origin_event.metadata else ""
+                                if src:
+                                    meta["source"] = src
+                                if origin_event.channel == "telegram_bot":
+                                    meta["preferred_transport"] = "telegram_bot"
+                                    chat_id = str(origin_event.metadata.get("telegram_bot_chat_id") or "").strip() if origin_event.metadata else ""
+                                    if chat_id:
+                                        meta["telegram_bot_chat_id"] = chat_id
+                                elif origin_event.channel == "telegram":
+                                    meta["preferred_transport"] = "telegram"
+                                elif origin_event.channel == "sms":
+                                    meta["preferred_transport"] = "sms"
+
+                                await self._storage.update_jorb(
+                                    new_jorb_id,
+                                    metadata_json=json.dumps(meta),
+                                )
+                except Exception:
+                    logger.exception("Failed to attach newly-created jorb to conversation context")
+
+                # Claudia chats are asynchronous (queue + toolchain). Avoid tight
+                # tick→chat_get loops by scheduling wakes with backoff when polling.
+                try:
+                    if "frank.claudia." in script_str.lower():
+                        yielded = await self._maybe_handle_claudia_script(
+                            jorb_id=jorb_id,
+                            script_str=script_str,
+                            script_result=script_result,
+                            origin_event=origin_event,
+                        )
+                        # If the helper scheduled a wake or forwarded a reply, yield now.
+                        if yielded:
+                            return ProcessingResult(
+                                jorb_id=jorb_id,
+                                action_taken="claudia_guardrail",
+                                success=True,
+                                message_sent=message_sent,
+                            )
+                except Exception:
+                    logger.exception("Claudia guardrail error for jorb %s", jorb_id)
 
                 # Defensive: some agents may start/poll Android tasks via RUN_SCRIPT
                 # (e.g. `frank.android.task_do(...)`). Detect common shapes and
@@ -2301,6 +2582,15 @@ class AgentRunner:
                     event=enriched_event,
                     open_jorbs=open_jorbs,
                 )
+
+            # Step 2.55: Explicit "start a new jorb" directive.
+            #
+            # Sean sometimes asks for a brand new thread in the *same* Telegram bot chat.
+            # We must honor this even when the conversation-key fast route would
+            # otherwise deterministically map to an existing jorb.
+            content = enriched_event.content or ""
+            if _START_NEW_JORB_RE.match(content) or _NEW_JORB_PREFIX_RE.match(content):
+                return await self._create_new_jorb_from_event(enriched_event)
 
             # Step 2.6: Bulk-cancel all open jorbs (control-plane recovery).
             if _CANCEL_ALL_JORBS_RE.match(enriched_event.content or ""):

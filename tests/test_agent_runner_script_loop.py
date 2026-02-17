@@ -261,6 +261,34 @@ class TestExecuteScript:
         assert isinstance(result["result"], dict)
         assert result["result"].get("got_time") is True
 
+    @pytest.mark.asyncio
+    async def test_execute_script_multiline_trailing_expression_captured(self, runner, storage, sample_jorb):
+        """
+        Multi-line scripts that end with a bare expression should return that value.
+
+        This prevents "successful-but-None" loops when the model writes:
+          x = ...
+          {'x': x}
+        """
+        await storage.create_jorb(
+            name=sample_jorb.name,
+            plan=sample_jorb.original_plan,
+        )
+        jorb = (await storage.list_jorbs())[0]
+
+        mock_api = MagicMock()
+        mock_api.time.now.return_value = {"time": "12:00"}
+
+        script = "t = frank.time.now()\n{'got_time': True, 't': t}"
+
+        with patch("meta.api.FrankAPI", return_value=mock_api):
+            result = await runner._execute_script(jorb, script)
+
+        assert result["success"] is True
+        assert isinstance(result["result"], dict)
+        assert result["result"]["got_time"] is True
+        assert result["result"]["t"] == {"time": "12:00"}
+
     def test_script_timeout_constant(self):
         """SCRIPT_EXECUTION_TIMEOUT default is 300."""
         assert SCRIPT_EXECUTION_TIMEOUT == 300
