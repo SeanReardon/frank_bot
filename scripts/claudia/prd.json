@@ -2193,6 +2193,24 @@
       "priority": 134,
       "passes": true,
       "notes": "Depends on frank_bot-00130 (health check must report meaningful status) and frank_bot-00132 (health endpoint must include loop status). This is the prevention layer — catch these issues before they hit production."
+    },
+    {
+      "id": "frank_bot-00135",
+      "title": "Fix system-status-card polling refresh layout jank with stale-while-revalidate pattern",
+      "acceptanceCriteria": [
+        "New @state() property '_refreshing' added to system-status-card.ts",
+        "_fetchStatus() sets _loading=true only on initial load (when _status is null and _error is null); subsequent polls set _refreshing=true instead",
+        "During background refresh, existing status rows remain rendered — no spinner replaces content",
+        "On fetch error when stale data exists, the error is swallowed and last-known-good data stays displayed",
+        "_error is only set when no stale data is available (initial load failure)",
+        "A subtle inline refresh indicator (↻ at 0.35 opacity, 0.7em font-size) appears next to 'System Status' header text when _refreshing is true",
+        "The manual refresh button is disabled when either _loading or _refreshing is true",
+        "No visible layout jank on 60-second polling refresh — card height remains stable",
+        "Initial load still shows the full spinner/loading state as before"
+      ],
+      "priority": 135,
+      "passes": false,
+      "notes": "No dependencies on other tasks. Single-file change (~20 lines) in web/src/components/system-status-card.ts. Uses Lit's 'nothing' import (should already be available). No new dependencies, no API changes, no structural changes."
     }
   ]
 }
