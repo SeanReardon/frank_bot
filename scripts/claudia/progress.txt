@@ -34,6 +34,16 @@ Each entry documents what was implemented and lessons learned.
 
 ---
 
+## 2026-02-17: frank_bot-00140 - Add per-step screenshot archival with TTL-based cleanup
+
+### Summary
+All acceptance criteria were already implemented in prior sessions (tasks 00136-00139). Verified: `_persist_step_screenshots()` saves `{task_id}_step_{n}.png` files, `task_get_action()` supports `include_steps` parameter, `_cleanup_old_screenshots()` does 24h TTL cleanup on task completion, step screenshots use 0o600 permissions and path sanitization. All 58 tests pass.
+
+### Files Changed
+- No new changes needed - all code and tests were already in place
+
+---
+
 ## 2026-02-17: frank_bot-00136 - Persist final screenshot from android task runs to disk
 
 ### Summary

@@ -2295,7 +2295,7 @@
         "Tests verify include_steps=True returns step screenshot paths in task_get response"
       ],
       "priority": 140,
-      "passes": false,
+      "passes": true,
       "notes": "Optional enhancement. Depends on frank_bot-00136 (screenshot persistence infrastructure). Modifies services/android_phone_runner.py, actions/android_phone.py, and tests."
     }
   ]

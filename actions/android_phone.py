@@ -1207,6 +1207,7 @@ def _detect_app_from_goal(goal: str) -> str | None:
 
 
 SCREENSHOTS_DIR = os.path.join(".", "data", "screenshots")
+SCREENSHOT_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 
 
 def _sanitize_task_id(task_id: str) -> str | None:
@@ -1259,6 +1260,79 @@ def _persist_screenshot(task_id: str, screenshot_base64: str) -> str | None:
     except Exception:
         logger.exception("Failed to write screenshot file for task %s", safe_id)
         return None
+
+
+def _persist_step_screenshots(task_id: str, steps: list) -> list[str]:
+    """Persist intermediate step screenshots to disk.
+
+    Returns list of file paths for successfully saved screenshots.
+    """
+    safe_id = _sanitize_task_id(task_id)
+    if safe_id is None:
+        return []
+
+    saved_paths: list[str] = []
+    for step in steps:
+        screenshot_b64 = getattr(step, "screenshot_base64", None)
+        if not screenshot_b64:
+            continue
+
+        step_num = getattr(step, "step_number", None)
+        if step_num is None:
+            continue
+
+        try:
+            png_bytes = base64.b64decode(screenshot_b64)
+        except Exception:
+            logger.warning("Failed to decode step %d screenshot for task %s", step_num, safe_id)
+            continue
+
+        os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+        file_path = os.path.join(SCREENSHOTS_DIR, f"{safe_id}_step_{step_num}.png")
+
+        try:
+            fd = os.open(file_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                os.write(fd, png_bytes)
+            finally:
+                os.close(fd)
+            saved_paths.append(file_path)
+        except Exception:
+            logger.exception("Failed to write step %d screenshot for task %s", step_num, safe_id)
+
+    if saved_paths:
+        logger.info("Persisted %d step screenshots for task %s", len(saved_paths), safe_id)
+    return saved_paths
+
+
+def _cleanup_old_screenshots() -> int:
+    """Delete screenshot files older than SCREENSHOT_TTL_SECONDS.
+
+    Returns the number of files deleted.
+    """
+    if not os.path.isdir(SCREENSHOTS_DIR):
+        return 0
+
+    cutoff = time.time() - SCREENSHOT_TTL_SECONDS
+    deleted = 0
+
+    try:
+        for filename in os.listdir(SCREENSHOTS_DIR):
+            if not filename.endswith(".png"):
+                continue
+            filepath = os.path.join(SCREENSHOTS_DIR, filename)
+            try:
+                if os.path.getmtime(filepath) < cutoff:
+                    os.unlink(filepath)
+                    deleted += 1
+            except OSError:
+                pass
+    except OSError:
+        logger.exception("Error during screenshot cleanup")
+
+    if deleted:
+        logger.info("Cleaned up %d old screenshot files", deleted)
+    return deleted
 
 
 SCREENSHOT_NOTIFY_RECIPIENT = "@SeanReardon"
@@ -1414,6 +1488,15 @@ async def _execute_task_background(
         if result.final_screenshot_base64:
             final_screenshot_path = _persist_screenshot(task_id, result.final_screenshot_base64)
 
+        # Persist intermediate step screenshots
+        step_screenshot_paths = _persist_step_screenshots(task_id, result.steps)
+
+        # TTL-based cleanup of old screenshots
+        try:
+            _cleanup_old_screenshots()
+        except Exception:
+            logger.exception("Screenshot cleanup failed (non-fatal)")
+
         # Update with final result
         if result.success:
             extracted = result.extracted_data or {}
@@ -1466,6 +1549,8 @@ async def _execute_task_background(
             }
             if final_screenshot_path:
                 result_dict["final_screenshot_path"] = final_screenshot_path
+            if step_screenshot_paths:
+                result_dict["step_screenshot_paths"] = step_screenshot_paths
 
             await storage.update_task(
                 task_id,
@@ -1487,6 +1572,8 @@ async def _execute_task_background(
             fail_result: dict[str, Any] = {}
             if final_screenshot_path:
                 fail_result["final_screenshot_path"] = final_screenshot_path
+            if step_screenshot_paths:
+                fail_result["step_screenshot_paths"] = step_screenshot_paths
             await storage.update_task(
                 task_id,
                 status="failed",
@@ -1591,6 +1678,7 @@ async def task_get_action(
         task_id: The task ID returned by androidPhoneTaskDo
         include_screenshot_base64: If true, read the screenshot PNG from disk
             and return it as inline base64 in the response
+        include_steps: If true, include step screenshot paths from the task result
 
     Returns:
         Task details including status, progress, and results (if completed).
@@ -1602,6 +1690,7 @@ async def task_get_action(
     args = arguments or {}
     task_id = args.get("task_id", "").strip()
     include_b64 = str(args.get("include_screenshot_base64", "")).lower() in ("true", "1", "yes")
+    include_steps = str(args.get("include_steps", "")).lower() in ("true", "1", "yes")
 
     if not task_id:
         raise ValueError("'task_id' is required")
@@ -1631,6 +1720,14 @@ async def task_get_action(
                     logger.warning("Failed to read screenshot file: %s", screenshot_path)
         else:
             response["final_screenshot_path"] = None
+
+    # Include step screenshot paths when requested
+    if include_steps and task.result and isinstance(task.result, dict):
+        stored_paths = task.result.get("step_screenshot_paths", [])
+        # Filter to only paths that still exist on disk
+        response["step_screenshot_paths"] = [
+            p for p in stored_paths if os.path.isfile(p)
+        ]
 
     return response
 
