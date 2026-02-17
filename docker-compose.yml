@@ -72,10 +72,12 @@ services:
 
       # Version (default if not in .env)
       APP_VERSION: "${APP_VERSION:-0.3.0}"
-    # USB passthrough for Android phone (ADB over USB)
-    devices:
-      - /dev/bus/usb:/dev/bus/usb
     volumes:
+      # USB passthrough for Android phone (ADB over USB).
+      #
+      # Use a bind mount (not `devices:`) so USB bus re-enumeration doesn't leave
+      # the container with a stale /dev/bus/usb snapshot (e.g. device 009→010).
+      - /dev/bus/usb:/dev/bus/usb
       # Mount Google credentials (read-only for security)
       - ./google-credentials.json:/app/secrets/google-credentials.json:ro
       # Mount OAuth token (read-write so it can be refreshed)
@@ -86,6 +88,9 @@ services:
       - ./data:/app/data
       # Persist ADB keys (so Android phone stays authorized across rebuilds)
       - ./adb-keys:/root/.android
+    # Allow access to newly-enumerated USB device nodes under /dev/bus/usb.
+    device_cgroup_rules:
+      - "c 189:* rwm"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
