@@ -30,6 +30,16 @@ Each entry documents what was implemented and lessons learned.
 
 ---
 
+## 2026-02-17: frank_bot-00135 - Fix system-status-card polling refresh layout jank
+
+### Summary
+Implemented stale-while-revalidate pattern in system-status-card.ts. Added `_refreshing` state to distinguish initial load from background poll. Initial load shows full spinner; subsequent polls show a subtle ↻ indicator next to the header while keeping stale data rendered. Errors during background refresh are swallowed when stale data exists. Manual refresh button is disabled during both loading and refreshing states.
+
+### Files Changed
+- web/src/components/system-status-card.ts
+
+---
+
 ## 2026-02-16: frank_bot-00132 - Harden agent_runner background loop against unhandled exceptions
 
 ### Summary

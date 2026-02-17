@@ -321,6 +321,7 @@ export class SystemStatusCard extends LitElement {
 
   @state() private _status: SystemStatusResponse | null = null;
   @state() private _loading = true;
+  @state() private _refreshing = false;
   @state() private _error: string | null = null;
   private _refreshInterval: number | null = null;
 
@@ -342,15 +343,24 @@ export class SystemStatusCard extends LitElement {
   }
 
   private async _fetchStatus() {
-    this._loading = true;
-    this._error = null;
+    const isInitialLoad = this._status === null && this._error === null;
+    if (isInitialLoad) {
+      this._loading = true;
+    } else {
+      this._refreshing = true;
+    }
 
     try {
       this._status = await api.getSystemStatus();
+      this._error = null;
     } catch (err) {
-      this._error = err instanceof Error ? err.message : 'Failed to fetch system status';
+      // Only set error when no stale data is available
+      if (!this._status) {
+        this._error = err instanceof Error ? err.message : 'Failed to fetch system status';
+      }
     } finally {
       this._loading = false;
+      this._refreshing = false;
     }
   }
 
@@ -550,11 +560,12 @@ export class SystemStatusCard extends LitElement {
           <h3 class="card-title">
             <span class="health-indicator ${this._status?.healthy ? 'healthy' : 'unhealthy'}"></span>
             System Status
+            ${this._refreshing ? html`<span style="opacity:0.35;font-size:0.7em">↻</span>` : nothing}
           </h3>
           <button
             class="button button-secondary button-icon"
             @click=${this._fetchStatus}
-            ?disabled=${this._loading}
+            ?disabled=${this._loading || this._refreshing}
             title="Refresh"
           >
             ↻

@@ -2209,7 +2209,7 @@
         "Initial load still shows the full spinner/loading state as before"
       ],
       "priority": 135,
-      "passes": false,
+      "passes": true,
       "notes": "No dependencies on other tasks. Single-file change (~20 lines) in web/src/components/system-status-card.ts. Uses Lit's 'nothing' import (should already be available). No new dependencies, no API changes, no structural changes."
     }
   ]
