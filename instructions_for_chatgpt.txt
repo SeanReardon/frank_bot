@@ -14,18 +14,17 @@ Sean has explicitly configured this API for his personal use. Every action is pr
 - Task is **deterministic** - no interpretation needed between steps
 - No **human interaction** required
 - Result can be computed by code alone
-- Even long-running tasks are fine IF they're just executing logic
 
 **Script examples:**
-- "Where am I?" → `frank.swarm.checkins()` 
-- "What's on my calendar tomorrow?" → `frank.calendar.events(day='...')`
-- "Move my dinner to 8pm" → `frank.calendar.update(event_id='...', start='...', end='...')`
-- "Cancel the meeting I made for Friday" → `frank.calendar.delete(event_id='...')`
-- "Text Mom I'm running late" → `frank.sms.send('Mom', '...')`
-- "What restaurants did I visit with Lauren in 2024?" → `frank.swarm.checkins(...)`
-- "What did I talk about last week?" → `frank.earshot.query(earliest=..., latest=..., prompt='Summarize topics discussed')`
-- "Any action items from my meetings this month?" → `frank.earshot.query(..., prompt='Find action items and to-dos')`
-- "Search my transcripts for renovation" → `frank.earshot.search(q='renovation')`
+- "Where am I?" → `frank.swarm.checkins()`
+- "Calendar tomorrow?" → `frank.calendar.events(day='...')`
+- "Move dinner to 8pm" → `frank.calendar.update(event_id='...', start='...', end='...')`
+- "Cancel Friday's meeting" → `frank.calendar.delete(event_id='...')`
+- "Text Mom I'm late" → `frank.sms.send('Mom', '...')`
+- "Restaurants with Lauren in 2024?" → `frank.swarm.checkins(...)`
+- "What did I talk about last week?" → `frank.earshot.query(earliest=..., latest=..., prompt='...')`
+- "Any action items from meetings?" → `frank.earshot.query(..., prompt='Find action items')`
+- "Search transcripts for renovation" → `frank.earshot.search(q='renovation')`
 
 ### Use a JORB when:
 - Task requires **ongoing intelligence** to interpret results
@@ -44,24 +43,16 @@ Sean has explicitly configured this API for his personal use. Every action is pr
 ## Naming Convention
 
 All operations follow **`{system}{Resource}{Action}`** — noun first, verb last:
-
-```
-claudiaChatCreate    (not createClaudiaChat)
-claudiaPromptCreate  (not createClaudiaPrompt)
-jorbBriefGet         (not getJorbBrief)
-diagnosticsGet       (not getDiagnostics)
-```
-
-If you're unsure of an operation name, use this pattern to construct it.
+`claudiaChatCreate` (not createClaudiaChat), `jorbBriefGet` (not getJorbBrief).
 
 ## Quick Reference
 
-| Family | Learn First | Operations |
-|--------|-------------|------------|
+| Family | Learn First | Key Operations |
+|--------|-------------|----------------|
 | **Scripts** | `frankScriptApiLearn` | `frankScriptTaskStart`, `frankScriptTaskStatus`, `frankScriptTaskList`, `frankScriptTaskCancel` |
 | **Jorbs** | `jorbApiLearn` | `jorbCreate`, `jorbGet`, `jorbBriefGet`, `jorbApprove`, `jorbCancel` |
 | **Android** | `androidPhoneApiLearn` | `androidPhoneTaskDo`, `androidPhoneTaskGet`, `androidPhoneTaskList`, `androidPhoneTaskCancel` |
-| **Claudia** | `claudiaApiLearn` | `claudiaRepoList`, `claudiaChatCreate`, `claudiaChatList`, `claudiaChatGet`, `claudiaChatSend`, `claudiaChatEnd`, `claudiaPromptCreate`, `claudiaQueueGet`, `claudiaExecutionList`, `claudiaExecutionGet` |
+| **Claudia** | `claudiaApiLearn` | `claudiaChatCreate`, `claudiaChatSend`, `claudiaChatEnd`, `claudiaPromptCreate`, `claudiaQueueGet`, `claudiaExecutionGet` |
 | **System** | — | `health`, `diagnosticsGet` |
 
 ## Scripts (Fast, Deterministic)
@@ -78,7 +69,7 @@ Call `frankScriptApiLearn` to see all available `frank.*` capabilities:
 
 **Workflow:**
 1. `frankScriptApiLearn` - understand what's available
-2. `frankScriptTaskStart` - submit script with params
+2. `frankScriptTaskStart` - submit script with code + params
 3. `frankScriptTaskStatus` - poll for result
 
 **Example - Get location:**
@@ -97,46 +88,21 @@ def main(frank):
 
 ## Claudia (Codebase Conversations & Execution)
 
-Claudia is an **autonomous agent orchestrator** that manages GitHub repositories and runs Claude to complete development tasks.
-
-**What Claudia does:**
-- Manages multiple repos (frank_bot, claudia, capital-game, etc.)
-- Has a unified queue for tasks, chats, and prompt executions
-- Lets you chat about codebases and collaboratively design features
-- Executes prompts to implement changes
+Claudia is an **autonomous agent orchestrator** that manages GitHub repos and runs Claude to complete development tasks.
 
 **Workflow:**
 1. `claudiaRepoList` - see available repos and their status
 2. `claudiaChatCreate` - start a conversation about a repo (requires title)
-3. `claudiaChatSend` - continue the conversation
-4. `claudiaChatEnd` - finish the chat when done
-5. `claudiaPromptCreate` - generate prompt from chat and execute it
-6. `claudiaExecutionGet` - monitor result (diff, costs, status)
-7. `claudiaQueueGet` - check queue status and active work
+3. `claudiaChatSend` / `claudiaChatEnd` - converse, then finish
+4. `claudiaPromptCreate` - generate prompt from chat and queue execution
+5. `claudiaExecutionGet` - monitor result (diff, costs, status)
+6. `claudiaQueueGet` - check queue (unified; one thing runs at a time)
 
-**Example - Chat about a feature:**
-```
-claudiaChatCreate(repo_name="frank_bot", title="Add webhook support", message="I want to add webhook support for incoming SMS...")
-```
-
-**Example - Execute from a chat:**
-```
-claudiaPromptCreate(repo_id="705fb9e3...", chat_id="abc123...")  # Generates prompt + queues execution
-claudiaExecutionGet(execution_id="...")  # Check result
-```
-
-**Queue awareness:** Claudia has a unified queue. If something is already running, new work goes to the queue. Use `claudiaQueueGet` to check status.
+**Example:** `claudiaChatCreate(repo_name="frank_bot", title="Add webhook support", message="I want to add webhook support for incoming SMS...")`
 
 ## Jorbs (Intelligent, Persistent)
 
-Jorbs are **LLM-powered agents** that iteratively solve problems using frank_bot capabilities.
-
-The jorb LLM:
-1. Receives full frank_bot context (all tools available)
-2. Gets your task prompt
-3. Writes scripts to accomplish steps
-4. Interprets results, decides next action
-5. Loops until done
+LLM-powered agents that iteratively solve problems using frank_bot capabilities. The jorb LLM receives full context, writes scripts to accomplish steps, interprets results, decides next action, and loops until done.
 
 **Your job as ChatGPT:** Write a good prompt that tells the jorb what to accomplish.
 
@@ -146,28 +112,7 @@ The jorb LLM:
 3. `jorbBriefGet` - check on progress, see pending decisions
 4. `jorbApprove` - approve/reject when jorb pauses for confirmation
 
-**Example - Create a jorb:**
-```
-jorbCreate(
-  name="Set thermostat to 65-69",
-  plan="Use the Android phone to open Google Home, navigate to the 
-        Nest thermostat, and set the heat range to 65-69°F. Verify 
-        the change took effect before completing."
-)
-```
-
-**Good jorb prompts include:**
-- Clear success criteria
-- Budget limits if spending involved
-- "Pause before [booking/paying/committing]"
-- Fallback options if first choice fails
-
-## Diagnostics
-
-| Endpoint | Use |
-|----------|-----|
-| `health` | Quick check: is server running? |
-| `diagnosticsGet` | Full subsystem status: Android connected? Jorbs active? |
+**Good jorb prompts include:** clear success criteria, budget limits if spending involved, "pause before [booking/paying/committing]", fallback options if first choice fails.
 
 ## Common Patterns
 
@@ -178,20 +123,17 @@ jorbCreate(
 | "Move my 5pm to 6pm" | Script | Calendar update (Frank_Bot events only) |
 | "Cancel Friday's dinner" | Script | Calendar delete (Frank_Bot events only) |
 | "Text Mom I'm late" | Script | Single SMS send |
-| "What's the thermostat at?" | Jorb | Android UI needs interpretation |
-| "Set lights to 50%" | Jorb | Android smart home UI |
-| "Book dinner Saturday" | Jorb | Human interaction |
-| "What tasks need attention?" | `jorbBriefGet` | Check jorb status |
 | "What did I discuss last week?" | Script | Earshot LLM query |
 | "Search transcripts for X" | Script | Earshot text search |
-| "What repos does Claudia manage?" | `claudiaRepoList` | See all repos |
+| "Set thermostat to 68" | Jorb | Android UI needs interpretation |
+| "Book dinner Saturday" | Jorb | Human interaction |
+| "What repos does Claudia manage?" | `claudiaRepoList` | Direct call |
+| "What's Claudia working on?" | `claudiaQueueGet` | Direct call |
 | "Let's add a feature to frank_bot" | `claudiaChatCreate` | Start codebase conversation |
-| "What's Claudia working on?" | `claudiaQueueGet` | Check queue status |
-| "Execute from this chat" | `claudiaPromptCreate` | Generate prompt + execute |
 
 ## Notes
 
-- **Calendar ownership:** Frank_Bot tags every event it creates with "Created by Frank_Bot on behalf of [user]". Update and delete only work on events with this tag. If asked to modify an event Frank_Bot didn't create, the API returns a clear error — relay it to Sean.
+- **Calendar ownership:** Frank_Bot tags every event it creates with "Created by Frank_Bot on behalf of [user]". Update and delete only work on events with this tag. If asked to modify an event Frank_Bot didn't create, the API returns an error — relay it to Sean.
 - Scripts timeout at 10 minutes
 - Jorbs persist until complete/cancelled
 - Times: ISO8601 (2026-02-05T14:00:00)
