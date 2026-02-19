@@ -11,7 +11,7 @@
       "get": {
         "operationId": "frankScriptApiLearn",
         "summary": "Learn scripting capabilities (CALL FIRST)",
-        "description": "Returns comprehensive FrankAPI docs. Scripts access: frank.calendar (events, create), frank.contacts (search), frank.sms (send), frank.swarm (checkins), frank.telegram (send, messages, chats), frank.ups (status), frank.time (now), frank.earshot (transcript search, LLM queries, date parsing). Call this FIRST to learn what scripts can do.",
+        "description": "Returns FrankAPI docs. Namespaces: calendar, contacts, sms, swarm, telegram, ups, time, earshot (transcripts/LLM queries). Call FIRST to learn available frank.* methods and parameters.",
         "responses": {"200": {"description": "FrankAPI documentation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FrankScriptApiLearnResponse"}}}}},
         "security": [{"ActionsApiKey": []}]
       }
