@@ -136,6 +136,92 @@ class CalendarNamespace:
         }
         return _run_async(create_event_action(args))
 
+    def update(
+        self,
+        event_id: str,
+        *,
+        summary: str | None = None,
+        description: str | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        location: str | None = None,
+        time_zone: str | None = None,
+        calendar_id: str | None = None,
+        calendar_name: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Update a calendar event (Frank_Bot-created events only).
+
+        Frank_Bot can only modify events it created (identified by
+        "Created by Frank_Bot" in the description). Attempting to
+        update other events returns a helpful error.
+
+        Parameters:
+            event_id: Google Calendar event ID (required)
+            summary: New event title
+            description: New description (tag preserved)
+            start: New start time (ISO 8601)
+            end: New end time (ISO 8601)
+            location: New location
+            time_zone: Timezone for start/end
+            calendar_id: Specific calendar ID
+            calendar_name: Calendar name (fuzzy matched)
+
+        Returns:
+            Dict with message, updated event, and calendar info
+        """
+        from actions.calendar import update_event_action
+
+        args: dict[str, Any] = {"event_id": event_id}
+        if summary is not None:
+            args["summary"] = summary
+        if description is not None:
+            args["description"] = description
+        if start is not None:
+            args["start"] = start
+        if end is not None:
+            args["end"] = end
+        if location is not None:
+            args["location"] = location
+        if time_zone is not None:
+            args["time_zone"] = time_zone
+        if calendar_id is not None:
+            args["calendar_id"] = calendar_id
+        if calendar_name is not None:
+            args["calendar_name"] = calendar_name
+        return _run_async(update_event_action(args))
+
+    def delete(
+        self,
+        event_id: str,
+        *,
+        calendar_id: str | None = None,
+        calendar_name: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Delete a calendar event (Frank_Bot-created events only).
+
+        Frank_Bot can only delete events it created (identified by
+        "Created by Frank_Bot" in the description). Attempting to
+        delete other events returns a helpful error.
+
+        Parameters:
+            event_id: Google Calendar event ID (required)
+            calendar_id: Specific calendar ID
+            calendar_name: Calendar name (fuzzy matched)
+
+        Returns:
+            Dict with message, event_id, and calendar info
+        """
+        from actions.calendar import delete_event_action
+
+        args: dict[str, Any] = {"event_id": event_id}
+        if calendar_id is not None:
+            args["calendar_id"] = calendar_id
+        if calendar_name is not None:
+            args["calendar_name"] = calendar_name
+        return _run_async(delete_event_action(args))
+
     def list(
         self,
         *,

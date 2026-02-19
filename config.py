@@ -46,6 +46,7 @@ class Settings:
     """Centralized configuration values."""
 
     app_version: str
+    owner_name: str
     host: str
     port: int
     log_file: str
@@ -401,6 +402,7 @@ def get_settings() -> Settings:
 
     return Settings(
         app_version=os.getenv("APP_VERSION", "0.4.0"),
+        owner_name=os.getenv("OWNER_NAME", "Sean Reardon"),
         host=os.getenv("HOST", "0.0.0.0"),
         port=int(os.getenv("PORT", "8000")),
         log_file=os.getenv("LOG_FILE", "app.log"),

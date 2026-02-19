@@ -1,5 +1,5 @@
 """
-Google Calendar actions: get events, create events, get calendars.
+Google Calendar actions: get, create, update, delete events; get calendars.
 """
 
 from __future__ import annotations
@@ -21,6 +21,31 @@ from services.google_calendar import GoogleCalendarService
 from services.google_contacts import GoogleContactsService
 
 logger = logging.getLogger(__name__)
+
+CREATED_BY_PREFIX = "Created by Frank_Bot on behalf of"
+
+
+def _created_by_tag() -> str:
+    settings = get_settings()
+    return f"\n\n{CREATED_BY_PREFIX} {settings.owner_name}"
+
+
+def _is_owned_by_frank(event: dict[str, Any]) -> bool:
+    """Return True if the event description contains the Frank_Bot tag."""
+    desc = event.get("description") or ""
+    return CREATED_BY_PREFIX in desc
+
+
+def _require_ownership(event: dict[str, Any]) -> None:
+    """Raise ValueError if frank_bot didn't create this event."""
+    if not _is_owned_by_frank(event):
+        summary = event.get("summary", "Untitled")
+        raise ValueError(
+            f"Cannot modify event '{summary}': Frank_Bot can "
+            f"only update or delete events it created. "
+            f"Look for \"{CREATED_BY_PREFIX}\" in the "
+            f"event description to identify Frank_Bot events."
+        )
 
 
 async def get_events_action(
@@ -152,8 +177,9 @@ async def create_event_action(
         if isinstance(email, str) and email.strip()
     ]
 
-    description = args.get("description")
-    location = args.get("location")  # Simple string like "Nerdvana, Frisco, TX"
+    raw_description = args.get("description") or ""
+    description = raw_description + _created_by_tag()
+    location = args.get("location")
     settings = get_settings()
     time_zone = args.get("time_zone") or settings.default_timezone
     calendar_id_arg = args.get("calendar_id")
@@ -289,8 +315,152 @@ async def get_calendars_action(
     }
 
 
+async def update_event_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Update a calendar event that was created by Frank_Bot.
+
+    Args:
+        event_id: Google Calendar event ID (required)
+        summary: New event title
+        description: New event description (Frank_Bot tag is preserved)
+        start: New start time (ISO 8601)
+        end: New end time (ISO 8601)
+        location: New location
+        time_zone: Timezone for start/end
+        calendar_id: Calendar ID (default: primary)
+        calendar_name: Calendar name (fuzzy matched)
+    """
+    args = arguments or {}
+    event_id = (args.get("event_id") or "").strip()
+    if not event_id:
+        raise ValueError("'event_id' is required")
+
+    settings = get_settings()
+    time_zone = args.get("time_zone") or settings.default_timezone
+    calendar_id_arg = args.get("calendar_id")
+    calendar_name = args.get("calendar_name")
+
+    def do_update():
+        service = GoogleCalendarService()
+        cal_id = service.resolve_calendar_id(
+            calendar_id=calendar_id_arg,
+            calendar_name=calendar_name,
+        )
+
+        event = service.get_event(event_id, calendar_id=cal_id)
+        _require_ownership(event)
+
+        updates: dict[str, Any] = {}
+        if "summary" in args:
+            updates["summary"] = args["summary"]
+        if "start" in args:
+            start_dt = parse_iso_datetime(args["start"])
+            updates["start"] = {
+                "dateTime": start_dt.isoformat(),
+                "timeZone": time_zone,
+            }
+        if "end" in args:
+            end_dt = parse_iso_datetime(args["end"])
+            updates["end"] = {
+                "dateTime": end_dt.isoformat(),
+                "timeZone": time_zone,
+            }
+        if "location" in args:
+            updates["location"] = args["location"]
+        if "description" in args:
+            new_desc = args["description"] or ""
+            if CREATED_BY_PREFIX not in new_desc:
+                new_desc = new_desc + _created_by_tag()
+            updates["description"] = new_desc
+
+        if not updates:
+            raise ValueError(
+                "No fields to update. Provide at least one of: "
+                "summary, description, start, end, location."
+            )
+
+        return service.update_event(
+            event_id, updates=updates, calendar_id=cal_id,
+        ), cal_id
+
+    updated_event, resolved_cal_id = await asyncio.to_thread(
+        do_update,
+    )
+    calendar_label = (
+        calendar_name or resolved_cal_id or "primary"
+    )
+
+    return {
+        "message": (
+            f"Updated event "
+            f"'{updated_event.get('summary', '')}' "
+            f"on calendar '{calendar_label}'"
+        ),
+        "event": updated_event,
+        "calendar": {
+            "id": resolved_cal_id or "primary",
+            "label": calendar_label,
+        },
+    }
+
+
+async def delete_event_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Delete a calendar event that was created by Frank_Bot.
+
+    Args:
+        event_id: Google Calendar event ID (required)
+        calendar_id: Calendar ID (default: primary)
+        calendar_name: Calendar name (fuzzy matched)
+    """
+    args = arguments or {}
+    event_id = (args.get("event_id") or "").strip()
+    if not event_id:
+        raise ValueError("'event_id' is required")
+
+    calendar_id_arg = args.get("calendar_id")
+    calendar_name = args.get("calendar_name")
+
+    def do_delete():
+        service = GoogleCalendarService()
+        cal_id = service.resolve_calendar_id(
+            calendar_id=calendar_id_arg,
+            calendar_name=calendar_name,
+        )
+
+        event = service.get_event(event_id, calendar_id=cal_id)
+        _require_ownership(event)
+        event_summary = event.get("summary", "Untitled")
+
+        service.delete_event(event_id, calendar_id=cal_id)
+        return event_summary, cal_id
+
+    summary, resolved_cal_id = await asyncio.to_thread(do_delete)
+    calendar_label = (
+        calendar_name or resolved_cal_id or "primary"
+    )
+
+    return {
+        "message": (
+            f"Deleted event '{summary}' "
+            f"from calendar '{calendar_label}'"
+        ),
+        "event_id": event_id,
+        "calendar": {
+            "id": resolved_cal_id or "primary",
+            "label": calendar_label,
+        },
+    }
+
+
 __all__ = [
     "get_events_action",
     "create_event_action",
+    "update_event_action",
+    "delete_event_action",
     "get_calendars_action",
 ]

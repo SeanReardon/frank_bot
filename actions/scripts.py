@@ -106,20 +106,29 @@ async def api_learn_action(
     """
     namespaces = {
         "calendar": {
-            "description": "Google Calendar - events, scheduling, calendar list",
+            "description": "Google Calendar - events, create, update, delete, calendar list",  # noqa: E501
             **_get_namespace_info(CalendarNamespace),
             "examples": [
                 "frank.calendar.events(day='2026-02-05')",
                 "frank.calendar.events(time_min='2026-02-01', time_max='2026-02-28')",  # noqa: E501
                 "frank.calendar.create(summary='Dinner', start='2026-02-05T19:00:00', end='2026-02-05T21:00:00')",  # noqa: E501
+                "frank.calendar.update(event_id='abc123', summary='Dinner at 8')",  # noqa: E501
+                "frank.calendar.delete(event_id='abc123')",
                 "frank.calendar.list()  # list all calendars",
             ],
             "common_params": {
                 "day": "YYYY-MM-DD for single day",
                 "time_min/time_max": "ISO8601 for range",
+                "event_id": "Google Calendar event ID (for update/delete)",
                 "calendar_name": "fuzzy match calendar name",
                 "attendees": "list of email addresses",
             },
+            "notes": (
+                "Create always tags events with 'Created by Frank_Bot'. "
+                "Update and delete ONLY work on events Frank_Bot created "
+                "(identified by that tag in the description). Attempting "
+                "to modify events not created by Frank_Bot returns an error."
+            ),
         },
         "contacts": {
             "description": "Google Contacts - search by name/email/phone",

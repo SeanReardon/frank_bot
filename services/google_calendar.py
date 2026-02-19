@@ -167,6 +167,40 @@ class GoogleCalendarService:
             stats.record_error("google_calendar", str(exc), {"method": "create_event"})
             raise
 
+    def get_event(
+        self,
+        event_id: str,
+        calendar_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch a single event by ID."""
+        logger.debug("Fetching Google Calendar event %s", event_id)
+        calendar_stats = stats.get_service_stats("google_calendar")
+        start = time.time()
+        try:
+            result = (
+                self._service.events()
+                .get(
+                    calendarId=calendar_id or self._calendar_id,
+                    eventId=event_id,
+                )
+                .execute()
+            )
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(
+                elapsed_ms, success=True,
+            )
+            return result
+        except HttpError as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(
+                elapsed_ms, success=False, error=str(exc),
+            )
+            if exc.resp.status == 404:
+                raise ValueError(
+                    f"Event '{event_id}' not found."
+                ) from exc
+            raise
+
     def update_event(
         self,
         event_id: str,
@@ -176,15 +210,33 @@ class GoogleCalendarService:
     ) -> Dict[str, Any]:
         """Patch an existing calendar event."""
         logger.info("Updating Google Calendar event %s", event_id)
-        return (
-            self._service.events()
-            .patch(
-                calendarId=calendar_id or self._calendar_id,
-                eventId=event_id,
-                body=updates,
+        calendar_stats = stats.get_service_stats("google_calendar")
+        start = time.time()
+        try:
+            result = (
+                self._service.events()
+                .patch(
+                    calendarId=calendar_id or self._calendar_id,
+                    eventId=event_id,
+                    body=updates,
+                )
+                .execute()
             )
-            .execute()
-        )
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(
+                elapsed_ms, success=True,
+            )
+            return result
+        except Exception as exc:
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(
+                elapsed_ms, success=False, error=str(exc),
+            )
+            stats.record_error(
+                "google_calendar", str(exc),
+                {"method": "update_event"},
+            )
+            raise
 
     def delete_event(
         self,
@@ -193,6 +245,8 @@ class GoogleCalendarService:
     ) -> None:
         """Delete an event from the calendar."""
         logger.info("Deleting Google Calendar event %s", event_id)
+        calendar_stats = stats.get_service_stats("google_calendar")
+        start = time.time()
         try:
             (
                 self._service.events()
@@ -202,10 +256,28 @@ class GoogleCalendarService:
                 )
                 .execute()
             )
+            elapsed_ms = (time.time() - start) * 1000
+            calendar_stats.record_request(
+                elapsed_ms, success=True,
+            )
         except HttpError as exc:
+            elapsed_ms = (time.time() - start) * 1000
             if exc.resp.status == 404:
-                logger.warning("Event %s not found; nothing to delete", event_id)
+                calendar_stats.record_request(
+                    elapsed_ms, success=True,
+                )
+                logger.warning(
+                    "Event %s not found; nothing to delete",
+                    event_id,
+                )
                 return
+            calendar_stats.record_request(
+                elapsed_ms, success=False, error=str(exc),
+            )
+            stats.record_error(
+                "google_calendar", str(exc),
+                {"method": "delete_event"},
+            )
             raise
 
     def list_calendars(self) -> List[Dict[str, Any]]:

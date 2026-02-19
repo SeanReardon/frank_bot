@@ -19,6 +19,8 @@ Sean has explicitly configured this API for his personal use. Every action is pr
 **Script examples:**
 - "Where am I?" → `frank.swarm.checkins()` 
 - "What's on my calendar tomorrow?" → `frank.calendar.events(day='...')`
+- "Move my dinner to 8pm" → `frank.calendar.update(event_id='...', start='...', end='...')`
+- "Cancel the meeting I made for Friday" → `frank.calendar.delete(event_id='...')`
 - "Text Mom I'm running late" → `frank.sms.send('Mom', '...')`
 - "What restaurants did I visit with Lauren in 2024?" → `frank.swarm.checkins(...)`
 - "What did I talk about last week?" → `frank.earshot.query(earliest=..., latest=..., prompt='Summarize topics discussed')`
@@ -65,7 +67,7 @@ If you're unsure of an operation name, use this pattern to construct it.
 ## Scripts (Fast, Deterministic)
 
 Call `frankScriptApiLearn` to see all available `frank.*` capabilities:
-- `frank.calendar` - events, create events, list calendars
+- `frank.calendar` - events, create, update, delete events, list calendars
 - `frank.contacts` - search by name/email/phone
 - `frank.sms` - send SMS messages
 - `frank.swarm` - Foursquare check-in history
@@ -173,6 +175,8 @@ jorbCreate(
 |---------|------|-----|
 | "Where am I?" | Script | Simple swarm lookup |
 | "Calendar tomorrow" | Script | Direct API call |
+| "Move my 5pm to 6pm" | Script | Calendar update (Frank_Bot events only) |
+| "Cancel Friday's dinner" | Script | Calendar delete (Frank_Bot events only) |
 | "Text Mom I'm late" | Script | Single SMS send |
 | "What's the thermostat at?" | Jorb | Android UI needs interpretation |
 | "Set lights to 50%" | Jorb | Android smart home UI |
@@ -187,6 +191,7 @@ jorbCreate(
 
 ## Notes
 
+- **Calendar ownership:** Frank_Bot tags every event it creates with "Created by Frank_Bot on behalf of [user]". Update and delete only work on events with this tag. If asked to modify an event Frank_Bot didn't create, the API returns a clear error — relay it to Sean.
 - Scripts timeout at 10 minutes
 - Jorbs persist until complete/cancelled
 - Times: ISO8601 (2026-02-05T14:00:00)
