@@ -1009,6 +1009,238 @@ class StyleNamespace:
         return _run_async(generate_sean_md_action(args))
 
 
+class EarshotNamespace:
+    """
+    Earshot transcript operations.
+
+    Search, query, and analyze audio transcripts captured by the Earshot system.
+    Uses LLM-powered queries to extract insights across transcript history.
+    """
+
+    def _client(self):
+        from services.earshot_client import EarshotClient
+        return EarshotClient()
+
+    def search(
+        self,
+        *,
+        q: str | None = None,
+        source: str | None = None,
+        location: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict]:
+        """
+        Search transcripts with optional filters.
+
+        Parameters:
+            q: Full-text search query
+            source: Filter by source (e.g. "plaud")
+            location: Filter by location
+            since: Only transcripts after this date (YYYY-MM-DD or ISO 8601)
+            until: Only transcripts before this date (YYYY-MM-DD or ISO 8601)
+            limit: Max results (1-200, default 20)
+            offset: Skip first N results (default 0)
+
+        Returns:
+            List of transcript dicts with id, title, started_at, summary, etc.
+        """
+        return self._client().list_transcripts(
+            q=q, source=source, location=location,
+            since=since, until=until, limit=limit, offset=offset,
+        )
+
+    def get(self, transcript_id: int) -> dict:
+        """
+        Get a single transcript by ID.
+
+        Parameters:
+            transcript_id: The transcript ID
+
+        Returns:
+            Transcript dict with full content
+        """
+        return self._client().get_transcript(transcript_id)
+
+    def query(
+        self,
+        *,
+        earliest: str,
+        latest: str,
+        prompt: str,
+        terms: list[str] | None = None,
+    ) -> dict:
+        """
+        Run an LLM query across transcripts in a date range and return all results.
+
+        Creates the query, then blocks until results are ready. For large date
+        ranges this may take 30-60 seconds.
+
+        Parameters:
+            earliest: Start date (YYYY-MM-DD)
+            latest: End date (YYYY-MM-DD)
+            prompt: What to look for / extract (natural language)
+            terms: Optional keyword filter (AND-matched before LLM processing)
+
+        Returns:
+            Dict with queryId, status, results list, totalResults, totalMatched
+        """
+        client = self._client()
+        created = client.query_create(
+            earliest=earliest, latest=latest, prompt=prompt, terms=terms,
+        )
+        query_id = created["queryId"]
+        return client.query_results(query_id)
+
+    def query_start(
+        self,
+        *,
+        earliest: str,
+        latest: str,
+        prompt: str,
+        terms: list[str] | None = None,
+    ) -> dict:
+        """
+        Start an async LLM query (non-blocking). Returns a query_id for polling.
+
+        Use query_results(), query_first(), or query_next() to retrieve results.
+
+        Parameters:
+            earliest: Start date (YYYY-MM-DD)
+            latest: End date (YYYY-MM-DD)
+            prompt: What to look for / extract (natural language)
+            terms: Optional keyword filter
+
+        Returns:
+            Dict with queryId and status ("processing")
+        """
+        return self._client().query_create(
+            earliest=earliest, latest=latest, prompt=prompt, terms=terms,
+        )
+
+    def query_results(self, query_id: str, *, raw: bool = False) -> dict:
+        """
+        Get all results for a query (blocks until complete).
+
+        Parameters:
+            query_id: The query ID from query_start()
+            raw: Include full transcript text in each result
+
+        Returns:
+            Dict with queryId, status, results list, totalResults, totalMatched
+        """
+        return self._client().query_results(query_id, raw=raw)
+
+    def query_first(self, query_id: str, *, raw: bool = False) -> dict:
+        """
+        Get the first result and reset the cursor.
+
+        Parameters:
+            query_id: The query ID from query_start()
+            raw: Include full transcript text
+
+        Returns:
+            Dict with queryId, status, result, totalResults, index
+        """
+        return self._client().query_first(query_id, raw=raw)
+
+    def query_next(self, query_id: str, *, raw: bool = False) -> dict:
+        """
+        Advance cursor and get the next result.
+
+        Parameters:
+            query_id: The query ID from query_start()
+            raw: Include full transcript text
+
+        Returns:
+            Dict with queryId, status, result, totalResults, index, done
+        """
+        return self._client().query_next(query_id, raw=raw)
+
+    def transform(self, transcript_file: str, prompt: str) -> dict:
+        """
+        Transform a single transcript via LLM.
+
+        Parameters:
+            transcript_file: Filename of the transcript JSON file
+            prompt: What to extract or how to transform
+
+        Returns:
+            Dict with transcriptFile, result, usage
+        """
+        return self._client().transform(transcript_file, prompt)
+
+    def count(self, earliest: str, latest: str) -> dict:
+        """
+        Count transcripts in a date range.
+
+        Parameters:
+            earliest: Start date (YYYY-MM-DD)
+            latest: End date (YYYY-MM-DD)
+
+        Returns:
+            Dict with count, earliest, latest
+        """
+        return self._client().count(earliest, latest)
+
+    def date_parse(self, text: str) -> dict:
+        """
+        Parse natural language date text into a date range.
+
+        Parameters:
+            text: Natural language like "last week", "January 2026", "yesterday"
+
+        Returns:
+            Dict with earliest (YYYY-MM-DD), latest (YYYY-MM-DD), confidence
+        """
+        return self._client().date_parse(text)
+
+    def worker_trigger(self, force: bool = False) -> dict:
+        """
+        Trigger a worker run to evaluate standard queries on new transcripts.
+
+        Parameters:
+            force: Re-evaluate all transcripts, not just new ones
+
+        Returns:
+            Dict with status and message
+        """
+        return self._client().worker_trigger(force=force)
+
+    def worker_status(self) -> dict:
+        """
+        Get the latest worker run status.
+
+        Returns:
+            Dict with worker run stats or {status: "no_runs"}
+        """
+        return self._client().worker_status()
+
+    def dashboard(self, page: int = 1, limit: int = 50) -> dict:
+        """
+        Get the dashboard grid (transcripts merged with standard query results).
+
+        Parameters:
+            page: Page number (1-based, default 1)
+            limit: Results per page (1-200, default 50)
+
+        Returns:
+            Dict with columns, rows, page, limit, totalPages, totalTranscripts
+        """
+        return self._client().dashboard_grid(page=page, limit=limit)
+
+    def diagnostics(self) -> dict:
+        """
+        Get earshot system diagnostics (transcript count, git commit).
+
+        Returns:
+            Dict with transcript_count and git_commit
+        """
+        return self._client().diagnostics()
+
+
 class FrankAPI:
     """
     Synchronous API for Frank Bot scripting.
@@ -1038,6 +1270,7 @@ class FrankAPI:
         self._system = SystemNamespace()
         self._jorbs = JorbsNamespace()
         self._claudia = ClaudiaNamespace()
+        self._earshot = EarshotNamespace()
         self._style = StyleNamespace()
 
     @property
@@ -1106,6 +1339,11 @@ class FrankAPI:
         return self._claudia
 
     @property
+    def earshot(self) -> EarshotNamespace:
+        """Earshot transcript operations (search, query, transform, count, date_parse, dashboard)."""
+        return self._earshot
+
+    @property
     def style(self) -> StyleNamespace:
         """Style operations (generate)."""
         return self._style
@@ -1126,6 +1364,7 @@ __all__ = [
     "SystemNamespace",
     "JorbsNamespace",
     "ClaudiaNamespace",
+    "EarshotNamespace",
     "StyleNamespace",
     "set_main_loop",
 ]

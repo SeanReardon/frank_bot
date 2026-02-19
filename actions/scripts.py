@@ -16,6 +16,7 @@ from meta.api import (
     ClaudiaNamespace,
     ContactsNamespace,
     DiagnosticsNamespace,
+    EarshotNamespace,
     JorbsNamespace,
     SMSNamespace,
     StyleNamespace,
@@ -251,6 +252,33 @@ async def api_learn_action(
                 "before_date": "Only analyze messages before this date (ISO 8601)",
             },
         },
+        "earshot": {
+            "description": "Earshot transcript search, LLM-powered queries, and analytics",
+            **_get_namespace_info(EarshotNamespace),
+            "examples": [
+                "frank.earshot.search(q='meeting', limit=10)",
+                "frank.earshot.search(since='2026-02-01', until='2026-02-19')",
+                "frank.earshot.count(earliest='2026-01-01', latest='2026-02-19')",
+                "frank.earshot.query(earliest='2026-02-01', latest='2026-02-19', prompt='Find action items and to-dos')",
+                "frank.earshot.query(earliest='2026-01-01', latest='2026-02-19', prompt='Summarize discussions about home renovations', terms=['renovation', 'house'])",
+                "frank.earshot.date_parse('last week')",
+                "frank.earshot.get(42)  # get transcript by ID",
+                "frank.earshot.dashboard()  # dashboard grid with standard query results",
+                "frank.earshot.diagnostics()  # transcript count and system info",
+            ],
+            "common_params": {
+                "earliest/latest": "Date range as YYYY-MM-DD",
+                "prompt": "Natural language description of what to find/extract",
+                "terms": "Optional keyword pre-filter (AND-matched before LLM)",
+                "q": "Full-text search query for transcript search",
+                "since/until": "Date filter for transcript search (YYYY-MM-DD or ISO 8601)",
+            },
+            "notes": (
+                "query() blocks until LLM processing completes (30-60s for large ranges). "
+                "For non-blocking use, call query_start() then poll query_results(). "
+                "date_parse() converts natural language dates to YYYY-MM-DD ranges."
+            ),
+        },
     }
 
     return {
@@ -258,7 +286,8 @@ async def api_learn_action(
             "Scripts are Python files with a main(frank, **params) function. "
             "The 'frank' object provides access to calendar, contacts, SMS, "
             "Swarm check-ins, Telegram, UPS status, time, diagnostics, "
-            "system, jorbs, claudia (AI coding assistant), and style. "
+            "system, jorbs, claudia (AI coding assistant), earshot "
+            "(transcript search and LLM queries), and style. "
             "Scripts run async - you get a task_id and poll for results."
         ),
         "quick_start": (

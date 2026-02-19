@@ -109,6 +109,20 @@ variable "claudia_api_key" {
   default     = ""
 }
 
+# Earshot (transcript search and LLM queries)
+variable "earshot_api_url" {
+  type        = string
+  description = "Earshot API base URL"
+  default     = "https://earshot-api.contrived.com"
+}
+
+variable "earshot_api_key" {
+  type        = string
+  description = "Earshot API key for X-API-Key header authentication"
+  sensitive   = true
+  default     = ""
+}
+
 # Android phone automation
 variable "android_device_serial" {
   type        = string

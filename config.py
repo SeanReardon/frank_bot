@@ -14,6 +14,7 @@ from functools import lru_cache
 from services.vault_client import (
     vault_enabled,
     get_claudia_credentials,
+    get_earshot_credentials,
     get_email_credentials,
     get_google_credentials,
     get_openai_credentials,
@@ -97,6 +98,9 @@ class Settings:
     # Claudia integration settings
     claudia_api_url: str | None
     claudia_api_key: str | None
+    # Earshot integration settings
+    earshot_api_url: str | None
+    earshot_api_key: str | None
     # Android phone settings
     android_device_serial: str
     android_adb_host: str
@@ -145,6 +149,8 @@ def _load_secrets() -> dict[str, str | None]:
         "smtp_password": None,
         "digest_email_to": None,
         "digest_time": None,
+        "earshot_api_url": None,
+        "earshot_api_key": None,
         "android_device_serial": None,
         "android_adb_host": None,
         "android_adb_port": None,
@@ -218,6 +224,12 @@ def _load_secrets() -> dict[str, str | None]:
         if claudia_creds:
             secrets["claudia_api_url"] = claudia_creds.get("api_url")
             secrets["claudia_api_key"] = claudia_creds.get("api_key")
+
+        # Earshot credentials
+        earshot_creds = get_earshot_credentials()
+        if earshot_creds:
+            secrets["earshot_api_url"] = earshot_creds.get("api_url")
+            secrets["earshot_api_key"] = earshot_creds.get("api_key")
 
         # Android phone credentials
         from services.vault_client import get_android_credentials
@@ -299,6 +311,10 @@ def _load_secrets() -> dict[str, str | None]:
             secrets["digest_email_to"] = os.getenv("DIGEST_EMAIL_TO")
         if not secrets["digest_time"]:
             secrets["digest_time"] = os.getenv("DIGEST_TIME")
+        if not secrets["earshot_api_url"]:
+            secrets["earshot_api_url"] = os.getenv("EARSHOT_API_URL")
+        if not secrets["earshot_api_key"]:
+            secrets["earshot_api_key"] = os.getenv("EARSHOT_API_KEY")
         if not secrets["android_llm_api_key"]:
             secrets["android_llm_api_key"] = os.getenv("ANDROID_LLM_API_KEY")
         if not secrets["android_device_serial"]:
@@ -341,6 +357,8 @@ def _load_secrets() -> dict[str, str | None]:
             "SMTP_PASSWORD",
             "DIGEST_EMAIL_TO",
             "DIGEST_TIME",
+            "EARSHOT_API_URL",
+            "EARSHOT_API_KEY",
             "ANDROID_LLM_API_KEY",
             "ANDROID_DEVICE_SERIAL",
             "ANDROID_ADB_HOST",
@@ -459,6 +477,9 @@ def get_settings() -> Settings:
         # Claudia integration
         claudia_api_url=secrets["claudia_api_url"],
         claudia_api_key=secrets["claudia_api_key"],
+        # Earshot integration
+        earshot_api_url=secrets["earshot_api_url"],
+        earshot_api_key=secrets["earshot_api_key"],
         # Android phone settings
         android_device_serial=secrets["android_device_serial"] or "",
         android_adb_host=secrets["android_adb_host"] or "",

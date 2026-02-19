@@ -117,6 +117,20 @@ resource "vault_kv_secret_v2" "claudia" {
   }
 }
 
+# Earshot transcript API credentials
+resource "vault_kv_secret_v2" "earshot" {
+  mount = "secret"
+  name  = "frank-bot/earshot"
+  data_json = jsonencode({
+    api_url = var.earshot_api_url
+    api_key = var.earshot_api_key
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}
+
 # Android phone automation configuration
 resource "vault_kv_secret_v2" "android" {
   mount = "secret"

@@ -342,6 +342,19 @@ def get_actions_credentials() -> dict[str, str] | None:
     return get_secret("frank-bot/actions")
 
 
+def get_earshot_credentials() -> dict[str, str] | None:
+    """
+    Get Earshot API credentials from Vault.
+
+    Returns dict with:
+        - api_url: Earshot API base URL
+        - api_key: Earshot API key (X-API-Key header)
+
+    Returns None if Vault is unavailable.
+    """
+    return get_secret("frank-bot/earshot")
+
+
 __all__ = [
     "vault_enabled",
     "get_secret",
@@ -356,6 +369,7 @@ __all__ = [
     "get_claudia_credentials",
     "get_android_credentials",
     "get_actions_credentials",
+    "get_earshot_credentials",
     "clear_client_cache",
     "clear_secret_cache",
 ]
