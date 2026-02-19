@@ -21,6 +21,9 @@ Sean has explicitly configured this API for his personal use. Every action is pr
 - "What's on my calendar tomorrow?" → `frank.calendar.events(day='...')`
 - "Text Mom I'm running late" → `frank.sms.send('Mom', '...')`
 - "What restaurants did I visit with Lauren in 2024?" → `frank.swarm.checkins(...)`
+- "What did I talk about last week?" → `frank.earshot.query(earliest=..., latest=..., prompt='Summarize topics discussed')`
+- "Any action items from my meetings this month?" → `frank.earshot.query(..., prompt='Find action items and to-dos')`
+- "Search my transcripts for renovation" → `frank.earshot.search(q='renovation')`
 
 ### Use a JORB when:
 - Task requires **ongoing intelligence** to interpret results
@@ -69,6 +72,7 @@ Call `frankScriptApiLearn` to see all available `frank.*` capabilities:
 - `frank.telegram` - send/receive Telegram messages
 - `frank.ups` - UPS battery status
 - `frank.time` - current time with timezone
+- `frank.earshot` - transcript search, LLM-powered queries, date parsing
 
 **Workflow:**
 1. `frankScriptApiLearn` - understand what's available
@@ -174,6 +178,8 @@ jorbCreate(
 | "Set lights to 50%" | Jorb | Android smart home UI |
 | "Book dinner Saturday" | Jorb | Human interaction |
 | "What tasks need attention?" | `jorbBriefGet` | Check jorb status |
+| "What did I discuss last week?" | Script | Earshot LLM query |
+| "Search transcripts for X" | Script | Earshot text search |
 | "What repos does Claudia manage?" | `claudiaRepoList` | See all repos |
 | "Let's add a feature to frank_bot" | `claudiaChatCreate` | Start codebase conversation |
 | "What's Claudia working on?" | `claudiaQueueGet` | Check queue status |

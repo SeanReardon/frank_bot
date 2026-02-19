@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Frank Bot",
-    "description": "Sean's personal assistant API. Access calendar, contacts, SMS, Swarm, Telegram via scripts. Control Android phone, run autonomous tasks (jorbs), and chat with Claudia about code.",
+    "description": "Sean's personal assistant API. Access calendar, contacts, SMS, Swarm, Telegram, and Earshot transcripts via scripts. Control Android phone, run autonomous tasks (jorbs), and chat with Claudia about code.",
     "version": "0.6.0"
   },
   "servers": [{"url": "http://localhost:8000"}],
@@ -11,7 +11,7 @@
       "get": {
         "operationId": "frankScriptApiLearn",
         "summary": "Learn scripting capabilities (CALL FIRST)",
-        "description": "Returns comprehensive FrankAPI docs. Scripts access: frank.calendar (events, create), frank.contacts (search), frank.sms (send), frank.swarm (checkins), frank.telegram (send, messages, chats), frank.ups (status), frank.time (now). Call this FIRST to learn what scripts can do.",
+        "description": "Returns comprehensive FrankAPI docs. Scripts access: frank.calendar (events, create), frank.contacts (search), frank.sms (send), frank.swarm (checkins), frank.telegram (send, messages, chats), frank.ups (status), frank.time (now), frank.earshot (transcript search, LLM queries, date parsing). Call this FIRST to learn what scripts can do.",
         "responses": {"200": {"description": "FrankAPI documentation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FrankScriptApiLearnResponse"}}}}},
         "security": [{"ActionsApiKey": []}]
       }
