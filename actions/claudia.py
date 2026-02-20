@@ -573,8 +573,9 @@ async def create_claudia_prompt_action(
                     f"{chat.prompt_id}"
                 ),
                 "suggestion": (
-                    f"Use claudiaPromptGet or claudiaPromptExecute with "
-                    f"prompt_id '{chat.prompt_id}' instead."
+                    f"Use claudiaPrompt(action='execute', prompt_id='{chat.prompt_id}') "
+                    f"to run it, or claudiaPrompt(action='get', prompt_id='{chat.prompt_id}') "
+                    f"to inspect it first."
                 ),
             }
 
@@ -873,47 +874,53 @@ async def api_learn_action(
         ),
         "workflow_chat_to_code": [
             "1. claudiaRepoList - See available repositories",
-            "2. claudiaChatCreate - Start a conversation about a feature",
-            "3. claudiaChatSend - Discuss and refine the approach",
-            "4. claudiaChatEnd - Finish the conversation",
-            "5. claudiaPromptCreate - Generate prompt from chat (requires chat_id)",
+            "2. claudiaChat(action='create', repo_name=..., title=...) - Start conversation",
+            "3. claudiaChat(action='send', repo_id=..., chat_id=..., message=...) - Discuss",
+            "4. claudiaChat(action='end', repo_id=..., chat_id=...) - Finish",
+            "5. claudiaPrompt(action='create', repo_id=..., chat_id=...) - Generate prompt from chat",
             "6. claudiaExecutionGet - Monitor the result",
         ],
         "workflow_execute_existing_prompt": [
             "1. claudiaRepoList - Find the repo",
-            "2. claudiaPromptList - See available prompts for that repo",
-            "3. claudiaPromptGet - (optional) Inspect prompt content before executing",
-            "4. claudiaPromptExecute - Execute the prompt (requires prompt_id)",
+            "2. claudiaPrompt(action='list', repo_id=...) - See available prompts",
+            "3. claudiaPrompt(action='execute', repo_id=..., prompt_id=...) - Run it",
+            "4. claudiaExecutionList - Find the execution_id",
             "5. claudiaExecutionGet - Monitor the result",
         ],
         "operations": {
             "claudiaRepoList": "List all Claudia-managed repositories",
-            "claudiaChatCreate": "Start chat (repo_name, title, message?)",
-            "claudiaChatList": "List chats for a repo (repo_id, status?). Find active or completed chats.",
-            "claudiaChatGet": "Get chat with all messages (repo_id, chat_id)",
-            "claudiaChatSend": "Send message (repo_id, chat_id, message)",
-            "claudiaChatEnd": "End chat (repo_id, chat_id)",
-            "claudiaPromptList": "List prompts for a repo (repo_id)",
-            "claudiaPromptGet": "Get prompt details + content (repo_id, prompt_id)",
-            "claudiaPromptCreate": "Generate NEW prompt from completed chat (repo_id, chat_id)",
-            "claudiaPromptExecute": "Execute EXISTING prompt file (repo_id, prompt_id)",
+            "claudiaChat": (
+                "Multiplexed chat endpoint. Pass action= to choose operation: "
+                "'create' (repo_name, title, message?), "
+                "'list' (repo_id, status?), "
+                "'get' (repo_id, chat_id), "
+                "'send' (repo_id, chat_id, message), "
+                "'end' (repo_id, chat_id)"
+            ),
+            "claudiaPrompt": (
+                "Multiplexed prompt endpoint. Pass action= to choose operation: "
+                "'list' (repo_id), "
+                "'get' (repo_id, prompt_id), "
+                "'create' (repo_id, chat_id) — generates NEW prompt from chat, "
+                "'execute' (repo_id, prompt_id) — runs EXISTING prompt"
+            ),
             "claudiaQueueGet": "Check queue status (repo_id)",
             "claudiaExecutionList": "List executions (repo_id?, status?, limit?). Find execution_ids to pass to claudiaExecutionGet.",
             "claudiaExecutionGet": "Get execution result (execution_id). Shows output, git diff, costs.",
         },
         "important": {
-            "claudiaPromptCreate_vs_Execute": (
-                "PromptCreate generates a NEW prompt from a chat conversation. "
-                "PromptExecute runs an EXISTING prompt file from the repo. "
-                "When user says 'execute prompt X', use PromptExecute. "
-                "When user says 'turn this chat into code', use PromptCreate."
+            "claudiaPrompt_create_vs_execute": (
+                "action='create' generates a NEW prompt from a chat conversation. "
+                "action='execute' runs an EXISTING prompt file from the repo. "
+                "When user says 'execute prompt X', use action='execute'. "
+                "When user says 'turn this chat into code', use action='create'."
             ),
         },
         "available_repos": repo_list,
         "tips": [
             "Start with a clear feature description in the chat title",
             "Discuss edge cases and constraints before ending chat",
-            "Check queue position - repos process one task at a time",
+            "Check queue position with claudiaQueueGet - repos process one task at a time",
             "Executions include git diffs and cost tracking",
         ],
     }

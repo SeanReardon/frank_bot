@@ -11,15 +11,7 @@ from typing import Any
 from config import Settings
 
 
-def load_openapi_document(settings: Settings) -> dict[str, Any]:
-    """
-    Load the OpenAPI JSON document from disk.
-    """
-
-    path = Path(settings.actions_openapi_path).expanduser()
-    if not path.is_absolute():
-        path = (Path.cwd() / path).resolve()
-
+def _load_spec(path: Path, settings: Settings) -> dict[str, Any]:
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
@@ -31,39 +23,48 @@ def load_openapi_document(settings: Settings) -> dict[str, Any]:
     try:
         document = json.loads(raw)
     except json.JSONDecodeError as exc:  # pragma: no cover
-        raise ValueError(f"Invalid JSON in OpenAPI file {path}: {exc}") from exc
+        raise ValueError(
+            f"Invalid JSON in OpenAPI file {path}: {exc}",
+        ) from exc
+
     document["servers"] = [{"url": settings.public_base_url.rstrip("/")}]
     return document
 
 
-def load_chatgpt_openapi_document(settings: Settings) -> dict[str, Any]:
-    """
-    Load the ChatGPT-specific OpenAPI JSON document from disk.
+def _resolve_spec_path(settings: Settings) -> Path:
+    path = Path(settings.actions_openapi_path).expanduser()
+    if not path.is_absolute():
+        path = (Path.cwd() / path).resolve()
+    return path
 
-    This is a trimmed version of the full spec with only essential operations
-    (under 30) to stay within ChatGPT's action limits.
-    """
-    # ChatGPT spec is always alongside the main spec
-    main_path = Path(settings.actions_openapi_path).expanduser()
-    if not main_path.is_absolute():
-        main_path = (Path.cwd() / main_path).resolve()
 
-    chatgpt_path = main_path.parent / "spec-chatgpt.json"
+def load_openapi_document(settings: Settings) -> dict[str, Any]:
+    """Load the canonical OpenAPI spec (all endpoints, proper REST)."""
+    return _load_spec(_resolve_spec_path(settings), settings)
+
+
+def load_openai_kludge_document(settings: Settings) -> dict[str, Any]:
+    """
+    Load the OpenAI-specific consolidated spec.
+
+    OpenAI GPT Actions caps at 30 operations, so we consolidate related
+    endpoint families into multiplexed "action" parameter endpoints.
+    Falls back to the canonical spec if the kludge file doesn't exist.
+    """
+    kludge_path = _resolve_spec_path(settings).parent / "spec-openai.json"
 
     try:
-        raw = chatgpt_path.read_text(encoding="utf-8")
+        return _load_spec(kludge_path, settings)
     except FileNotFoundError:
-        # Fall back to full spec if ChatGPT-specific doesn't exist
         return load_openapi_document(settings)
 
-    try:
-        document = json.loads(raw)
-    except json.JSONDecodeError as exc:  # pragma: no cover
-        raise ValueError(f"Invalid JSON in ChatGPT OpenAPI file {chatgpt_path}: {exc}") from exc
 
-    document["servers"] = [{"url": settings.public_base_url.rstrip("/")}]
-    return document
+# Legacy alias — kept in case anything still references it
+load_chatgpt_openapi_document = load_openai_kludge_document
 
 
-__all__ = ["load_openapi_document", "load_chatgpt_openapi_document"]
-
+__all__ = [
+    "load_openapi_document",
+    "load_openai_kludge_document",
+    "load_chatgpt_openapi_document",
+]

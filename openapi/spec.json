@@ -2,356 +2,2859 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Frank Bot",
-    "description": "Sean's personal assistant API. Access calendar, contacts, SMS, Swarm, Telegram, and Earshot transcripts via scripts. Control Android phone, run autonomous tasks (jorbs), and chat with Claudia about code.",
-    "version": "0.6.0"
+    "description": "Sean's personal assistant API. Full RESTful interface for calendar, contacts, SMS, Telegram, Swarm check-ins, Earshot transcripts, Android phone automation, autonomous tasks (jorbs), Claudia codebase agent, scripting engine, and system diagnostics.",
+    "version": "1.0.0"
   },
-  "servers": [{"url": "http://localhost:8000"}],
+  "servers": [
+    {
+      "url": "http://localhost:8000"
+    }
+  ],
   "paths": {
-    "/frank/script/api/learn": {
+    "/calendar/events": {
       "get": {
-        "operationId": "frankScriptApiLearn",
-        "summary": "Learn scripting capabilities (CALL FIRST)",
-        "description": "Returns FrankAPI docs. Namespaces: calendar, contacts, sms, swarm, telegram, ups, time, earshot (transcripts/LLM queries). Call FIRST to learn available frank.* methods and parameters.",
-        "responses": {"200": {"description": "FrankAPI documentation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FrankScriptApiLearnResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/frank/script/task/start": {
+        "operationId": "calendarEventList",
+        "summary": "List or search calendar events",
+        "description": "Get events from Google Calendar. Filter by day, time range, or calendar. Defaults to today if no time filter specified.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "day",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Date YYYY-MM-DD (overrides time_min/time_max)"
+          },
+          {
+            "in": "query",
+            "name": "time_min",
+            "schema": {
+              "type": "string"
+            },
+            "description": "ISO 8601 start of range"
+          },
+          {
+            "in": "query",
+            "name": "time_max",
+            "schema": {
+              "type": "string"
+            },
+            "description": "ISO 8601 end of range"
+          },
+          {
+            "in": "query",
+            "name": "calendar_id",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Google Calendar ID"
+          },
+          {
+            "in": "query",
+            "name": "calendar_name",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Calendar name (fuzzy matched)"
+          },
+          {
+            "in": "query",
+            "name": "time_zone",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Timezone (default: from settings)"
+          },
+          {
+            "in": "query",
+            "name": "max_results",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Max events (1-50)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Calendar events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEventListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
       "post": {
-        "operationId": "frankScriptTaskStart",
-        "summary": "Execute a script (async)",
-        "description": "Start script execution. Returns task_id immediately. Poll frankScriptTaskStatus for results. Provide script_id OR slug+code. Scripts can call frank.calendar.events(), frank.sms.send(), etc.",
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FrankScriptTaskStartRequest"}}}},
-        "responses": {"200": {"description": "Task started", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FrankScriptTaskStartResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "operationId": "calendarEventCreate",
+        "summary": "Create a calendar event",
+        "description": "Create event on Google Calendar. Attendees validated against contacts. Tagged as Frank_Bot-created.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarEventCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Event created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEventResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/frank/script/task/status": {
-      "get": {
-        "operationId": "frankScriptTaskStatus",
-        "summary": "Get script task status/result",
-        "parameters": [{"in": "query", "name": "task_id", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"description": "Task details", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FrankScriptTaskStatusResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/frank/script/task/list": {
-      "get": {
-        "operationId": "frankScriptTaskList",
-        "summary": "List recent script tasks",
+    "/calendar/events/{event_id}": {
+      "patch": {
+        "operationId": "calendarEventUpdate",
+        "summary": "Update a calendar event",
+        "description": "Update a Frank_Bot-created event. Only Frank_Bot events can be modified.",
         "parameters": [
-          {"in": "query", "name": "status", "schema": {"type": "string", "enum": ["pending", "running", "completed", "failed", "timeout"]}},
-          {"in": "query", "name": "limit", "schema": {"type": "integer", "default": 20}}
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "calendar_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "calendar_name",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": {"200": {"description": "Task list", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FrankScriptTaskListResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/frank/script/task/cancel": {
-      "get": {
-        "operationId": "frankScriptTaskCancel",
-        "summary": "Cancel a script task",
-        "parameters": [{"in": "query", "name": "task_id", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"description": "Cancellation result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FrankScriptTaskCancelResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/actions/androidPhone/api/learn": {
-      "get": {
-        "operationId": "androidPhoneApiLearn",
-        "summary": "Learn Android phone capabilities (CALL FIRST)",
-        "description": "Returns everything the phone can do: thermostat, smart home, Uber/Lyft, DoorDash, device maintenance, browser. Call FIRST before using TaskDo.",
-        "responses": {"200": {"description": "Android capabilities docs", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AndroidPhoneApiLearnResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/actions/androidPhone/task/do": {
-      "get": {
-        "operationId": "androidPhoneTaskDo",
-        "summary": "Start Android task (async)",
-        "description": "Start a phone task. Returns task_id immediately. Poll with androidPhoneTaskGet.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarEventUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Event updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEventResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "calendarEventDelete",
+        "summary": "Delete a calendar event",
+        "description": "Delete a Frank_Bot-created event.",
         "parameters": [
-          {"in": "query", "name": "goal", "required": true, "schema": {"type": "string"}, "description": "Natural language goal"},
-          {"in": "query", "name": "app", "schema": {"type": "string"}, "description": "Optional app to launch"}
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "calendar_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "calendar_name",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": {"200": {"description": "Task started", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AndroidPhoneTaskCreateResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Event deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEventDeleteResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/androidPhone/task/get": {
+    "/calendar/calendars": {
       "get": {
-        "operationId": "androidPhoneTaskGet",
-        "summary": "Get Android task status/result",
-        "parameters": [{"in": "query", "name": "task_id", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"description": "Task details", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AndroidPhoneTaskResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/actions/androidPhone/task/list": {
-      "get": {
-        "operationId": "androidPhoneTaskList",
-        "summary": "List Android tasks",
+        "operationId": "calendarList",
+        "summary": "List available calendars",
         "parameters": [
-          {"in": "query", "name": "status", "schema": {"type": "string"}},
-          {"in": "query", "name": "limit", "schema": {"type": "integer", "default": 20}}
+          {
+            "in": "query",
+            "name": "include_access_role",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "in": "query",
+            "name": "primary_only",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
         ],
-        "responses": {"200": {"description": "Task list", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AndroidPhoneTaskListResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Calendar list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/androidPhone/task/cancel": {
+    "/contacts/search": {
       "get": {
-        "operationId": "androidPhoneTaskCancel",
-        "summary": "Cancel Android task",
-        "parameters": [{"in": "query", "name": "task_id", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"description": "Task after cancellation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AndroidPhoneTaskResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "operationId": "contactSearch",
+        "summary": "Search contacts by name, email, or phone",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Search query"
+          },
+          {
+            "in": "query",
+            "name": "max_results",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contact results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactSearchResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/jorbs/api/learn": {
-      "get": {
-        "operationId": "jorbApiLearn",
-        "summary": "Learn Jorbs system (CALL FIRST)",
-        "description": "Returns comprehensive docs about autonomous tasks (jorbs). Learn lifecycle, contacts format, personalities, auto-pause rules.",
-        "responses": {"200": {"description": "Jorbs documentation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JorbsApiLearnResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+    "/sms/send": {
+      "post": {
+        "operationId": "smsSend",
+        "summary": "Send an SMS message",
+        "description": "Send SMS via Telnyx. Recipient can be a contact name or E.164 phone number.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SmsSendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SMS sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsSendResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/jorbs/create": {
+    "/sms/messages": {
       "get": {
+        "operationId": "smsMessageList",
+        "summary": "List SMS messages",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            },
+            "description": "Max messages (1-100)"
+          },
+          {
+            "in": "query",
+            "name": "contact",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by contact name"
+          },
+          {
+            "in": "query",
+            "name": "phone",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by phone number"
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "inbound",
+                "outbound"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SMS messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmsMessageListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/telegram/send": {
+      "post": {
+        "operationId": "telegramSend",
+        "summary": "Send a Telegram message (personal account)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelegramSendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramSendResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/telegram/messages": {
+      "get": {
+        "operationId": "telegramMessageList",
+        "summary": "Get Telegram messages from a chat",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "chat",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Username, phone, or chat ID"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramMessageListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/telegram/chats": {
+      "get": {
+        "operationId": "telegramChatList",
+        "summary": "List Telegram conversations",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramChatListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/telegram/send-photo": {
+      "post": {
+        "operationId": "telegramSendPhoto",
+        "summary": "Send a photo via Telegram (personal account)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelegramSendPhotoRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Photo sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramSendPhotoResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/telegram/status": {
+      "get": {
+        "operationId": "telegramStatus",
+        "summary": "Telegram connection status",
+        "responses": {
+          "200": {
+            "description": "Status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/telegram/bot/send": {
+      "post": {
+        "operationId": "telegramBotSend",
+        "summary": "Send message via Telegram Bot (@Seans_frank_bot)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelegramBotSendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bot message sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramBotSendResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/swarm/checkins": {
+      "get": {
+        "operationId": "swarmCheckinSearch",
+        "summary": "Search Foursquare/Swarm check-ins",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "max_results",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Max results (1-250)"
+          },
+          {
+            "in": "query",
+            "name": "year",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Filter by year"
+          },
+          {
+            "in": "query",
+            "name": "after_date",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Start date YYYY-MM-DD"
+          },
+          {
+            "in": "query",
+            "name": "before_date",
+            "schema": {
+              "type": "string"
+            },
+            "description": "End date YYYY-MM-DD"
+          },
+          {
+            "in": "query",
+            "name": "with_companion",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Companion name(s), comma-separated"
+          },
+          {
+            "in": "query",
+            "name": "companion_match",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "any",
+                "all"
+              ],
+              "default": "any"
+            }
+          },
+          {
+            "in": "query",
+            "name": "only_with_companions",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Venue category filter"
+          },
+          {
+            "in": "query",
+            "name": "has_photos",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_photos",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Check-ins",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwarmCheckinSearchResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/swarm/checkins/latest": {
+      "get": {
+        "operationId": "swarmCheckinLatest",
+        "summary": "Most recent check-in (where am I?)",
+        "responses": {
+          "200": {
+            "description": "Latest check-in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwarmCheckinLatestResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/earshot/search": {
+      "get": {
+        "operationId": "earshotSearch",
+        "summary": "Full-text search transcripts",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query"
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "location",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "string"
+            },
+            "description": "YYYY-MM-DD"
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "string"
+            },
+            "description": "YYYY-MM-DD"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EarshotSearchResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/earshot/transcripts/{transcript_id}": {
+      "get": {
+        "operationId": "earshotTranscriptGet",
+        "summary": "Get a single transcript",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transcript_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transcript",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EarshotTranscriptResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/earshot/query": {
+      "post": {
+        "operationId": "earshotQuery",
+        "summary": "LLM-powered transcript query",
+        "description": "Ask a natural language question about transcripts in a date range.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EarshotQueryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Query results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EarshotQueryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/earshot/count": {
+      "get": {
+        "operationId": "earshotCount",
+        "summary": "Count transcripts in date range",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "earliest",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "YYYY-MM-DD"
+          },
+          {
+            "in": "query",
+            "name": "latest",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "YYYY-MM-DD"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EarshotCountResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/earshot/date-parse": {
+      "get": {
+        "operationId": "earshotDateParse",
+        "summary": "Parse natural language date to range",
+        "description": "Convert 'last week', 'January 2026', etc. to YYYY-MM-DD range.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "text",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Parsed dates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EarshotDateParseResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/earshot/diagnostics": {
+      "get": {
+        "operationId": "earshotDiagnostics",
+        "summary": "Earshot service diagnostics",
+        "responses": {
+          "200": {
+            "description": "Diagnostics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EarshotDiagnosticsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/status": {
+      "get": {
+        "operationId": "androidStatus",
+        "summary": "Phone connection status and device info",
+        "responses": {
+          "200": {
+            "description": "Status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/screen": {
+      "get": {
+        "operationId": "androidScreenGet",
+        "summary": "Get current screen (screenshot + UI tree + clickable elements)",
+        "responses": {
+          "200": {
+            "description": "Screen state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidScreenResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/screenshot": {
+      "get": {
+        "operationId": "androidScreenshot",
+        "summary": "Take a screenshot",
+        "responses": {
+          "200": {
+            "description": "Screenshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidScreenshotResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/tap": {
+      "post": {
+        "operationId": "androidTap",
+        "summary": "Tap at coordinates",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AndroidTapRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/type": {
+      "post": {
+        "operationId": "androidType",
+        "summary": "Type text into focused field",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AndroidTypeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/swipe": {
+      "post": {
+        "operationId": "androidSwipe",
+        "summary": "Swipe gesture",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AndroidSwipeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/key": {
+      "post": {
+        "operationId": "androidKeyPress",
+        "summary": "Press a key (home, back, enter, etc.)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AndroidKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/launch": {
+      "post": {
+        "operationId": "androidLaunch",
+        "summary": "Launch an app",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AndroidLaunchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/wake": {
+      "post": {
+        "operationId": "androidWake",
+        "summary": "Wake and unlock device",
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidActionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/find-tap": {
+      "post": {
+        "operationId": "androidFindAndTap",
+        "summary": "Find UI element by text and tap it",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AndroidFindTapRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidFindTapResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/tasks": {
+      "get": {
+        "operationId": "androidTaskList",
+        "summary": "List phone tasks",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "running",
+                "completed",
+                "failed",
+                "cancelled",
+                "active"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidTaskListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "androidTaskCreate",
+        "summary": "Start a goal-based phone task (LLM-in-the-loop)",
+        "description": "Async task. Returns task_id immediately. LLM autonomously drives the phone UI.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AndroidTaskCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidTaskCreateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/tasks/{task_id}": {
+      "get": {
+        "operationId": "androidTaskGet",
+        "summary": "Get task status and result",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_screenshot_base64",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_steps",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidTaskGetResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "androidTaskCancel",
+        "summary": "Cancel a phone task",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidTaskGetResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/thermostat/status": {
+      "get": {
+        "operationId": "androidThermostatStatus",
+        "summary": "Get thermostat status (via Google Home LLM automation)",
+        "responses": {
+          "200": {
+            "description": "Thermostat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidThermostatStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/thermostat/range": {
+      "put": {
+        "operationId": "androidThermostatSetRange",
+        "summary": "Set thermostat temperature range",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AndroidThermostatSetRangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidThermostatSetRangeResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/maintenance/update-apps": {
+      "post": {
+        "operationId": "androidMaintenanceUpdateApps",
+        "summary": "Check for and install app updates",
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidMaintenanceResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/maintenance/security": {
+      "get": {
+        "operationId": "androidMaintenanceSecurity",
+        "summary": "Check device security patch level",
+        "responses": {
+          "200": {
+            "description": "Security info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidSecurityResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/maintenance/reboot": {
+      "post": {
+        "operationId": "androidMaintenanceReboot",
+        "summary": "Reboot the device (requires confirmation)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AndroidRebootRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidMaintenanceResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/maintenance/storage": {
+      "get": {
+        "operationId": "androidMaintenanceStorage",
+        "summary": "Device storage info",
+        "responses": {
+          "200": {
+            "description": "Storage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidStorageResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/maintenance/clear-cache": {
+      "post": {
+        "operationId": "androidMaintenanceClearCache",
+        "summary": "Clear app caches",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "threshold",
+            "schema": {
+              "type": "number",
+              "default": 90.0
+            },
+            "description": "Storage % threshold"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidMaintenanceResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/maintenance/battery": {
+      "get": {
+        "operationId": "androidMaintenanceBattery",
+        "summary": "Battery health information",
+        "responses": {
+          "200": {
+            "description": "Battery",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidBatteryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/android/audit": {
+      "get": {
+        "operationId": "androidAuditList",
+        "summary": "Phone action audit log",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 100
+            },
+            "description": "Max entries (1-500)"
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by action type"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit log",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AndroidAuditResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/jorbs": {
+      "get": {
+        "operationId": "jorbList",
+        "summary": "List jorbs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "closed",
+                "all"
+              ],
+              "default": "open"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jorbs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JorbListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
+      "post": {
         "operationId": "jorbCreate",
-        "summary": "Create autonomous task",
-        "description": "Start a jorb with name, plan, contacts array. Frank executes via SMS/Telegram, pauses for approval on spending.",
-        "parameters": [
-          {"in": "query", "name": "name", "required": true, "schema": {"type": "string"}},
-          {"in": "query", "name": "plan", "required": true, "schema": {"type": "string"}},
-          {"in": "query", "name": "contacts", "schema": {"type": "string"}, "description": "JSON array: [{identifier, channel, name}]"},
-          {"in": "query", "name": "personality", "schema": {"type": "string", "default": "default"}},
-          {"in": "query", "name": "start_immediately", "schema": {"type": "boolean", "default": true}}
-        ],
-        "responses": {"200": {"description": "Created jorb", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateJorbResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "summary": "Create an autonomous task",
+        "description": "Start a jorb. The LLM autonomously executes the plan using frank_bot capabilities.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JorbCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JorbCreateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/jorbs/{id}/get": {
+    "/jorbs/brief": {
+      "get": {
+        "operationId": "jorbBriefGet",
+        "summary": "Activity briefing and pending decisions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hours",
+            "schema": {
+              "type": "integer",
+              "default": 24
+            },
+            "description": "Look-back hours (1-168)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Briefing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JorbBriefResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/jorbs/stats": {
+      "get": {
+        "operationId": "jorbStatsGet",
+        "summary": "Aggregate jorb statistics",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "closed",
+                "all"
+              ],
+              "default": "all"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JorbStatsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/jorbs/{jorb_id}": {
       "get": {
         "operationId": "jorbGet",
         "summary": "Get jorb details",
         "parameters": [
-          {"in": "path", "name": "id", "required": true, "schema": {"type": "string"}},
-          {"in": "query", "name": "include_messages", "schema": {"type": "boolean", "default": false}}
+          {
+            "in": "path",
+            "name": "jorb_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_messages",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "in": "query",
+            "name": "message_limit",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
         ],
-        "responses": {"200": {"description": "Jorb details", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JorbDetailsResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/actions/jorbs/brief": {
-      "get": {
-        "operationId": "jorbBriefGet",
-        "summary": "Get jorbs overview + pending decisions",
-        "description": "Quick briefing on all jorb activity. Shows pending approvals, recent completions, activity summary.",
-        "responses": {"200": {"description": "Briefing", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JorbsBriefResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/actions/jorbs/{id}/approve": {
-      "get": {
-        "operationId": "jorbApprove",
-        "summary": "Approve/reject jorb action",
-        "parameters": [
-          {"in": "path", "name": "id", "required": true, "schema": {"type": "string"}},
-          {"in": "query", "name": "decision", "required": true, "schema": {"type": "string", "enum": ["approve", "reject"]}},
-          {"in": "query", "name": "note", "schema": {"type": "string"}}
-        ],
-        "responses": {"200": {"description": "Updated jorb", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JorbApproveResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/actions/jorbs/{id}/cancel": {
-      "get": {
+        "responses": {
+          "200": {
+            "description": "Details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JorbDetailResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
+      "delete": {
         "operationId": "jorbCancel",
         "summary": "Cancel a jorb",
         "parameters": [
-          {"in": "path", "name": "id", "required": true, "schema": {"type": "string"}},
-          {"in": "query", "name": "reason", "schema": {"type": "string"}}
+          {
+            "in": "path",
+            "name": "jorb_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "reason",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": {"200": {"description": "Cancelled jorb", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JorbCancelResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JorbCancelResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/api/learn": {
+    "/jorbs/{jorb_id}/messages": {
       "get": {
-        "operationId": "claudiaApiLearn",
-        "summary": "Learn Claudia coding assistant (CALL FIRST)",
-        "description": "Returns docs about chatting with Claudia for coding. Learn workflow: list repos, create chat, discuss, end, execute prompt, check queue.",
-        "responses": {"200": {"description": "Claudia documentation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaApiLearnResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "operationId": "jorbMessageList",
+        "summary": "Get jorb message history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jorb_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JorbMessageListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/repos": {
+    "/jorbs/{jorb_id}/approve": {
+      "post": {
+        "operationId": "jorbApprove",
+        "summary": "Approve or reject a jorb action",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jorb_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JorbApproveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JorbApproveResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/claudia/repos": {
       "get": {
         "operationId": "claudiaRepoList",
         "summary": "List Claudia-managed repositories",
-        "description": "See all repos Claudia manages with their status, model, and queue info.",
-        "responses": {"200": {"description": "List of repos", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaReposResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Repos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaRepoListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/chat/create": {
-      "get": {
-        "operationId": "claudiaChatCreate",
-        "summary": "Start chat with Claudia about a repo",
-        "description": "Create a new chat session. Requires repo_name and title. Optionally include initial message.",
-        "parameters": [
-          {"in": "query", "name": "repo_name", "required": true, "schema": {"type": "string"}, "description": "Repository name (e.g., frank_bot)"},
-          {"in": "query", "name": "title", "required": true, "schema": {"type": "string"}, "description": "Chat topic/title"},
-          {"in": "query", "name": "message", "schema": {"type": "string"}, "description": "Optional initial message"}
-        ],
-        "responses": {"200": {"description": "Chat created with queue position", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatCreateResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/actions/claudia/repos/{repo_id}/chats": {
+    "/claudia/repos/{repo_id}/chats": {
       "get": {
         "operationId": "claudiaChatList",
         "summary": "List chats for a repo",
-        "description": "List all chat sessions for a repository. Filter by status (active, completed, cancelled) to find ongoing or past conversations.",
         "parameters": [
-          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
-          {"in": "query", "name": "status", "schema": {"type": "string", "enum": ["active", "completed", "cancelled"]}, "description": "Filter by chat status"}
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "completed",
+                "cancelled"
+              ]
+            }
+          }
         ],
-        "responses": {"200": {"description": "List of chats", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatListResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Chats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaChatListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "claudiaChatCreate",
+        "summary": "Start a chat with Claudia",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaudiaChatCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chat created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaChatCreateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/repos/{repo_id}/chats/{chat_id}": {
+    "/claudia/repos/{repo_id}/chats/{chat_id}": {
       "get": {
         "operationId": "claudiaChatGet",
         "summary": "Get chat with all messages",
         "parameters": [
-          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
-          {"in": "path", "name": "chat_id", "required": true, "schema": {"type": "string"}}
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "chat_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": {"200": {"description": "Chat details with messages", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatGetResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaChatGetResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/repos/{repo_id}/chats/{chat_id}/message": {
-      "get": {
+    "/claudia/repos/{repo_id}/chats/{chat_id}/messages": {
+      "post": {
         "operationId": "claudiaChatSend",
-        "summary": "Send message in chat",
+        "summary": "Send a message in a chat",
         "parameters": [
-          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
-          {"in": "path", "name": "chat_id", "required": true, "schema": {"type": "string"}},
-          {"in": "query", "name": "message", "required": true, "schema": {"type": "string"}}
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "chat_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": {"200": {"description": "Message added", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatMessageResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaudiaChatSendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaChatMessageResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/repos/{repo_id}/chats/{chat_id}/end": {
-      "get": {
+    "/claudia/repos/{repo_id}/chats/{chat_id}/end": {
+      "post": {
         "operationId": "claudiaChatEnd",
         "summary": "End a chat session",
         "parameters": [
-          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
-          {"in": "path", "name": "chat_id", "required": true, "schema": {"type": "string"}}
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "chat_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": {"200": {"description": "Chat ended", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatEndResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaChatEndResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/repos/{repo_id}/prompts": {
+    "/claudia/repos/{repo_id}/prompts": {
       "get": {
         "operationId": "claudiaPromptList",
         "summary": "List prompts for a repo",
-        "description": "List all available prompt files in a repository. Shows prompt names, status, descriptions, and tags. Use this to find which prompts exist before executing one.",
         "parameters": [
-          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}}
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": {"200": {"description": "List of prompts", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptsResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
-      }
-    },
-    "/actions/claudia/repos/{repo_id}/prompts/create": {
-      "get": {
+        "responses": {
+          "200": {
+            "description": "Prompts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaPromptListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
+      "post": {
         "operationId": "claudiaPromptCreate",
-        "summary": "Generate NEW prompt from a completed chat",
-        "description": "Generate a NEW prompt from a completed chat conversation and queue it. Requires chat_id. Do NOT use this to run an existing prompt — use claudiaPromptExecute for that.",
+        "summary": "Generate a new prompt from a completed chat",
         "parameters": [
-          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
-          {"in": "query", "name": "chat_id", "required": true, "schema": {"type": "string"}, "description": "ID of the completed chat to generate prompt from"}
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": {"200": {"description": "Prompt generated and execution queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptCreateResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaudiaPromptCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaPromptCreateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/repos/{repo_id}/prompts/{prompt_id}": {
+    "/claudia/repos/{repo_id}/prompts/{prompt_id}": {
       "get": {
         "operationId": "claudiaPromptGet",
         "summary": "Get prompt details and content",
-        "description": "Get full details of a specific prompt including its content. Use this to inspect what a prompt will do before executing it.",
         "parameters": [
-          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
-          {"in": "path", "name": "prompt_id", "required": true, "schema": {"type": "string"}, "description": "Prompt ID from claudiaPromptList"}
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "prompt_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": {"200": {"description": "Prompt details with content", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptGetResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Prompt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaPromptGetResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/repos/{repo_id}/prompts/{prompt_id}/execute": {
-      "get": {
+    "/claudia/repos/{repo_id}/prompts/{prompt_id}/execute": {
+      "post": {
         "operationId": "claudiaPromptExecute",
-        "summary": "Execute an EXISTING prompt from the repo",
-        "description": "Execute a prompt file that already exists in the repo's prompts/ directory. Call claudiaPromptList first to find the prompt_id. This queues direct execution by Claude.",
+        "summary": "Execute an existing prompt",
         "parameters": [
-          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
-          {"in": "path", "name": "prompt_id", "required": true, "schema": {"type": "string"}, "description": "Prompt ID to execute (from claudiaPromptList)"}
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "prompt_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
-        "responses": {"200": {"description": "Prompt execution queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaPromptExecuteResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaPromptExecuteResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/repos/{repo_id}/queue": {
+    "/claudia/repos/{repo_id}/queue": {
       "get": {
         "operationId": "claudiaQueueGet",
-        "summary": "Get queue status for a repo",
-        "description": "See pending and active tasks in the queue.",
-        "parameters": [{"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"description": "Queue status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaQueueResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "summary": "Queue status for a repo",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Queue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaQueueResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/executions": {
+    "/claudia/executions": {
       "get": {
         "operationId": "claudiaExecutionList",
-        "summary": "List executions",
-        "description": "List prompt executions with optional filters. Use this to find execution_ids and check overall execution status. Filter by repo_id and/or status.",
+        "summary": "List prompt executions",
         "parameters": [
-          {"in": "query", "name": "repo_id", "schema": {"type": "string"}, "description": "Filter by repository ID"},
-          {"in": "query", "name": "status", "schema": {"type": "string"}, "description": "Filter by status"},
-          {"in": "query", "name": "limit", "schema": {"type": "integer", "default": 50}, "description": "Max results (default 50)"}
+          {
+            "in": "query",
+            "name": "repo_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
         ],
-        "responses": {"200": {"description": "List of executions", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaExecutionListResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Executions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaExecutionListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
-    "/actions/claudia/executions/{execution_id}": {
+    "/claudia/executions/{execution_id}": {
       "get": {
         "operationId": "claudiaExecutionGet",
-        "summary": "Get execution details",
-        "description": "Full execution details including prompt, output, git diff, costs.",
-        "parameters": [{"in": "path", "name": "execution_id", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"description": "Execution details", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaExecutionGetResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "summary": "Get execution details (output, git diff, costs)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "execution_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Execution",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaExecutionGetResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/scripts": {
+      "get": {
+        "operationId": "scriptList",
+        "summary": "List saved scripts",
+        "responses": {
+          "200": {
+            "description": "Scripts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "scriptCreate",
+        "summary": "Create a new script",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptCreateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/scripts/{script_id}": {
+      "get": {
+        "operationId": "scriptGet",
+        "summary": "Get script source code",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "script_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Script",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptGetResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "scriptUpdate",
+        "summary": "Update a script",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "script_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptUpdateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "scriptDelete",
+        "summary": "Delete a script",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "script_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptDeleteResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/scripts/{script_id}/run": {
+      "post": {
+        "operationId": "scriptRun",
+        "summary": "Execute a saved script",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "script_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptRunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptTaskResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/scripts/run": {
+      "post": {
+        "operationId": "scriptRunInline",
+        "summary": "Execute inline script code",
+        "description": "Run ad-hoc code without saving. Must define main(frank).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptRunInlineRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptTaskResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/scripts/tasks": {
+      "get": {
+        "operationId": "scriptTaskList",
+        "summary": "List script execution tasks",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "running",
+                "completed",
+                "failed",
+                "timeout"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptTaskListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/scripts/tasks/{task_id}": {
+      "get": {
+        "operationId": "scriptTaskGet",
+        "summary": "Get script task status and result",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptTaskDetailResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     },
     "/health": {
       "get": {
-        "operationId": "health",
+        "operationId": "healthCheck",
         "summary": "Quick health check",
-        "description": "Returns OK if server is running. Fast, no auth required. Use diagnosticsGet for detailed subsystem status.",
-        "responses": {"200": {"description": "Health status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthResponse"}}}}},
+        "responses": {
+          "200": {
+            "description": "Health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        },
         "security": []
       }
     },
@@ -359,365 +2862,1787 @@
       "get": {
         "operationId": "diagnosticsGet",
         "summary": "Comprehensive system diagnostics",
-        "description": "Detailed status of ALL subsystems: Android phone (connected?), Jorbs (active counts), Scripts (task stats), Claudia (connectivity), background services. Call this to understand full system state.",
-        "responses": {"200": {"description": "Full diagnostics", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiagnosticsResponse"}}}}},
-        "security": [{"ActionsApiKey": []}]
+        "responses": {
+          "200": {
+            "description": "Diagnostics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/system/status": {
+      "get": {
+        "operationId": "systemStatus",
+        "summary": "Orchestration machinery status",
+        "responses": {
+          "200": {
+            "description": "Status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/system/time": {
+      "get": {
+        "operationId": "systemTime",
+        "summary": "Current time (derives timezone from latest Swarm check-in)",
+        "responses": {
+          "200": {
+            "description": "Time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemTimeResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/ups/status": {
+      "get": {
+        "operationId": "upsStatus",
+        "summary": "UPS battery status",
+        "responses": {
+          "200": {
+            "description": "UPS",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpsStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/style/generate": {
+      "post": {
+        "operationId": "styleGenerate",
+        "summary": "Generate SEAN.md communication style guide",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StyleGenerateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StyleGenerateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
       }
     }
   },
   "components": {
     "schemas": {
-      "FrankScriptApiLearnResponse": {
+      "CalendarEventListResponse": {
         "type": "object",
-        "description": "Comprehensive FrankAPI documentation for script development.",
         "properties": {
-          "overview": {"type": "string"},
-          "quick_start": {"type": "string"},
-          "namespaces": {"type": "object", "description": "frank.calendar, frank.contacts, frank.sms, frank.swarm, frank.telegram, frank.ups, frank.time"},
-          "example_scripts": {"type": "array", "items": {"type": "object"}},
-          "execution_workflow": {"type": "array", "items": {"type": "string"}},
-          "tips": {"type": "array", "items": {"type": "string"}}
+          "message": {
+            "type": "string"
+          },
+          "calendar": {
+            "type": "object"
+          },
+          "time_window": {
+            "type": "object"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         }
       },
-      "FrankScriptTaskStartRequest": {
+      "CalendarEventCreateRequest": {
         "type": "object",
         "properties": {
-          "script_id": {"type": "string", "description": "ID of existing script"},
-          "slug": {"type": "string", "description": "Slug for new script (use with code)"},
-          "code": {"type": "string", "description": "Python code (use with slug)"},
-          "params": {"type": "object", "description": "Parameters for main()"},
-          "timeout": {"type": "integer", "default": 600}
-        }
-      },
-      "FrankScriptTaskStartResponse": {
-        "type": "object",
-        "properties": {
-          "task_id": {"type": "string"},
-          "status": {"type": "string"},
-          "script_id": {"type": "string"},
-          "message": {"type": "string"}
+          "summary": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "attendees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "time_zone": {
+            "type": "string"
+          },
+          "calendar_id": {
+            "type": "string"
+          },
+          "calendar_name": {
+            "type": "string"
+          }
         },
-        "required": ["task_id", "status", "script_id"]
+        "required": [
+          "summary",
+          "start",
+          "end"
+        ]
       },
-      "FrankScriptTaskStatusResponse": {
+      "CalendarEventUpdateRequest": {
         "type": "object",
         "properties": {
-          "job_id": {"type": "string"},
-          "script_id": {"type": "string"},
-          "status": {"type": "string", "enum": ["pending", "running", "completed", "failed", "timeout"]},
-          "params": {"type": "object"},
-          "started_at": {"type": "string"},
-          "completed_at": {"type": "string"},
-          "stdout": {"type": "string"},
-          "stderr": {"type": "string"},
-          "result": {"description": "Return value from main()"},
-          "error": {"type": "string"}
+          "summary": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "time_zone": {
+            "type": "string"
+          }
+        }
+      },
+      "CalendarEventResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "event": {
+            "type": "object"
+          },
+          "calendar": {
+            "type": "object"
+          }
+        }
+      },
+      "CalendarEventDeleteResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "calendar": {
+            "type": "object"
+          }
+        }
+      },
+      "CalendarListResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "calendars": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "ContactSearchResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "SmsSendRequest": {
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
         },
-        "required": ["job_id", "script_id", "status"]
+        "required": [
+          "recipient",
+          "message"
+        ]
       },
-      "FrankScriptTaskListResponse": {
+      "SmsSendResponse": {
         "type": "object",
         "properties": {
-          "count": {"type": "integer"},
-          "tasks": {"type": "array", "items": {"type": "object"}}
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "to_number": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          }
         }
       },
-      "FrankScriptTaskCancelResponse": {
+      "SmsMessageListResponse": {
         "type": "object",
         "properties": {
-          "task_id": {"type": "string"},
-          "status": {"type": "string"},
-          "message": {"type": "string"}
+          "count": {
+            "type": "integer"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         }
       },
-      "AndroidPhoneApiLearnResponse": {
+      "TelegramSendRequest": {
         "type": "object",
-        "description": "Comprehensive Android phone capabilities.",
         "properties": {
-          "overview": {"type": "string"},
-          "capabilities": {"type": "object"},
-          "examples": {"type": "array", "items": {"type": "string"}},
-          "safety_rules": {"type": "array", "items": {"type": "string"}}
+          "recipient": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipient",
+          "text"
+        ]
+      },
+      "TelegramSendResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "integer"
+          }
         }
       },
-      "AndroidPhoneTaskCreateResponse": {
+      "TelegramMessageListResponse": {
         "type": "object",
         "properties": {
-          "task_id": {"type": "string"},
-          "status": {"type": "string"},
-          "goal": {"type": "string"},
-          "message": {"type": "string"}
+          "success": {
+            "type": "boolean"
+          },
+          "chat": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         }
       },
-      "AndroidPhoneTaskResponse": {
+      "TelegramChatListResponse": {
         "type": "object",
         "properties": {
-          "task_id": {"type": "string"},
-          "status": {"type": "string"},
-          "goal": {"type": "string"},
-          "result": {"type": "string"},
-          "extracted_data": {"type": "object"},
-          "steps_taken": {"type": "integer"},
-          "error": {"type": "string"}
+          "success": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "chats": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         }
       },
-      "AndroidPhoneTaskListResponse": {
+      "TelegramSendPhotoRequest": {
         "type": "object",
         "properties": {
-          "count": {"type": "integer"},
-          "tasks": {"type": "array", "items": {"type": "object"}}
+          "recipient": {
+            "type": "string"
+          },
+          "photo_path": {
+            "type": "string"
+          },
+          "caption": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipient",
+          "photo_path"
+        ]
+      },
+      "TelegramSendPhotoResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message_id": {
+            "type": "integer"
+          }
         }
       },
-      "JorbsApiLearnResponse": {
+      "TelegramStatusResponse": {
         "type": "object",
-        "description": "Comprehensive jorbs documentation.",
         "properties": {
-          "overview": {"type": "string"},
-          "lifecycle": {"type": "object"},
-          "create_jorb": {"type": "object"},
-          "personalities": {"type": "object"},
-          "auto_pause_rules": {"type": "array", "items": {"type": "string"}},
-          "operations": {"type": "object"},
-          "example_plan": {"type": "string"}
+          "connected": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
         }
       },
-      "CreateJorbResponse": {
+      "TelegramBotSendRequest": {
         "type": "object",
         "properties": {
-          "jorb_id": {"type": "string"},
-          "name": {"type": "string"},
-          "status": {"type": "string"},
-          "plan": {"type": "string"},
-          "contacts": {"type": "array", "items": {"type": "object"}},
-          "kickoff": {"type": "object"}
+          "text": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "parse_mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "TelegramBotSendResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message_id": {
+            "type": "integer"
+          },
+          "chat_id": {
+            "type": "string"
+          }
         }
       },
-      "JorbDetailsResponse": {
+      "SwarmCheckinSearchResponse": {
         "type": "object",
         "properties": {
-          "jorb_id": {"type": "string"},
-          "name": {"type": "string"},
-          "status": {"type": "string"},
-          "plan": {"type": "string"},
-          "progress_summary": {"type": "string"},
-          "paused_reason": {"type": "string"},
-          "needs_approval_for": {"type": "string"},
-          "messages": {"type": "array", "items": {"type": "object"}}
+          "message": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "checkins": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "filters": {
+            "type": "object"
+          }
         }
       },
-      "JorbsBriefResponse": {
+      "SwarmCheckinLatestResponse": {
         "type": "object",
         "properties": {
-          "needs_attention": {"type": "integer"},
-          "activity_summary": {"type": "string"},
-          "pending_decisions": {"type": "array", "items": {"type": "object"}},
-          "total_open_jorbs": {"type": "integer"}
+          "message": {
+            "type": "string"
+          },
+          "checkin": {
+            "type": "object"
+          }
         }
       },
-      "JorbApproveResponse": {
+      "EarshotSearchResponse": {
         "type": "object",
         "properties": {
-          "jorb_id": {"type": "string"},
-          "status": {"type": "string"},
-          "message": {"type": "string"}
+          "count": {
+            "type": "integer"
+          },
+          "transcripts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "EarshotTranscriptResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "EarshotQueryRequest": {
+        "type": "object",
+        "properties": {
+          "earliest": {
+            "type": "string"
+          },
+          "latest": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "terms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "earliest",
+          "latest",
+          "prompt"
+        ]
+      },
+      "EarshotQueryResponse": {
+        "type": "object",
+        "properties": {
+          "queryId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "totalResults": {
+            "type": "integer"
+          }
+        }
+      },
+      "EarshotCountResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "earliest": {
+            "type": "string"
+          },
+          "latest": {
+            "type": "string"
+          }
+        }
+      },
+      "EarshotDateParseResponse": {
+        "type": "object",
+        "properties": {
+          "earliest": {
+            "type": "string"
+          },
+          "latest": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          }
+        }
+      },
+      "EarshotDiagnosticsResponse": {
+        "type": "object",
+        "properties": {
+          "transcript_count": {
+            "type": "integer"
+          },
+          "git_commit": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidStatusResponse": {
+        "type": "object",
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "device_serial": {
+            "type": "string"
+          },
+          "device_model": {
+            "type": "string"
+          },
+          "android_version": {
+            "type": "string"
+          },
+          "battery_level": {
+            "type": "integer"
+          },
+          "wifi_enabled": {
+            "type": "boolean"
+          },
+          "wifi_ssid": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidScreenResponse": {
+        "type": "object",
+        "properties": {
+          "screenshot_base64": {
+            "type": "string"
+          },
+          "xml": {
+            "type": "string"
+          },
+          "clickable_elements": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "element_count": {
+            "type": "integer"
+          },
+          "dominant_package": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidScreenshotResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidTapRequest": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ]
+      },
+      "AndroidTypeRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "AndroidSwipeRequest": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "left",
+              "right"
+            ]
+          }
+        },
+        "required": [
+          "direction"
+        ]
+      },
+      "AndroidKeyRequest": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "home",
+              "back",
+              "enter",
+              "recent",
+              "volume_up",
+              "volume_down",
+              "power",
+              "tab",
+              "delete",
+              "search"
+            ]
+          }
+        },
+        "required": [
+          "key"
+        ]
+      },
+      "AndroidLaunchRequest": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app"
+        ]
+      },
+      "AndroidFindTapRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "content_desc": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidFindTapResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "found_text": {
+            "type": "string"
+          },
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          }
+        }
+      },
+      "AndroidActionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "action": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidTaskCreateRequest": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "app": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "goal"
+        ]
+      },
+      "AndroidTaskCreateResponse": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidTaskGetResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "steps_taken": {
+            "type": "integer"
+          },
+          "tokens_used": {
+            "type": "integer"
+          },
+          "estimated_cost": {
+            "type": "number"
+          }
+        }
+      },
+      "AndroidTaskListResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "AndroidThermostatStatusResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "current_temp": {
+            "type": "integer"
+          },
+          "target_low": {
+            "type": "integer"
+          },
+          "target_high": {
+            "type": "integer"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "humidity": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidThermostatSetRangeRequest": {
+        "type": "object",
+        "properties": {
+          "low_temp": {
+            "type": "integer"
+          },
+          "high_temp": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "low_temp",
+          "high_temp"
+        ]
+      },
+      "AndroidThermostatSetRangeResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "final_low_temp": {
+            "type": "integer"
+          },
+          "final_high_temp": {
+            "type": "integer"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "steps_taken": {
+            "type": "integer"
+          },
+          "tokens_used": {
+            "type": "integer"
+          }
+        }
+      },
+      "AndroidMaintenanceResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidSecurityResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "security_patch": {
+            "type": "string"
+          },
+          "android_version": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidRebootRequest": {
+        "type": "object",
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ]
+      },
+      "AndroidStorageResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "used_percent": {
+            "type": "number"
+          },
+          "free_percent": {
+            "type": "number"
+          },
+          "total_formatted": {
+            "type": "string"
+          }
+        }
+      },
+      "AndroidBatteryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "level_percent": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "health": {
+            "type": "string"
+          },
+          "temperature": {
+            "type": "string"
+          },
+          "plugged": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AndroidAuditResponse": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "stats": {
+            "type": "object"
+          }
+        }
+      },
+      "JorbCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "personality": {
+            "type": "string"
+          },
+          "start_immediately": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "plan"
+        ]
+      },
+      "JorbCreateResponse": {
+        "type": "object",
+        "properties": {
+          "jorb_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "kickoff": {
+            "type": "object"
+          }
+        }
+      },
+      "JorbListResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "status_filter": {
+            "type": "string"
+          },
+          "jorbs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "aggregate_metrics": {
+            "type": "object"
+          }
+        }
+      },
+      "JorbDetailResponse": {
+        "type": "object",
+        "properties": {
+          "jorb_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "progress_summary": {
+            "type": "string"
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "metrics": {
+            "type": "object"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         }
       },
       "JorbCancelResponse": {
         "type": "object",
         "properties": {
-          "jorb_id": {"type": "string"},
-          "status": {"type": "string"},
-          "message": {"type": "string"}
+          "jorb_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
         }
       },
-      "ClaudiaApiLearnResponse": {
+      "JorbMessageListResponse": {
         "type": "object",
-        "description": "Claudia coding assistant documentation.",
         "properties": {
-          "overview": {"type": "string"},
-          "workflow": {"type": "array", "items": {"type": "string"}},
-          "operations": {"type": "object"},
-          "available_repos": {"type": "array", "items": {"type": "object"}},
-          "tips": {"type": "array", "items": {"type": "string"}}
+          "jorb_id": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         }
       },
-      "ClaudiaReposResponse": {
+      "JorbApproveRequest": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "repos": {"type": "array", "items": {"type": "object", "properties": {
-            "id": {"type": "string"},
-            "name": {"type": "string"},
-            "model": {"type": "string"},
-            "status": {"type": "string"}
-          }}}
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "JorbApproveResponse": {
+        "type": "object",
+        "properties": {
+          "jorb_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "agent_result": {
+            "type": "object"
+          }
         }
+      },
+      "JorbBriefResponse": {
+        "type": "object",
+        "properties": {
+          "briefing_time": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "needs_attention": {
+            "type": "integer"
+          },
+          "activity_summary": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pending_decisions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "total_open_jorbs": {
+            "type": "integer"
+          }
+        }
+      },
+      "JorbStatsResponse": {
+        "type": "object",
+        "properties": {
+          "total_jorbs": {
+            "type": "integer"
+          },
+          "by_status": {
+            "type": "object"
+          },
+          "metrics": {
+            "type": "object"
+          },
+          "success_rate": {
+            "type": "number"
+          }
+        }
+      },
+      "ClaudiaRepoListResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "repos": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "ClaudiaChatCreateRequest": {
+        "type": "object",
+        "properties": {
+          "repo_name": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_name",
+          "title"
+        ]
       },
       "ClaudiaChatCreateResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "repo": {"type": "object"},
-          "chat": {"type": "object"},
-          "queue_position": {"type": "integer"}
+          "message": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "object"
+          },
+          "chat": {
+            "type": "object"
+          },
+          "queue_position": {
+            "type": "integer"
+          }
         }
       },
       "ClaudiaChatListResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "count": {"type": "integer"},
-          "chats": {"type": "array", "items": {"type": "object", "properties": {
-            "id": {"type": "string"},
-            "title": {"type": "string"},
-            "status": {"type": "string", "enum": ["active", "completed", "cancelled"]},
-            "message_count": {"type": "integer"},
-            "created_at": {"type": "string"},
-            "updated_at": {"type": "string"}
-          }}}
+          "message": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "chats": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         }
       },
       "ClaudiaChatGetResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "chat": {"type": "object", "properties": {
-            "id": {"type": "string"},
-            "title": {"type": "string"},
-            "status": {"type": "string", "enum": ["active", "completed", "cancelled"]},
-            "messages": {"type": "array", "items": {"type": "object"}}
-          }}
+          "message": {
+            "type": "string"
+          },
+          "chat": {
+            "type": "object"
+          }
         }
+      },
+      "ClaudiaChatSendRequest": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ]
       },
       "ClaudiaChatMessageResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "chat_message": {"type": "object"}
+          "message": {
+            "type": "string"
+          },
+          "chat_message": {
+            "type": "object"
+          }
         }
       },
       "ClaudiaChatEndResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "chat": {"type": "object"}
+          "message": {
+            "type": "string"
+          },
+          "chat": {
+            "type": "object"
+          }
         }
       },
-      "ClaudiaPromptsResponse": {
+      "ClaudiaPromptListResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "count": {"type": "integer"},
-          "prompts": {"type": "array", "items": {"type": "object", "properties": {
-            "id": {"type": "string"},
-            "title": {"type": "string"},
-            "status": {"type": "string"},
-            "description": {"type": "string"},
-            "tags": {"type": "array", "items": {"type": "string"}},
-            "created_at": {"type": "string"}
-          }}}
+          "message": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "prompts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         }
+      },
+      "ClaudiaPromptCreateRequest": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chat_id"
+        ]
       },
       "ClaudiaPromptCreateResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "queue_item_id": {"type": "string"},
-          "queue_position": {"type": "integer"}
+          "message": {
+            "type": "string"
+          },
+          "queue_item_id": {
+            "type": "string"
+          },
+          "queue_position": {
+            "type": "integer"
+          }
         }
       },
       "ClaudiaPromptGetResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "prompt": {"type": "object", "properties": {
-            "id": {"type": "string"},
-            "title": {"type": "string"},
-            "status": {"type": "string"},
-            "description": {"type": "string"},
-            "content": {"type": "string"},
-            "tags": {"type": "array", "items": {"type": "string"}},
-            "created_at": {"type": "string"}
-          }}
+          "message": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "object"
+          }
         }
       },
       "ClaudiaPromptExecuteResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "queue_item_id": {"type": "string"},
-          "queue_position": {"type": "integer"}
+          "message": {
+            "type": "string"
+          },
+          "queue_item_id": {
+            "type": "string"
+          },
+          "queue_position": {
+            "type": "integer"
+          }
         }
       },
       "ClaudiaQueueResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "queue": {"type": "object", "properties": {
-            "active": {"type": "object"},
-            "pending": {"type": "array", "items": {"type": "object"}},
-            "position": {"type": "integer"}
-          }}
+          "message": {
+            "type": "string"
+          },
+          "queue": {
+            "type": "object"
+          }
         }
       },
       "ClaudiaExecutionListResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "count": {"type": "integer"},
-          "executions": {"type": "array", "items": {"type": "object", "properties": {
-            "id": {"type": "string"},
-            "status": {"type": "string"},
-            "repoId": {"type": "string"},
-            "promptId": {"type": "string"},
-            "createdAt": {"type": "string"},
-            "completedAt": {"type": "string"}
-          }}}
+          "message": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "executions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         }
       },
       "ClaudiaExecutionGetResponse": {
         "type": "object",
         "properties": {
-          "message": {"type": "string"},
-          "execution": {"type": "object", "properties": {
-            "id": {"type": "string"},
-            "status": {"type": "string"},
-            "prompt": {"type": "object"},
-            "output": {"type": "string"},
-            "git_diff": {"type": "string"},
-            "costs": {"type": "object"}
-          }}
+          "message": {
+            "type": "string"
+          },
+          "execution": {
+            "type": "object"
+          }
+        }
+      },
+      "ScriptListResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "scripts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "ScriptCreateRequest": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "code"
+        ]
+      },
+      "ScriptCreateResponse": {
+        "type": "object",
+        "properties": {
+          "script_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ScriptGetResponse": {
+        "type": "object",
+        "properties": {
+          "script_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "ScriptUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "ScriptUpdateResponse": {
+        "type": "object",
+        "properties": {
+          "script_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ScriptDeleteResponse": {
+        "type": "object",
+        "properties": {
+          "script_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ScriptRunRequest": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "object"
+          },
+          "timeout": {
+            "type": "integer"
+          }
+        }
+      },
+      "ScriptRunInlineRequest": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
+          },
+          "timeout": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "slug",
+          "code"
+        ]
+      },
+      "ScriptTaskResponse": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "script_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ScriptTaskDetailResponse": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "script_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "completed_at": {
+            "type": "string"
+          },
+          "result": {},
+          "error": {
+            "type": "string"
+          },
+          "stdout": {
+            "type": "string"
+          },
+          "stderr": {
+            "type": "string"
+          }
+        }
+      },
+      "ScriptTaskListResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         }
       },
       "HealthResponse": {
         "type": "object",
         "properties": {
-          "status": {"type": "string", "enum": ["ok"]},
-          "uptime": {"type": "string"},
-          "build": {"type": "string"}
-        },
-        "required": ["status", "uptime"]
+          "status": {
+            "type": "string"
+          },
+          "uptime": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          }
+        }
       },
       "DiagnosticsResponse": {
         "type": "object",
-        "description": "Comprehensive system diagnostics covering all subsystems.",
+        "description": "Comprehensive system diagnostics.",
         "properties": {
-          "message": {"type": "string", "description": "Human-readable summary"},
-          "server": {"type": "object", "description": "Uptime, API call counts"},
-          "subsystems": {
-            "type": "object",
-            "description": "Status of each major subsystem",
-            "properties": {
-              "android_phone": {"type": "object", "description": "connected/disconnected, device info"},
-              "jorbs": {"type": "object", "description": "Task counts by status"},
-              "scripts": {"type": "object", "description": "Recent task execution stats"},
-              "claudia": {"type": "object", "description": "Service connectivity, repo count"},
-              "background_loop": {"type": "object", "description": "Scheduler status"}
-            }
+          "message": {
+            "type": "string"
           },
-          "services": {"type": "object", "description": "Google, Swarm API stats"},
-          "platform": {"type": "object", "description": "CPU, memory, network"},
-          "recent_errors": {"type": "array", "items": {"type": "object"}}
+          "server": {
+            "type": "object"
+          },
+          "subsystems": {
+            "type": "object"
+          },
+          "services": {
+            "type": "object"
+          },
+          "platform": {
+            "type": "object"
+          },
+          "recent_errors": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "SystemStatusResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "switchboard": {
+            "type": "object"
+          },
+          "agent_runner": {
+            "type": "object"
+          },
+          "jorbs": {
+            "type": "object"
+          },
+          "android_phone": {
+            "type": "object"
+          }
+        }
+      },
+      "SystemTimeResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "iso_time": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "offset_minutes": {
+            "type": "integer"
+          }
+        }
+      },
+      "UpsStatusResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "object"
+          },
+          "charge_percent": {
+            "type": "integer"
+          },
+          "temperature_f": {
+            "type": "number"
+          }
+        }
+      },
+      "StyleGenerateRequest": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string"
+          },
+          "before_date": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean"
+          }
+        }
+      },
+      "StyleGenerateResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "messages_analyzed": {
+            "type": "integer"
+          },
+          "content_length": {
+            "type": "integer"
+          },
+          "preview": {
+            "type": "string"
+          }
         }
       }
     },

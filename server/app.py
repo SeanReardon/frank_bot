@@ -19,8 +19,21 @@ from server.manifests import (
     build_actions_manifest,
     build_ai_plugin_manifest,
 )
-from server.openapi import load_openapi_document, load_chatgpt_openapi_document
+from server.openapi import load_openapi_document, load_openai_kludge_document
 from server.meta_routes import build_meta_routes
+from server.openai_kludge import (
+    android_control_kludge_handler,
+    android_maintenance_kludge_handler,
+    android_task_kludge_handler,
+    calendar_kludge_handler,
+    claudia_chat_kludge_handler,
+    claudia_prompt_kludge_handler,
+    earshot_kludge_handler,
+    jorb_kludge_handler,
+    script_kludge_handler,
+    sms_kludge_handler,
+    telegram_kludge_handler,
+)
 from server.routes import build_action_routes
 from services.background_loop import (
     get_background_loop_status,
@@ -44,7 +57,7 @@ def create_starlette_app() -> Starlette:
     action_routes = build_action_routes(settings)
     meta_routes = build_meta_routes(settings)
     openapi_document = load_openapi_document(settings)
-    chatgpt_openapi_document = load_chatgpt_openapi_document(settings)
+    openai_kludge_document = load_openai_kludge_document(settings)
     ai_plugin_manifest = build_ai_plugin_manifest(settings)
     actions_manifest = build_actions_manifest(settings)
 
@@ -113,9 +126,9 @@ def create_starlette_app() -> Starlette:
     async def openapi_handler(_request):
         return JSONResponse(openapi_document)
 
-    async def chatgpt_openapi_handler(_request):
-        """ChatGPT-specific OpenAPI spec with reduced operations (under 30)."""
-        return JSONResponse(chatgpt_openapi_document)
+    async def openai_kludge_handler(_request):
+        """OpenAI-specific spec with consolidated endpoints (under 30)."""
+        return JSONResponse(openai_kludge_document)
 
     async def ai_plugin_handler(_request):
         return JSONResponse(ai_plugin_manifest)
@@ -128,10 +141,43 @@ def create_starlette_app() -> Starlette:
             return FileResponse(FAVICON_PATH, media_type="image/png")
         return Response(status_code=404)
 
+    async def _require_api_key(request: Request) -> None:
+        if not settings.actions_api_key:
+            return
+        provided = request.headers.get("x-api-key")
+        if provided != settings.actions_api_key:
+            from starlette.exceptions import HTTPException
+            raise HTTPException(
+                status_code=401,
+                detail="Missing or invalid X-API-Key header",
+            )
+
+    def _kludge_route(kludge_handler):
+        """Wrap a kludge handler with API key enforcement."""
+        async def wrapper(request: Request):
+            await _require_api_key(request)
+            return await kludge_handler(request)
+        wrapper.__name__ = kludge_handler.__name__
+        return wrapper
+
     routes = action_routes + meta_routes + [
         Route("/favicon.ico", favicon_handler, methods=["GET"]),
+        # Canonical API spec (all endpoints, proper REST)
         Route("/actions/openapi.json", openapi_handler, methods=["GET"]),
-        Route("/actions/openapi-chatgpt.json", chatgpt_openapi_handler, methods=["GET"]),
+        # OpenAI kludge spec (consolidated, <=30 ops)
+        Route("/actions/openai-kludge-openapi.json", openai_kludge_handler, methods=["GET"]),
+        # OpenAI kludge dispatch routes
+        Route("/openai/calendar", _kludge_route(calendar_kludge_handler), methods=["GET"]),
+        Route("/openai/sms", _kludge_route(sms_kludge_handler), methods=["GET"]),
+        Route("/openai/telegram", _kludge_route(telegram_kludge_handler), methods=["GET"]),
+        Route("/openai/earshot", _kludge_route(earshot_kludge_handler), methods=["GET"]),
+        Route("/openai/android/control", _kludge_route(android_control_kludge_handler), methods=["GET"]),
+        Route("/openai/android/task", _kludge_route(android_task_kludge_handler), methods=["GET"]),
+        Route("/openai/android/maintenance", _kludge_route(android_maintenance_kludge_handler), methods=["GET"]),
+        Route("/openai/jorb", _kludge_route(jorb_kludge_handler), methods=["GET"]),
+        Route("/openai/claudia/chat", _kludge_route(claudia_chat_kludge_handler), methods=["GET"]),
+        Route("/openai/claudia/prompt", _kludge_route(claudia_prompt_kludge_handler), methods=["GET"]),
+        Route("/openai/script", _kludge_route(script_kludge_handler), methods=["GET"]),
         Route(
             "/.well-known/ai-plugin.json",
             ai_plugin_handler,

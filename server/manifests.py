@@ -34,7 +34,7 @@ def build_ai_plugin_manifest(settings: Settings) -> dict[str, Any]:
         },
         "api": {
             "type": "openapi",
-            "url": f"{base_url}/actions/openapi.json",
+            "url": f"{base_url}/actions/openai-kludge-openapi.json",
             "is_user_authenticated": False,
         },
         "logo_url": settings.actions_logo_url,
@@ -55,7 +55,7 @@ def build_actions_manifest(settings: Settings) -> dict[str, Any]:
         "name_for_model": settings.actions_name_for_model,
         "description_for_model": settings.actions_description_for_model,
         "server_url": base_url,
-        "openapi_url": f"{base_url}/actions/openapi.json",
+        "openapi_url": f"{base_url}/actions/openai-kludge-openapi.json",
         "auth": {
             "type": "api_key",
             "header": "X-API-Key",
