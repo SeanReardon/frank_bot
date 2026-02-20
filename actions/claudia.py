@@ -13,7 +13,8 @@ Actions:
 - end_claudia_chat: End the chat session
 - list_claudia_prompts: List prompts for a repository
 - get_claudia_prompt: Get prompt details
-- queue_claudia_prompt: Queue a prompt for execution
+- execute_claudia_prompt: Execute an existing prompt
+- create_claudia_prompt: Generate prompt from a completed chat
 - get_claudia_queue: See queue status for a repo
 """
 
@@ -30,6 +31,27 @@ def _get_client():
     """Lazy import to avoid circular dependency and allow graceful failure."""
     from services.claudia_client import ClaudiaClient
     return ClaudiaClient()
+
+
+def _claudia_error_message(exc: Exception) -> str:
+    """Convert a ClaudiaAPIError into a user-friendly message."""
+    from services.claudia_client import ClaudiaAPIError, ClaudiaConflictError
+
+    if isinstance(exc, ClaudiaConflictError):
+        return f"Conflict: {exc}"
+
+    if isinstance(exc, ClaudiaAPIError) and exc.status_code:
+        code = exc.status_code
+        detail = str(exc)
+        if code == 404:
+            return f"Not found: {detail}"
+        if code == 400:
+            return f"Bad request: {detail}"
+        if code == 409:
+            return f"Conflict: {detail}"
+        return f"Claudia error ({code}): {detail}"
+
+    return f"Claudia error: {exc}"
 
 
 async def list_claudia_repos_action(
@@ -418,9 +440,11 @@ async def create_claudia_prompt_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Create a prompt from a completed chat.
+    Generate a NEW prompt from a completed chat conversation.
 
-    Queues prompt generation from a completed chat conversation.
+    This turns a chat discussion into a prompt file and queues execution.
+    Requires chat_id. Do NOT use this to run an existing prompt — use
+    execute_claudia_prompt_action for that.
 
     Args (in arguments dict):
         repo_id: Repository ID (required)
@@ -429,6 +453,8 @@ async def create_claudia_prompt_action(
     Returns:
         Queue item info for tracking.
     """
+    from services.claudia_client import ClaudiaAPIError
+
     args = arguments or {}
     repo_id = args.get("repo_id")
     chat_id = args.get("chat_id")
@@ -442,7 +468,10 @@ async def create_claudia_prompt_action(
         client = _get_client()
         return client.create_prompt_from_chat(repo_id, chat_id)
 
-    result = await asyncio.to_thread(create)
+    try:
+        result = await asyncio.to_thread(create)
+    except ClaudiaAPIError as exc:
+        raise ValueError(_claudia_error_message(exc)) from exc
 
     queue_pos = result.get("queuePosition", 0)
     return {
@@ -457,9 +486,10 @@ async def execute_claudia_prompt_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Execute a prompt directly.
+    Execute an existing prompt from the repo's prompts/ directory.
 
-    Queues the prompt for direct execution by Claude.
+    Queues the prompt for direct execution by Claude. Call
+    claudiaPromptList first to find available prompt IDs.
 
     Args (in arguments dict):
         repo_id: Repository ID (required)
@@ -468,6 +498,8 @@ async def execute_claudia_prompt_action(
     Returns:
         Queue item info for tracking.
     """
+    from services.claudia_client import ClaudiaAPIError
+
     args = arguments or {}
     repo_id = args.get("repo_id")
     prompt_id = args.get("prompt_id")
@@ -479,9 +511,38 @@ async def execute_claudia_prompt_action(
 
     def execute():
         client = _get_client()
+
+        try:
+            prompt = client.get_prompt(repo_id, prompt_id)
+        except ClaudiaAPIError as exc:
+            if exc.status_code == 404:
+                prompts = client.list_prompts(repo_id)
+                available = ", ".join(
+                    f"{p.id} ({p.title})" for p in prompts[:10]
+                ) or "none"
+                raise ValueError(
+                    f"Prompt '{prompt_id}' not found in repo. "
+                    f"Available prompts: {available}"
+                ) from exc
+            raise
+
+        if prompt.status != "ready":
+            raise ValueError(
+                f"Prompt '{prompt.title}' has status '{prompt.status}'. "
+                f"Only 'ready' prompts can be executed."
+            )
+        if prompt.blocked_by:
+            raise ValueError(
+                f"Prompt '{prompt.title}' is blocked by "
+                f"'{prompt.blocked_by}'. Resolve that first."
+            )
+
         return client.execute_prompt(repo_id, prompt_id)
 
-    result = await asyncio.to_thread(execute)
+    try:
+        result = await asyncio.to_thread(execute)
+    except ClaudiaAPIError as exc:
+        raise ValueError(_claudia_error_message(exc)) from exc
 
     queue_pos = result.get("queuePosition", 0)
     return {
@@ -652,32 +713,43 @@ async def api_learn_action(
             "Use chats for design discussions, then create prompts for "
             "actual code changes."
         ),
-        "workflow": [
+        "workflow_chat_to_code": [
             "1. claudiaRepoList - See available repositories",
             "2. claudiaChatCreate - Start a conversation about a feature",
             "3. claudiaChatSend - Discuss and refine the approach",
             "4. claudiaChatEnd - Finish the conversation",
-            "5. claudiaPromptCreate - Generate prompt from chat and execute it",
+            "5. claudiaPromptCreate - Generate prompt from chat (requires chat_id)",
             "6. claudiaExecutionGet - Monitor the result",
         ],
-        "chat_workflow": {
-            "create": "Start with repo_name and title, optionally message",
-            "discuss": "Send messages to refine the feature/fix",
-            "end": "Claudia generates a prompt from the conversation",
-            "queue": "Chats queue up; check position with claudiaQueueGet",
-        },
-        "prompt_workflow": {
-            "create": "Generate prompt from chat and queue execution (one step)",
-            "monitor": "Check execution status and results with claudiaExecutionGet",
-        },
+        "workflow_execute_existing_prompt": [
+            "1. claudiaRepoList - Find the repo",
+            "2. claudiaPromptList - See available prompts for that repo",
+            "3. claudiaPromptGet - (optional) Inspect prompt content before executing",
+            "4. claudiaPromptExecute - Execute the prompt (requires prompt_id)",
+            "5. claudiaExecutionGet - Monitor the result",
+        ],
         "operations": {
             "claudiaRepoList": "List all Claudia-managed repositories",
             "claudiaChatCreate": "Start chat (repo_name, title, message?)",
+            "claudiaChatList": "List chats for a repo (repo_id, status?)",
             "claudiaChatGet": "Get chat with all messages (repo_id, chat_id)",
             "claudiaChatSend": "Send message (repo_id, chat_id, message)",
             "claudiaChatEnd": "End chat (repo_id, chat_id)",
-            "claudiaPromptCreate": "Generate prompt from chat + execute (repo_id, chat_id)",
+            "claudiaPromptList": "List prompts for a repo (repo_id)",
+            "claudiaPromptGet": "Get prompt details + content (repo_id, prompt_id)",
+            "claudiaPromptCreate": "Generate NEW prompt from completed chat (repo_id, chat_id)",
+            "claudiaPromptExecute": "Execute EXISTING prompt file (repo_id, prompt_id)",
+            "claudiaQueueGet": "Check queue status (repo_id)",
+            "claudiaExecutionList": "List executions (repo_id?, status?, limit?)",
             "claudiaExecutionGet": "Get execution result (execution_id)",
+        },
+        "important": {
+            "claudiaPromptCreate_vs_Execute": (
+                "PromptCreate generates a NEW prompt from a chat conversation. "
+                "PromptExecute runs an EXISTING prompt file from the repo. "
+                "When user says 'execute prompt X', use PromptExecute. "
+                "When user says 'turn this chat into code', use PromptCreate."
+            ),
         },
         "available_repos": repo_list,
         "tips": [

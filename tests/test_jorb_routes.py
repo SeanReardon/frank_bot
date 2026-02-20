@@ -96,6 +96,9 @@ def settings():
         android_health_check_cron="0 4 * * 0",
         android_rate_limit_minute=10,
         android_rate_limit_hour=100,
+        owner_name="Test User",
+        earshot_api_url=None,
+        earshot_api_key=None,
     )
 
 
