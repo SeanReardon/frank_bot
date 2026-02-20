@@ -33,25 +33,67 @@ def _get_client():
     return ClaudiaClient()
 
 
-def _claudia_error_message(exc: Exception) -> str:
-    """Convert a ClaudiaAPIError into a user-friendly message."""
+def _claudia_error_response(
+    exc: Exception,
+    entity_type: str = "",
+    entity_id: str = "",
+) -> dict[str, Any]:
+    """Convert a ClaudiaAPIError into a user-friendly response dict.
+
+    Returns a dict with 'error' and optionally 'suggestion' keys,
+    suitable for returning directly from action handlers.
+    """
     from services.claudia_client import ClaudiaAPIError, ClaudiaConflictError
 
-    if isinstance(exc, ClaudiaConflictError):
-        return f"Conflict: {exc}"
+    detail = getattr(exc, "detail", str(exc))
+    code = getattr(exc, "status_code", None)
+    label = f"{entity_type} '{entity_id}'" if entity_id else entity_type
 
-    if isinstance(exc, ClaudiaAPIError) and exc.status_code:
-        code = exc.status_code
-        detail = str(exc)
-        if code == 404:
-            return f"Not found: {detail}"
-        if code == 400:
-            return f"Bad request: {detail}"
-        if code == 409:
-            return f"Conflict: {detail}"
-        return f"Claudia error ({code}): {detail}"
+    if isinstance(exc, ClaudiaConflictError) or code == 409:
+        return {
+            "error": f"Conflict: {detail}",
+            "suggestion": (
+                f"This {entity_type or 'resource'} may already have an "
+                "active operation. Check the queue status with claudiaQueueGet."
+            ),
+        }
 
-    return f"Claudia error: {exc}"
+    if code == 404:
+        suggestions = {
+            "chat": (
+                "The chat may have been deleted or already converted to a "
+                "prompt. You can create a new chat with claudiaChatCreate."
+            ),
+            "prompt": (
+                "The prompt may have been removed. List available prompts "
+                "with claudiaPromptList."
+            ),
+            "repo": (
+                "Check available repositories with claudiaRepoList."
+            ),
+            "execution": (
+                "The execution may have expired. List recent executions "
+                "with claudiaExecutionList."
+            ),
+        }
+        return {
+            "error": f"{label or 'Resource'} not found: {detail}",
+            "suggestion": suggestions.get(
+                entity_type,
+                "The resource was not found. It may have been deleted or expired.",
+            ),
+        }
+
+    if code == 400:
+        return {"error": f"Invalid request: {detail}"}
+
+    if code and code >= 500:
+        return {
+            "error": f"Claudia is having trouble right now ({code}): {detail}",
+            "suggestion": "Try again in a moment.",
+        }
+
+    return {"error": f"Claudia error: {detail}"}
 
 
 async def list_claudia_repos_action(
@@ -62,6 +104,8 @@ async def list_claudia_repos_action(
 
     Returns repositories with their status and queue information.
     """
+    from services.claudia_client import ClaudiaAPIError
+
     def fetch():
         client = _get_client()
         repos = client.list_repos()
@@ -80,7 +124,10 @@ async def list_claudia_repos_action(
             for repo in repos
         ]
 
-    repos = await asyncio.to_thread(fetch)
+    try:
+        repos = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="repo")
 
     return {
         "message": f"Found {len(repos)} Claudia-managed repositories.",
@@ -113,6 +160,8 @@ async def create_claudia_chat_action(
     if not title:
         raise ValueError("title is required")
 
+    from services.claudia_client import ClaudiaAPIError
+
     def start():
         client = _get_client()
 
@@ -130,7 +179,10 @@ async def create_claudia_chat_action(
         chat = client.create_chat(repo.id, title, initial_message)
         return repo, chat
 
-    repo, chat = await asyncio.to_thread(start)
+    try:
+        repo, chat = await asyncio.to_thread(start)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="repo", entity_id=repo_name)
 
     result: dict[str, Any] = {
         "repo": {
@@ -174,6 +226,8 @@ async def list_claudia_chats_action(
     Returns:
         List of chats.
     """
+    from services.claudia_client import ClaudiaAPIError
+
     args = arguments or {}
     repo_id = args.get("repo_id")
     status = args.get("status")
@@ -185,7 +239,10 @@ async def list_claudia_chats_action(
         client = _get_client()
         return client.list_chats(repo_id, status)
 
-    chats = await asyncio.to_thread(fetch)
+    try:
+        chats = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="repo", entity_id=repo_id)
 
     return {
         "message": f"Found {len(chats)} chats.",
@@ -218,6 +275,8 @@ async def get_claudia_chat_action(
     Returns:
         Chat session with all messages and current status.
     """
+    from services.claudia_client import ClaudiaAPIError
+
     args = arguments or {}
     repo_id = args.get("repo_id")
     chat_id = args.get("chat_id")
@@ -231,7 +290,10 @@ async def get_claudia_chat_action(
         client = _get_client()
         return client.get_chat(repo_id, chat_id)
 
-    chat = await asyncio.to_thread(fetch)
+    try:
+        chat = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="chat", entity_id=chat_id)
 
     status_messages = {
         "active": "Chat is active - Claudia is ready to respond.",
@@ -293,11 +355,16 @@ async def send_claudia_message_action(
     if not message:
         raise ValueError("message is required")
 
+    from services.claudia_client import ClaudiaAPIError
+
     def send():
         client = _get_client()
         return client.add_message(repo_id, chat_id, message)
 
-    msg = await asyncio.to_thread(send)
+    try:
+        msg = await asyncio.to_thread(send)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="chat", entity_id=chat_id)
 
     return {
         "message": "Message sent. Claudia will process when chat is active.",
@@ -333,11 +400,16 @@ async def end_claudia_chat_action(
     if not chat_id:
         raise ValueError("chat_id is required")
 
+    from services.claudia_client import ClaudiaAPIError
+
     def end():
         client = _get_client()
         return client.end_chat(repo_id, chat_id)
 
-    chat = await asyncio.to_thread(end)
+    try:
+        chat = await asyncio.to_thread(end)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="chat", entity_id=chat_id)
 
     return {
         "message": f"Chat '{chat.title}' has been ended.",
@@ -363,6 +435,8 @@ async def list_claudia_prompts_action(
     Returns:
         List of prompts with their status.
     """
+    from services.claudia_client import ClaudiaAPIError
+
     args = arguments or {}
     repo_id = args.get("repo_id")
 
@@ -373,7 +447,10 @@ async def list_claudia_prompts_action(
         client = _get_client()
         return client.list_prompts(repo_id)
 
-    prompts = await asyncio.to_thread(fetch)
+    try:
+        prompts = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="repo", entity_id=repo_id)
 
     return {
         "message": f"Found {len(prompts)} prompts.",
@@ -406,6 +483,8 @@ async def get_claudia_prompt_action(
     Returns:
         Prompt details including content.
     """
+    from services.claudia_client import ClaudiaAPIError
+
     args = arguments or {}
     repo_id = args.get("repo_id")
     prompt_id = args.get("prompt_id")
@@ -419,7 +498,12 @@ async def get_claudia_prompt_action(
         client = _get_client()
         return client.get_prompt(repo_id, prompt_id)
 
-    prompt = await asyncio.to_thread(fetch)
+    try:
+        prompt = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(
+            exc, entity_type="prompt", entity_id=prompt_id,
+        )
 
     return {
         "message": f"Prompt: {prompt.title}",
@@ -466,12 +550,55 @@ async def create_claudia_prompt_action(
 
     def create():
         client = _get_client()
+
+        try:
+            chat = client.get_chat(repo_id, chat_id)
+        except ClaudiaAPIError as exc:
+            if exc.status_code == 404:
+                return {
+                    "error": (
+                        f"Chat '{chat_id}' not found. It may have been "
+                        "deleted or already converted to a prompt."
+                    ),
+                    "suggestion": (
+                        "You can create a new chat with claudiaChatCreate."
+                    ),
+                }
+            raise
+
+        if chat.prompt_id:
+            return {
+                "error": (
+                    f"A prompt was already generated from this chat: "
+                    f"{chat.prompt_id}"
+                ),
+                "suggestion": (
+                    f"Use claudiaPromptGet or claudiaPromptExecute with "
+                    f"prompt_id '{chat.prompt_id}' instead."
+                ),
+            }
+
+        if chat.status == "active":
+            return {
+                "error": (
+                    "Chat is still active. End the chat first before "
+                    "creating a prompt."
+                ),
+                "suggestion": (
+                    "Call claudiaChatEnd to finish the conversation, then "
+                    "retry claudiaPromptCreate."
+                ),
+            }
+
         return client.create_prompt_from_chat(repo_id, chat_id)
 
     try:
         result = await asyncio.to_thread(create)
     except ClaudiaAPIError as exc:
-        raise ValueError(_claudia_error_message(exc)) from exc
+        return _claudia_error_response(exc, entity_type="chat", entity_id=chat_id)
+
+    if "error" in result:
+        return result
 
     queue_pos = result.get("queuePosition", 0)
     return {
@@ -520,29 +647,43 @@ async def execute_claudia_prompt_action(
                 available = ", ".join(
                     f"{p.id} ({p.title})" for p in prompts[:10]
                 ) or "none"
-                raise ValueError(
-                    f"Prompt '{prompt_id}' not found in repo. "
-                    f"Available prompts: {available}"
-                ) from exc
+                return {
+                    "error": (
+                        f"Prompt '{prompt_id}' not found in this repository."
+                    ),
+                    "available_prompts": available,
+                    "suggestion": (
+                        "List available prompts with claudiaPromptList."
+                    ),
+                }
             raise
 
         if prompt.status != "ready":
-            raise ValueError(
-                f"Prompt '{prompt.title}' has status '{prompt.status}'. "
-                f"Only 'ready' prompts can be executed."
-            )
+            return {
+                "error": (
+                    f"Prompt '{prompt.title}' has status '{prompt.status}'. "
+                    f"Only 'ready' prompts can be executed."
+                ),
+            }
         if prompt.blocked_by:
-            raise ValueError(
-                f"Prompt '{prompt.title}' is blocked by "
-                f"'{prompt.blocked_by}'. Resolve that first."
-            )
+            return {
+                "error": (
+                    f"Prompt '{prompt.title}' is blocked by "
+                    f"'{prompt.blocked_by}'. Resolve that first."
+                ),
+            }
 
         return client.execute_prompt(repo_id, prompt_id)
 
     try:
         result = await asyncio.to_thread(execute)
     except ClaudiaAPIError as exc:
-        raise ValueError(_claudia_error_message(exc)) from exc
+        return _claudia_error_response(
+            exc, entity_type="prompt", entity_id=prompt_id,
+        )
+
+    if "error" in result:
+        return result
 
     queue_pos = result.get("queuePosition", 0)
     return {
@@ -567,6 +708,8 @@ async def list_claudia_executions_action(
     Returns:
         List of executions.
     """
+    from services.claudia_client import ClaudiaAPIError
+
     args = arguments or {}
     repo_id = args.get("repo_id")
     status = args.get("status")
@@ -576,7 +719,10 @@ async def list_claudia_executions_action(
         client = _get_client()
         return client.list_executions(repo_id, status, limit)
 
-    executions = await asyncio.to_thread(fetch)
+    try:
+        executions = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="execution")
 
     return {
         "message": f"Found {len(executions)} executions.",
@@ -599,6 +745,8 @@ async def get_claudia_execution_action(
     Returns:
         Execution details.
     """
+    from services.claudia_client import ClaudiaAPIError
+
     args = arguments or {}
     execution_id = args.get("execution_id")
 
@@ -609,7 +757,12 @@ async def get_claudia_execution_action(
         client = _get_client()
         return client.get_execution(execution_id)
 
-    execution = await asyncio.to_thread(fetch)
+    try:
+        execution = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(
+            exc, entity_type="execution", entity_id=execution_id,
+        )
 
     status = execution.get("status", "unknown")
     return {
@@ -632,6 +785,8 @@ async def get_claudia_queue_action(
     Returns:
         Queue status including pending tasks and active work.
     """
+    from services.claudia_client import ClaudiaAPIError
+
     args = arguments or {}
     repo_id = args.get("repo_id")
 
@@ -642,7 +797,10 @@ async def get_claudia_queue_action(
         client = _get_client()
         return client.get_queue_state(repo_id)
 
-    queue = await asyncio.to_thread(fetch)
+    try:
+        queue = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="repo", entity_id=repo_id)
 
     if queue.depth == 0 and not queue.active_item:
         message = "Queue is empty. Any new work will start immediately."

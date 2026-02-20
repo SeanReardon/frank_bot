@@ -40,16 +40,22 @@ RETRY_BACKOFF_BASE = 1.0  # seconds
 class ClaudiaAPIError(RuntimeError):
     """Raised when the Claudia API returns an error response."""
 
-    def __init__(self, message: str, status_code: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        detail: str | None = None,
+    ):
         super().__init__(message)
         self.status_code = status_code
+        self.detail = detail or message
 
 
 class ClaudiaConflictError(ClaudiaAPIError):
     """Raised on 409 conflict, e.g., prompt already queued."""
 
-    def __init__(self, message: str):
-        super().__init__(message, status_code=409)
+    def __init__(self, message: str, detail: str | None = None):
+        super().__init__(message, status_code=409, detail=detail)
 
 
 @dataclass
@@ -233,7 +239,9 @@ class ClaudiaClient:
                     detail = data.get("detail", "Conflict") if isinstance(
                         data, dict
                     ) else "Conflict"
-                    raise ClaudiaConflictError(detail)
+                    raise ClaudiaConflictError(
+                        f"Claudia (409): {detail}", detail=detail,
+                    )
 
                 if response.status_code >= 400:
                     error_detail = "Unknown error"
@@ -262,6 +270,7 @@ class ClaudiaClient:
                     raise ClaudiaAPIError(
                         f"Claudia ({response.status_code}): {error_detail}",
                         status_code=response.status_code,
+                        detail=error_detail,
                     )
 
                 # Success

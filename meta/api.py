@@ -899,6 +899,28 @@ class ClaudiaNamespace:
         }
         return _run_async(create_claudia_chat_action(args))
 
+    def chat_list(
+        self,
+        repo_id: str,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        List chats for a repository.
+
+        Parameters:
+            repo_id: Repository ID
+            status: Filter by status: active, completed, cancelled (optional)
+
+        Returns:
+            Dict with count and chats list
+        """
+        from actions.claudia import list_claudia_chats_action
+
+        args: dict[str, Any] = {"repo_id": repo_id}
+        if status is not None:
+            args["status"] = status
+        return _run_async(list_claudia_chats_action(args))
+
     def chat_get(self, repo_id: str, chat_id: str) -> dict[str, Any]:
         """
         Get the current state of a chat.
@@ -1421,7 +1443,7 @@ class FrankAPI:
 
     @property
     def claudia(self) -> ClaudiaNamespace:
-        """Claudia operations (repos, chat_create, chat_get, chat_send, chat_end, prompts, prompt_get, prompt_execute, queue, executions, execution_get)."""
+        """Claudia operations (repos, chat_create, chat_list, chat_get, chat_send, chat_end, prompts, prompt_get, prompt_execute, queue, executions, execution_get)."""
         return self._claudia
 
     @property
