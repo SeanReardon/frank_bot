@@ -211,6 +211,19 @@
         "security": [{"ActionsApiKey": []}]
       }
     },
+    "/actions/claudia/repos/{repo_id}/chats": {
+      "get": {
+        "operationId": "claudiaChatList",
+        "summary": "List chats for a repo",
+        "description": "List all chat sessions for a repository. Filter by status (active, completed, cancelled) to find ongoing or past conversations.",
+        "parameters": [
+          {"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}},
+          {"in": "query", "name": "status", "schema": {"type": "string", "enum": ["active", "completed", "cancelled"]}, "description": "Filter by chat status"}
+        ],
+        "responses": {"200": {"description": "List of chats", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaChatListResponse"}}}}},
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
     "/actions/claudia/repos/{repo_id}/chats/{chat_id}": {
       "get": {
         "operationId": "claudiaChatGet",
@@ -306,6 +319,20 @@
         "description": "See pending and active tasks in the queue.",
         "parameters": [{"in": "path", "name": "repo_id", "required": true, "schema": {"type": "string"}}],
         "responses": {"200": {"description": "Queue status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaQueueResponse"}}}}},
+        "security": [{"ActionsApiKey": []}]
+      }
+    },
+    "/actions/claudia/executions": {
+      "get": {
+        "operationId": "claudiaExecutionList",
+        "summary": "List executions",
+        "description": "List prompt executions with optional filters. Use this to find execution_ids and check overall execution status. Filter by repo_id and/or status.",
+        "parameters": [
+          {"in": "query", "name": "repo_id", "schema": {"type": "string"}, "description": "Filter by repository ID"},
+          {"in": "query", "name": "status", "schema": {"type": "string"}, "description": "Filter by status"},
+          {"in": "query", "name": "limit", "schema": {"type": "integer", "default": 50}, "description": "Max results (default 50)"}
+        ],
+        "responses": {"200": {"description": "List of executions", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClaudiaExecutionListResponse"}}}}},
         "security": [{"ActionsApiKey": []}]
       }
     },
@@ -535,6 +562,21 @@
           "queue_position": {"type": "integer"}
         }
       },
+      "ClaudiaChatListResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "count": {"type": "integer"},
+          "chats": {"type": "array", "items": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "title": {"type": "string"},
+            "status": {"type": "string", "enum": ["active", "completed", "cancelled"]},
+            "message_count": {"type": "integer"},
+            "created_at": {"type": "string"},
+            "updated_at": {"type": "string"}
+          }}}
+        }
+      },
       "ClaudiaChatGetResponse": {
         "type": "object",
         "properties": {
@@ -616,6 +658,21 @@
             "pending": {"type": "array", "items": {"type": "object"}},
             "position": {"type": "integer"}
           }}
+        }
+      },
+      "ClaudiaExecutionListResponse": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "count": {"type": "integer"},
+          "executions": {"type": "array", "items": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "status": {"type": "string"},
+            "repoId": {"type": "string"},
+            "promptId": {"type": "string"},
+            "createdAt": {"type": "string"},
+            "completedAt": {"type": "string"}
+          }}}
         }
       },
       "ClaudiaExecutionGetResponse": {

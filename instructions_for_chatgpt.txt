@@ -62,7 +62,7 @@ All operations follow **`{system}{Resource}{Action}`** — noun first, verb last
 | **Scripts** | `frankScriptApiLearn` | `frankScriptTaskStart`, `frankScriptTaskStatus`, `frankScriptTaskList`, `frankScriptTaskCancel` |
 | **Jorbs** | `jorbApiLearn` | `jorbCreate`, `jorbGet`, `jorbBriefGet`, `jorbApprove`, `jorbCancel` |
 | **Android** | `androidPhoneApiLearn` | `androidPhoneTaskDo`, `androidPhoneTaskGet`, `androidPhoneTaskList`, `androidPhoneTaskCancel` |
-| **Claudia** | `claudiaApiLearn` | `claudiaChatCreate`, `claudiaChatSend`, `claudiaChatEnd`, `claudiaPromptList`, `claudiaPromptExecute`, `claudiaPromptCreate`, `claudiaQueueGet`, `claudiaExecutionGet` |
+| **Claudia** | `claudiaApiLearn` | `claudiaChatCreate`, `claudiaChatList`, `claudiaChatSend`, `claudiaChatEnd`, `claudiaPromptList`, `claudiaPromptExecute`, `claudiaPromptCreate`, `claudiaQueueGet`, `claudiaExecutionList`, `claudiaExecutionGet` |
 | **System** | — | `health`, `diagnosticsGet` |
 
 ## Scripts (Fast, Deterministic)
@@ -106,13 +106,20 @@ Claudia is an **autonomous agent orchestrator** that manages GitHub repos and ru
 1. `claudiaRepoList` - find the repo
 2. `claudiaPromptList` - list available prompts for that repo
 3. `claudiaPromptExecute` - execute by prompt_id (NOT claudiaPromptCreate!)
-4. `claudiaExecutionGet` - monitor result
+4. `claudiaExecutionList` - find the execution, get its ID
+5. `claudiaExecutionGet` - get full result with git diff and costs
 
 **B. Chat → new prompt** (user wants to design then execute):
 1. `claudiaChatCreate` - start conversation (requires repo_name, title)
 2. `claudiaChatSend` / `claudiaChatEnd` - converse, then finish
 3. `claudiaPromptCreate` - generate NEW prompt from chat (requires chat_id)
-4. `claudiaExecutionGet` - monitor result
+4. `claudiaExecutionList` - find the execution, get its ID
+5. `claudiaExecutionGet` - get full result with git diff and costs
+
+**Checking on things:**
+- `claudiaChatList` - see all chats for a repo (filter by status: active, completed, cancelled)
+- `claudiaExecutionList` - see all executions (filter by repo_id, status)
+- `claudiaQueueGet` - see what's running/pending right now
 
 **CRITICAL:** `claudiaPromptCreate` generates from a chat. `claudiaPromptExecute` runs an existing prompt file. When user says "execute/run prompt X", use `claudiaPromptExecute`.
 

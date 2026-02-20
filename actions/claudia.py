@@ -889,7 +889,7 @@ async def api_learn_action(
         "operations": {
             "claudiaRepoList": "List all Claudia-managed repositories",
             "claudiaChatCreate": "Start chat (repo_name, title, message?)",
-            "claudiaChatList": "List chats for a repo (repo_id, status?)",
+            "claudiaChatList": "List chats for a repo (repo_id, status?). Find active or completed chats.",
             "claudiaChatGet": "Get chat with all messages (repo_id, chat_id)",
             "claudiaChatSend": "Send message (repo_id, chat_id, message)",
             "claudiaChatEnd": "End chat (repo_id, chat_id)",
@@ -898,8 +898,8 @@ async def api_learn_action(
             "claudiaPromptCreate": "Generate NEW prompt from completed chat (repo_id, chat_id)",
             "claudiaPromptExecute": "Execute EXISTING prompt file (repo_id, prompt_id)",
             "claudiaQueueGet": "Check queue status (repo_id)",
-            "claudiaExecutionList": "List executions (repo_id?, status?, limit?)",
-            "claudiaExecutionGet": "Get execution result (execution_id)",
+            "claudiaExecutionList": "List executions (repo_id?, status?, limit?). Find execution_ids to pass to claudiaExecutionGet.",
+            "claudiaExecutionGet": "Get execution result (execution_id). Shows output, git diff, costs.",
         },
         "important": {
             "claudiaPromptCreate_vs_Execute": (
