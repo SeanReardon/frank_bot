@@ -2,12 +2,19 @@
 Application settings helpers.
 
 Loads secrets from Vault with environment variable fallback.
+
+On startup, if Vault is configured but unreachable (e.g. concordia-vault
+hasn't finished starting after a reboot), we retry with exponential backoff
+before falling through to env-var fallback. This prevents the race condition
+where frank_bot starts before Vault is ready and permanently caches empty
+secrets via @lru_cache.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -23,9 +30,16 @@ from services.vault_client import (
     get_telegram_credentials,
     get_telegram_bot_credentials,
     get_telnyx_credentials,
+    clear_client_cache,
+    clear_secret_cache,
 )
 
 logger = logging.getLogger(__name__)
+
+VAULT_STARTUP_MAX_ATTEMPTS = int(os.environ.get("VAULT_STARTUP_MAX_ATTEMPTS", "8"))
+VAULT_STARTUP_INITIAL_BACKOFF = float(os.environ.get("VAULT_STARTUP_INITIAL_BACKOFF", "2.0"))
+VAULT_STARTUP_MAX_BACKOFF = float(os.environ.get("VAULT_STARTUP_MAX_BACKOFF", "30.0"))
+VAULT_STARTUP_BACKOFF_MULTIPLIER = float(os.environ.get("VAULT_STARTUP_BACKOFF_MULTIPLIER", "2.0"))
 
 
 def _parse_scopes(env_name: str, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -115,18 +129,9 @@ class Settings:
     android_rate_limit_hour: int
 
 
-def _load_secrets() -> dict[str, str | None]:
-    """
-    Load secrets from Vault with environment variable fallback.
-
-    Returns a dict with all secret values.
-    """
-    vault_is_enabled = vault_enabled()
-    allow_env_secret_fallback = (
-        os.getenv("ALLOW_ENV_SECRET_FALLBACK", "false").lower() == "true"
-    )
-
-    secrets: dict[str, str | None] = {
+def _empty_secrets() -> dict[str, str | None]:
+    """Return a dict of all secret keys initialized to None."""
+    return {
         "google_client_id": None,
         "google_client_secret": None,
         "stytch_project_id": None,
@@ -143,7 +148,6 @@ def _load_secrets() -> dict[str, str | None]:
         "openai_api_key": None,
         "claudia_api_url": None,
         "claudia_api_key": None,
-        # Email/SMTP (daily digest)
         "smtp_host": None,
         "smtp_port": None,
         "smtp_user": None,
@@ -159,101 +163,160 @@ def _load_secrets() -> dict[str, str | None]:
         "actions_api_key": None,
     }
 
+
+def _fetch_vault_secrets(secrets: dict[str, str | None]) -> bool:
+    """
+    Populate *secrets* dict from Vault. Returns True if Vault was reachable
+    and at least one credential path resolved (i.e. the connection worked).
+    """
+    from services.vault_client import get_android_credentials, get_actions_credentials
+
+    google_creds = get_google_credentials()
+    if google_creds:
+        secrets["google_client_id"] = google_creds.get("client_id")
+        secrets["google_client_secret"] = google_creds.get("client_secret")
+
+    stytch_creds = get_stytch_credentials()
+    if stytch_creds:
+        secrets["stytch_project_id"] = stytch_creds.get("project_id")
+        secrets["stytch_secret"] = stytch_creds.get("secret")
+
+    swarm_creds = get_swarm_credentials()
+    if swarm_creds:
+        secrets["swarm_oauth_token"] = swarm_creds.get("oauth_token")
+        secrets["foursquare_api_key"] = (
+            swarm_creds.get("api_key")
+            or swarm_creds.get("foursquare_key")
+        )
+
+    telegram_creds = get_telegram_credentials()
+    if telegram_creds:
+        secrets["telegram_api_id"] = telegram_creds.get("api_id")
+        secrets["telegram_api_hash"] = telegram_creds.get("api_hash")
+        secrets["telegram_phone"] = telegram_creds.get("phone")
+
+    telegram_bot_creds = get_telegram_bot_credentials()
+    if telegram_bot_creds:
+        secrets["telegram_bot_token"] = telegram_bot_creds.get("token")
+        secrets["telegram_bot_chat_id"] = telegram_bot_creds.get("chat_id")
+
+    telnyx_creds = get_telnyx_credentials()
+    if telnyx_creds:
+        secrets["telnyx_api_key"] = telnyx_creds.get("api_key")
+        secrets["telnyx_phone_number"] = telnyx_creds.get("phone_number")
+
+    openai_creds = get_openai_credentials()
+    if openai_creds:
+        secrets["openai_api_key"] = openai_creds.get("api_key")
+
+    email_creds = get_email_credentials()
+    if email_creds:
+        secrets["smtp_host"] = email_creds.get("smtp_host")
+        smtp_port = email_creds.get("smtp_port")
+        if smtp_port is not None:
+            secrets["smtp_port"] = str(smtp_port)
+        secrets["smtp_user"] = email_creds.get("smtp_user")
+        secrets["smtp_password"] = email_creds.get("smtp_password")
+        secrets["digest_email_to"] = email_creds.get("digest_email_to")
+        secrets["digest_time"] = email_creds.get("digest_time")
+
+    claudia_creds = get_claudia_credentials()
+    if claudia_creds:
+        secrets["claudia_api_url"] = claudia_creds.get("api_url")
+        secrets["claudia_api_key"] = claudia_creds.get("api_key")
+
+    earshot_creds = get_earshot_credentials()
+    if earshot_creds:
+        secrets["earshot_api_url"] = earshot_creds.get("api_url")
+        secrets["earshot_api_key"] = earshot_creds.get("api_key")
+
+    android_creds = get_android_credentials()
+    if android_creds:
+        secrets["android_device_serial"] = android_creds.get("device_serial")
+        secrets["android_adb_host"] = android_creds.get("adb_host")
+        secrets["android_adb_port"] = android_creds.get("adb_port")
+        secrets["android_llm_api_key"] = android_creds.get("llm_api_key")
+
+    actions_creds = get_actions_credentials()
+    if actions_creds:
+        secrets["actions_api_key"] = actions_creds.get("api_key")
+
+    # Consider Vault "reachable" if we got at least one non-None credential.
+    # (frank-bot/email is known to be missing, so we don't count on it.)
+    got_something = any(v is not None for v in secrets.values())
+    return got_something
+
+
+def _load_secrets() -> dict[str, str | None]:
+    """
+    Load secrets from Vault with environment variable fallback.
+
+    When Vault is configured but unreachable (e.g. concordia-vault hasn't
+    started yet after a reboot), retries with exponential backoff before
+    falling through to env-var defaults. This prevents the startup race
+    condition where get_settings()'s @lru_cache permanently locks in empty
+    secrets.
+
+    Returns a dict with all secret values.
+    """
+    vault_is_enabled = vault_enabled()
+    allow_env_secret_fallback = (
+        os.getenv("ALLOW_ENV_SECRET_FALLBACK", "false").lower() == "true"
+    )
+
+    secrets = _empty_secrets()
+
     if vault_is_enabled:
         logger.info("Loading secrets from Vault")
+        vault_ok = False
+        backoff = VAULT_STARTUP_INITIAL_BACKOFF
 
-        # Google credentials
-        google_creds = get_google_credentials()
-        if google_creds:
-            secrets["google_client_id"] = google_creds.get("client_id")
-            secrets["google_client_secret"] = google_creds.get("client_secret")
+        for attempt in range(VAULT_STARTUP_MAX_ATTEMPTS):
+            # Reset caches so each attempt talks to Vault fresh
+            if attempt > 0:
+                clear_client_cache()
+                clear_secret_cache()
+                secrets = _empty_secrets()
 
-        # Stytch credentials
-        stytch_creds = get_stytch_credentials()
-        if stytch_creds:
-            secrets["stytch_project_id"] = stytch_creds.get("project_id")
-            secrets["stytch_secret"] = stytch_creds.get("secret")
+            try:
+                vault_ok = _fetch_vault_secrets(secrets)
+            except Exception as exc:
+                logger.warning(
+                    "Vault secret fetch attempt %d/%d failed: %s",
+                    attempt + 1, VAULT_STARTUP_MAX_ATTEMPTS, exc,
+                )
+                vault_ok = False
 
-        # Swarm credentials
-        swarm_creds = get_swarm_credentials()
-        if swarm_creds:
-            secrets["swarm_oauth_token"] = swarm_creds.get("oauth_token")
-            # Support both key names (terraform previously used `foursquare_key`)
-            secrets["foursquare_api_key"] = (
-                swarm_creds.get("api_key")
-                or swarm_creds.get("foursquare_key")
-            )
+            if vault_ok:
+                if attempt > 0:
+                    logger.info(
+                        "Vault secrets loaded successfully after %d attempt(s)",
+                        attempt + 1,
+                    )
+                break
 
-        # Telegram credentials
-        telegram_creds = get_telegram_credentials()
-        if telegram_creds:
-            secrets["telegram_api_id"] = telegram_creds.get("api_id")
-            secrets["telegram_api_hash"] = telegram_creds.get("api_hash")
-            secrets["telegram_phone"] = telegram_creds.get("phone")
-
-        # Telegram Bot credentials
-        telegram_bot_creds = get_telegram_bot_credentials()
-        if telegram_bot_creds:
-            secrets["telegram_bot_token"] = telegram_bot_creds.get("token")
-            secrets["telegram_bot_chat_id"] = telegram_bot_creds.get("chat_id")
-
-        # Telnyx credentials
-        telnyx_creds = get_telnyx_credentials()
-        if telnyx_creds:
-            secrets["telnyx_api_key"] = telnyx_creds.get("api_key")
-            secrets["telnyx_phone_number"] = telnyx_creds.get("phone_number")
-
-        # OpenAI credentials
-        openai_creds = get_openai_credentials()
-        if openai_creds:
-            secrets["openai_api_key"] = openai_creds.get("api_key")
-
-        # Email/SMTP credentials (daily digest + notifications)
-        email_creds = get_email_credentials()
-        if email_creds:
-            secrets["smtp_host"] = email_creds.get("smtp_host")
-            smtp_port = email_creds.get("smtp_port")
-            if smtp_port is not None:
-                secrets["smtp_port"] = str(smtp_port)
-            secrets["smtp_user"] = email_creds.get("smtp_user")
-            secrets["smtp_password"] = email_creds.get("smtp_password")
-            secrets["digest_email_to"] = email_creds.get("digest_email_to")
-            secrets["digest_time"] = email_creds.get("digest_time")
-
-        # Claudia credentials
-        claudia_creds = get_claudia_credentials()
-        if claudia_creds:
-            secrets["claudia_api_url"] = claudia_creds.get("api_url")
-            secrets["claudia_api_key"] = claudia_creds.get("api_key")
-
-        # Earshot credentials
-        earshot_creds = get_earshot_credentials()
-        if earshot_creds:
-            secrets["earshot_api_url"] = earshot_creds.get("api_url")
-            secrets["earshot_api_key"] = earshot_creds.get("api_key")
-
-        # Android phone credentials
-        from services.vault_client import get_android_credentials
-        android_creds = get_android_credentials()
-        if android_creds:
-            secrets["android_device_serial"] = (
-                android_creds.get("device_serial")
-            )
-            secrets["android_adb_host"] = (
-                android_creds.get("adb_host")
-            )
-            secrets["android_adb_port"] = (
-                android_creds.get("adb_port")
-            )
-            secrets["android_llm_api_key"] = (
-                android_creds.get("llm_api_key")
-            )
-
-        # Actions API credentials
-        from services.vault_client import get_actions_credentials
-        actions_creds = get_actions_credentials()
-        if actions_creds:
-            secrets["actions_api_key"] = actions_creds.get("api_key")
+            # Vault was unreachable -- wait before retrying
+            import services.vault_client as _vc
+            if getattr(_vc, "_vault_connection_failed", False):
+                if attempt < VAULT_STARTUP_MAX_ATTEMPTS - 1:
+                    logger.warning(
+                        "Vault unreachable on attempt %d/%d, retrying in %.1fs...",
+                        attempt + 1, VAULT_STARTUP_MAX_ATTEMPTS, backoff,
+                    )
+                    time.sleep(backoff)
+                    backoff = min(backoff * VAULT_STARTUP_BACKOFF_MULTIPLIER,
+                                  VAULT_STARTUP_MAX_BACKOFF)
+                    # Reset the connection-failed flag so vault_client retries
+                    _vc._vault_connection_failed = False
+                else:
+                    logger.error(
+                        "Vault still unreachable after %d attempts — "
+                        "proceeding with env-var fallback",
+                        VAULT_STARTUP_MAX_ATTEMPTS,
+                    )
+            else:
+                # Vault was reachable but returned no secrets -- don't retry
+                break
     else:
         logger.info("Vault not configured, using environment variables")
 
