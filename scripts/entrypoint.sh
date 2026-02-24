@@ -16,6 +16,12 @@ ADB_TIMEOUT="${ADB_TIMEOUT:-10}"
 VAULT_TIMEOUT="${VAULT_TIMEOUT:-15}"
 
 maybe_set_android_serial() {
+    # If TCP/IP ADB is explicitly configured, do not force USB serial fallback.
+    # This keeps production on wireless debugging when desired.
+    if [ -n "$ANDROID_ADB_HOST" ]; then
+        return
+    fi
+
     # If ANDROID_DEVICE_SERIAL isn't set, try to load it from Vault-backed config.
     # This keeps docker-compose clean (Vault-first) while still enabling USB ADB
     # and gnirehtet on the host-attached device.
