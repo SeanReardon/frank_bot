@@ -15,7 +15,10 @@ API endpoints (from ~/dev/claudia/openapi.yml):
 - POST   /api/repos/{repoId}/chats/{chatId}/end  # End the chat
 - GET    /api/repos/{repoId}/prompts             # List prompts
 - GET    /api/repos/{repoId}/prompts/{promptId}  # Get prompt
-- POST   /api/repos/{repoId}/prompts/{promptId}/queue  # Queue prompt
+- POST   /api/repos/{repoId}/prompts             # Create prompt from chat
+- POST   /api/repos/{repoId}/prompts/{promptId}/execute
+        # Execute prompt (prompt -> PRDs)
+- POST   /api/repos/{repoId}/prompts/{promptId}/queue  # Queue prompt (legacy)
 """
 
 from __future__ import annotations
@@ -658,9 +661,9 @@ class ClaudiaClient:
 
     def execute_prompt(self, repo_id: str, prompt_id: str) -> dict[str, Any]:
         """
-        Queue a prompt for direct execution.
+        Queue a prompt for prompt-to-PRD compilation.
 
-        The prompt content will be executed directly by Claude.
+        The prompt content is compiled into PRDs for later bat consumption.
 
         Args:
             repo_id: Repository ID

@@ -86,22 +86,30 @@ Claudia manages GitHub repos and runs Claude to complete development tasks.
 **A. Execute existing prompt** ("run prompt X on repo Y"):
 1. `claudiaRepoList` — find the repo
 2. `claudiaPrompt(action='list', repo_id=...)` — list prompts
-3. `claudiaPrompt(action='execute', repo_id=..., prompt_id=...)` — run it
-4. `claudiaExecutionList` → `claudiaExecutionGet` — get result with git diff
+3. `claudiaPrompt(action='execute', repo_id=..., prompt_id=...)` — compile prompt JSON into PRDs
+4. `claudiaExecutionList` → `claudiaExecutionGet` — verify commit + `prdIds` + PRD generation details
+5. `claudiaQueueGet` — confirm PRD tasks are now being consumed
 
 **B. Chat → new prompt** (design then execute):
 1. `claudiaChat(action='create', repo_name=..., title=...)` — start conversation
 2. `claudiaChat(action='send', repo_id=..., chat_id=..., message=...)` — iterate
 3. `claudiaChat(action='end', repo_id=..., chat_id=...)` — finish
 4. `claudiaPrompt(action='create', repo_id=..., chat_id=...)` — generate prompt
-5. `claudiaExecutionList` → `claudiaExecutionGet` — monitor result
+5. `claudiaPrompt(action='execute', repo_id=..., prompt_id=...)` — compile prompt into PRDs
+6. `claudiaExecutionList` → `claudiaExecutionGet` — monitor compilation result
 
 **Checking on things:**
 - `claudiaChat(action='list', repo_id=...)` — see chats by status
 - `claudiaExecutionList` — all executions (filter by repo_id, status)
 - `claudiaQueueGet` — what's running/pending right now
 
-**CRITICAL:** `claudiaPrompt(action='create')` generates from a chat. `claudiaPrompt(action='execute')` runs an existing prompt file. When user says "run prompt X", use `execute`.
+**CRITICAL:** `claudiaPrompt(action='create')` generates prompt JSON from a chat. `claudiaPrompt(action='execute')` compiles prompt JSON into PRDs; implementation happens later when bat consumes PRDs.
+
+**Success criteria for prompt execution:** treat execution as successful only when all are true:
+- New commit was created and pushed
+- `scripts/claudia/prd.json` changed with new stories
+- Execution metadata includes non-empty `prdIds`
+- Queue shows PRD tasks being consumed
 
 ## Jorbs (Intelligent, Persistent)
 LLM-powered agents that iteratively solve problems. The jorb LLM writes scripts, interprets results, decides next actions, and loops until done.

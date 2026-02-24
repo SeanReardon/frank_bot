@@ -13,7 +13,7 @@ Actions:
 - end_claudia_chat: End the chat session
 - list_claudia_prompts: List prompts for a repository
 - get_claudia_prompt: Get prompt details
-- execute_claudia_prompt: Execute an existing prompt
+- execute_claudia_prompt: Compile an existing prompt into PRDs
 - create_claudia_prompt: Generate prompt from a completed chat
 - get_claudia_queue: See queue status for a repo
 """
@@ -526,7 +526,7 @@ async def create_claudia_prompt_action(
     """
     Generate a NEW prompt from a completed chat conversation.
 
-    This turns a chat discussion into a prompt file and queues execution.
+    This turns a chat discussion into a prompt file and queues prompt generation.
     Requires chat_id. Do NOT use this to run an existing prompt — use
     execute_claudia_prompt_action for that.
 
@@ -573,9 +573,10 @@ async def create_claudia_prompt_action(
                     f"{chat.prompt_id}"
                 ),
                 "suggestion": (
-                    f"Use claudiaPrompt(action='execute', prompt_id='{chat.prompt_id}') "
-                    f"to run it, or claudiaPrompt(action='get', prompt_id='{chat.prompt_id}') "
-                    f"to inspect it first."
+                    "Use claudiaPrompt(action='execute', "
+                    f"prompt_id='{chat.prompt_id}') to compile it into PRDs, "
+                    "or claudiaPrompt(action='get', "
+                    f"prompt_id='{chat.prompt_id}') to inspect it first."
                 ),
             }
 
@@ -616,7 +617,7 @@ async def execute_claudia_prompt_action(
     """
     Execute an existing prompt from the repo's prompts/ directory.
 
-    Queues the prompt for direct execution by Claude. Call
+    Queues the prompt for prompt-to-PRD compilation. Call
     claudiaPromptList first to find available prompt IDs.
 
     Args (in arguments dict):
@@ -688,7 +689,10 @@ async def execute_claudia_prompt_action(
 
     queue_pos = result.get("queuePosition", 0)
     return {
-        "message": f"Prompt execution queued at position {queue_pos}.",
+        "message": (
+            f"Prompt execution queued at position {queue_pos}. "
+            "This compiles the prompt into PRDs; bat implements those PRDs later."
+        ),
         "queue_item_id": result.get("queueItemId"),
         "queue_position": queue_pos,
         "prompt_id": result.get("promptId"),
@@ -874,18 +878,44 @@ async def api_learn_action(
         ),
         "workflow_chat_to_code": [
             "1. claudiaRepoList - See available repositories",
-            "2. claudiaChat(action='create', repo_name=..., title=...) - Start conversation",
-            "3. claudiaChat(action='send', repo_id=..., chat_id=..., message=...) - Discuss",
+            (
+                "2. claudiaChat(action='create', repo_name=..., title=...) "
+                "- Start conversation"
+            ),
+            (
+                "3. claudiaChat(action='send', repo_id=..., chat_id=..., "
+                "message=...) - Discuss"
+            ),
             "4. claudiaChat(action='end', repo_id=..., chat_id=...) - Finish",
-            "5. claudiaPrompt(action='create', repo_id=..., chat_id=...) - Generate prompt from chat",
-            "6. claudiaExecutionGet - Monitor the result",
+            (
+                "5. claudiaPrompt(action='create', repo_id=..., chat_id=...) "
+                "- Generate prompt from chat"
+            ),
+            (
+                "6. claudiaPrompt(action='execute', repo_id=..., "
+                "prompt_id=...) - Compile prompt into PRDs"
+            ),
+            (
+                "7. claudiaExecutionGet - Verify commit + prdIds + "
+                "PRD generation"
+            ),
         ],
         "workflow_execute_existing_prompt": [
             "1. claudiaRepoList - Find the repo",
-            "2. claudiaPrompt(action='list', repo_id=...) - See available prompts",
-            "3. claudiaPrompt(action='execute', repo_id=..., prompt_id=...) - Run it",
+            (
+                "2. claudiaPrompt(action='list', repo_id=...) - See "
+                "available prompts"
+            ),
+            (
+                "3. claudiaPrompt(action='execute', repo_id=..., "
+                "prompt_id=...) - Compile into PRDs"
+            ),
             "4. claudiaExecutionList - Find the execution_id",
-            "5. claudiaExecutionGet - Monitor the result",
+            (
+                "5. claudiaExecutionGet - Verify commit + prdIds + "
+                "prd.json changes"
+            ),
+            "6. claudiaQueueGet - Confirm PRD tasks are being consumed",
         ],
         "operations": {
             "claudiaRepoList": "List all Claudia-managed repositories",
@@ -902,25 +932,38 @@ async def api_learn_action(
                 "'list' (repo_id), "
                 "'get' (repo_id, prompt_id), "
                 "'create' (repo_id, chat_id) — generates NEW prompt from chat, "
-                "'execute' (repo_id, prompt_id) — runs EXISTING prompt"
+                "'execute' (repo_id, prompt_id) — compiles EXISTING prompt into PRDs"
             ),
             "claudiaQueueGet": "Check queue status (repo_id)",
-            "claudiaExecutionList": "List executions (repo_id?, status?, limit?). Find execution_ids to pass to claudiaExecutionGet.",
-            "claudiaExecutionGet": "Get execution result (execution_id). Shows output, git diff, costs.",
+            "claudiaExecutionList": (
+                "List executions (repo_id?, status?, limit?). "
+                "Find execution_ids to pass to claudiaExecutionGet."
+            ),
+            "claudiaExecutionGet": (
+                "Get execution result (execution_id). "
+                "Shows output, git diff, costs."
+            ),
         },
         "important": {
             "claudiaPrompt_create_vs_execute": (
                 "action='create' generates a NEW prompt from a chat conversation. "
-                "action='execute' runs an EXISTING prompt file from the repo. "
+                "action='execute' compiles an EXISTING prompt file into PRDs. "
                 "When user says 'execute prompt X', use action='execute'. "
                 "When user says 'turn this chat into code', use action='create'."
+            ),
+            "prompt_execution_policy": (
+                "In Claudia, executePrompt compiles prompt JSON into PRDs; "
+                "implementation happens later via automatic PRD consumption."
             ),
         },
         "available_repos": repo_list,
         "tips": [
             "Start with a clear feature description in the chat title",
             "Discuss edge cases and constraints before ending chat",
-            "Check queue position with claudiaQueueGet - repos process one task at a time",
+            (
+                "Check queue position with claudiaQueueGet - repos process "
+                "one task at a time"
+            ),
             "Executions include git diffs and cost tracking",
         ],
     }
