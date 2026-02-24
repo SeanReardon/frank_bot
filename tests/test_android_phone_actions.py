@@ -1488,6 +1488,9 @@ class TestStepScreenshotsInBackground:
             assert final_call is not None
             assert "step_screenshot_paths" in final_call["result"]
             assert len(final_call["result"]["step_screenshot_paths"]) == 2
+            assert "step_actions" in final_call["result"]
+            assert len(final_call["result"]["step_actions"]) == 2
+            assert final_call["result"]["step_actions"][0]["action"] == "tap"
 
 
 class TestTaskGetActionIncludeSteps:

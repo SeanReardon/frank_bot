@@ -11,6 +11,7 @@ Orchestrates multi-step phone control tasks by:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -38,6 +39,55 @@ def _calculate_token_cost(input_tokens: int, output_tokens: int) -> float:
     input_cost = (input_tokens / 1000) * TOKEN_PRICE_INPUT
     output_cost = (output_tokens / 1000) * TOKEN_PRICE_OUTPUT
     return round(input_cost + output_cost, 6)
+
+
+def _normalize_text(value: Any) -> str:
+    """Normalize text-ish values for stable log signatures."""
+    if value is None:
+        return ""
+    return " ".join(str(value).strip().split()).lower()
+
+
+def _screen_signature(screen_state: dict[str, Any]) -> str:
+    """
+    Build a compact screen fingerprint from structural UI fields.
+
+    This avoids storing full screenshots/XML while still letting logs show
+    whether the UI meaningfully changed between steps.
+    """
+    dominant_package = _normalize_text(screen_state.get("dominant_package"))
+    elements = screen_state.get("clickable_elements", [])
+    parts: list[str] = [f"pkg={dominant_package}", f"count={screen_state.get('element_count', 0)}"]
+
+    if isinstance(elements, list):
+        for el in elements[:12]:
+            if not isinstance(el, dict):
+                continue
+            text = _normalize_text(el.get("text") or el.get("content_desc"))
+            rid = _normalize_text(el.get("resource_id"))
+            x = el.get("center_x", 0)
+            y = el.get("center_y", 0)
+            clickable = "1" if el.get("clickable") else "0"
+            parts.append(f"{text}|{rid}|{x},{y}|{clickable}")
+
+    raw = "||".join(parts)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _action_signature(action: "PhoneAction") -> str:
+    """Build a stable action signature for repeat-loop diagnostics."""
+    if action.action == "tap":
+        return f"tap({action.params.get('x')},{action.params.get('y')})"
+    if action.action == "type":
+        text = str(action.params.get("text", ""))
+        return f"type(len={len(text)})"
+    if action.action == "swipe":
+        return f"swipe({action.params.get('direction', 'unknown')})"
+    if action.action == "press_key":
+        return f"press_key({action.params.get('key', 'unknown')})"
+    if action.action == "wait":
+        return f"wait({action.params.get('seconds', 1)})"
+    return action.action
 
 
 # Action types the LLM can decide
@@ -569,6 +619,13 @@ class AndroidPhoneRunner:
         total_output_tokens = 0
         final_screenshot: str | None = None
         extracted_data: dict[str, Any] | None = None
+        last_screen_sig = ""
+        last_action_sig = ""
+        current_screen_streak = 0
+        current_action_streak = 0
+        max_screen_streak = 0
+        max_action_streak = 0
+        max_action_sig = ""
 
         logger.info(
             "Starting phone automation task with max_steps=%d, model=%s",
@@ -590,6 +647,13 @@ class AndroidPhoneRunner:
                 logger.debug("Step %d: Capturing screen state", step_num)
                 screen_state = await self._capture_screen_state()
                 final_screenshot = screen_state.get("screenshot_base64")
+                screen_sig = _screen_signature(screen_state)
+                if screen_sig == last_screen_sig:
+                    current_screen_streak += 1
+                else:
+                    current_screen_streak = 1
+                    last_screen_sig = screen_sig
+                max_screen_streak = max(max_screen_streak, current_screen_streak)
 
                 # Step 2: Build task context
                 task_context = {
@@ -619,6 +683,35 @@ class AndroidPhoneRunner:
                     action.done,
                     action.reasoning[:100] if action.reasoning else "",
                 )
+                action_sig = _action_signature(action)
+                if action_sig == last_action_sig:
+                    current_action_streak += 1
+                else:
+                    current_action_streak = 1
+                    last_action_sig = action_sig
+                if current_action_streak > max_action_streak:
+                    max_action_streak = current_action_streak
+                    max_action_sig = action_sig
+
+                logger.info(
+                    "Step %d diagnostics: action_sig=%s (x%d) screen_sig=%s (x%d)",
+                    step_num,
+                    action_sig,
+                    current_action_streak,
+                    screen_sig,
+                    current_screen_streak,
+                )
+
+                if current_action_streak >= 5 and current_screen_streak >= 5:
+                    if current_action_streak == 5 or current_action_streak % 5 == 0:
+                        logger.warning(
+                            "Potential loop at step %d: repeated action '%s' for %d steps on stable screen (%s x%d)",
+                            step_num,
+                            action_sig,
+                            current_action_streak,
+                            screen_sig,
+                            current_screen_streak,
+                        )
 
                 # Audit the decision + screen metadata (no raw screenshot/xml persisted).
                 if audit_logger is not None:
@@ -767,17 +860,34 @@ class AndroidPhoneRunner:
                 )
 
         # Reached max steps without completion
-        logger.warning("Task did not complete within %d steps", effective_max_steps)
+        loop_hint = ""
+        if max_action_streak >= 5:
+            loop_hint = (
+                f" Likely stuck: repeated action '{max_action_sig}' "
+                f"for {max_action_streak} steps (max stable-screen streak: {max_screen_streak})."
+            )
+        logger.warning(
+            "Task did not complete within %d steps.%s",
+            effective_max_steps,
+            loop_hint,
+        )
         total_tokens = total_input_tokens + total_output_tokens
         total_cost = _calculate_token_cost(total_input_tokens, total_output_tokens)
+        max_steps_error = f"Task did not complete within {effective_max_steps} steps.{loop_hint}"
 
         if audit_logger is not None:
             try:
                 audit_logger.log_action(
                     action="runner_max_steps",
-                    parameters={"task": task_prompt, "max_steps": effective_max_steps},
+                    parameters={
+                        "task": task_prompt,
+                        "max_steps": effective_max_steps,
+                        "max_action_streak": max_action_streak,
+                        "max_action_signature": max_action_sig,
+                        "max_screen_streak": max_screen_streak,
+                    },
                     success=False,
-                    error=f"Task did not complete within {effective_max_steps} steps",
+                    error=max_steps_error,
                     tokens_used=total_tokens,
                     api_key=self._api_key,
                 )
@@ -791,7 +901,7 @@ class AndroidPhoneRunner:
             total_tokens_used=total_tokens,
             total_cost=total_cost,
             steps=steps,
-            error=f"Task did not complete within {effective_max_steps} steps",
+            error=max_steps_error,
             final_screenshot_base64=final_screenshot,
         )
 

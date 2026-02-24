@@ -18,6 +18,7 @@ type TimelineItemKind =
   | 'human'
   | 'message'
   | 'llm'
+  | 'android-task'
   | 'script'
   | 'android-image'
   | 'checkpoint'
@@ -454,6 +455,21 @@ export class JorbThreadView extends LitElement {
       overflow: auto;
     }
 
+    .timeline-details {
+      margin-top: var(--spacing-xs);
+      border: 1px dashed var(--color-border);
+      border-radius: var(--border-radius-sm);
+      background: var(--color-bg);
+      padding: var(--spacing-xs) var(--spacing-sm);
+    }
+
+    .timeline-details > summary {
+      cursor: pointer;
+      color: var(--color-text-muted);
+      font-size: var(--font-size-xs);
+      user-select: none;
+    }
+
     .timeline-image {
       margin-top: var(--spacing-sm);
       max-width: 100%;
@@ -486,6 +502,7 @@ export class JorbThreadView extends LitElement {
     .timeline-item.switchboard { border-left: 3px solid var(--kente-blue); }
     .timeline-item.human { border-left: 3px solid var(--kente-orange); }
     .timeline-item.llm { border-left: 3px solid var(--kente-gold); }
+    .timeline-item.android-task { border-left: 3px solid var(--kente-purple, #7c3aed); }
     .timeline-item.script { border-left: 3px solid var(--kente-green); }
     .timeline-item.android-image { border-left: 3px solid var(--kente-blue); }
     .timeline-item.checkpoint { border-left: 3px solid var(--color-border); }
@@ -785,6 +802,60 @@ export class JorbThreadView extends LitElement {
     return dedupedReversed.reverse();
   }
 
+  private _summarizeAndroidTaskResult(result: unknown): string | undefined {
+    if (!result || typeof result !== 'object') return undefined;
+    const obj = result as Record<string, unknown>;
+    const bits: string[] = [];
+    const status = String(obj.status || '').trim();
+    const steps = obj.steps_taken;
+    const tokens = obj.tokens_used;
+    const currentStep = String(obj.current_step || '').trim();
+    const error = String(obj.error || '').trim();
+
+    if (status) bits.push(`status=${status}`);
+    if (typeof steps === 'number') bits.push(`steps=${steps}`);
+    if (typeof tokens === 'number') bits.push(`tokens=${tokens}`);
+    if (currentStep) bits.push(`phase=${currentStep}`);
+    if (error) bits.push(`error=${error}`);
+    const actionsSummary = this._summarizeStepActions(result);
+    if (actionsSummary) bits.push(actionsSummary);
+    return bits.length > 0 ? bits.join(' • ') : undefined;
+  }
+
+  private _summarizeStepActions(result: unknown): string | undefined {
+    if (!result || typeof result !== 'object') return undefined;
+    const obj = result as Record<string, unknown>;
+    const nested = obj.result && typeof obj.result === 'object'
+      ? (obj.result as Record<string, unknown>)
+      : null;
+    const rawActions = nested?.step_actions ?? obj.step_actions;
+    if (!Array.isArray(rawActions) || rawActions.length === 0) return undefined;
+
+    const counts = new Map<string, number>();
+    for (const raw of rawActions) {
+      if (!raw || typeof raw !== 'object') continue;
+      const action = String((raw as Record<string, unknown>).action || '').trim();
+      if (!action) continue;
+      counts.set(action, (counts.get(action) || 0) + 1);
+    }
+
+    if (counts.size === 0) return undefined;
+    const pieces = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([name, count]) => `${name}×${count}`);
+    return `actions=${pieces.join(', ')}`;
+  }
+
+  private _getScriptGoal(result: unknown): string | undefined {
+    if (!result || typeof result !== 'object') return undefined;
+    const obj = result as Record<string, unknown>;
+    const goal = obj.goal;
+    if (typeof goal !== 'string' || !goal.trim()) return undefined;
+    const trimmed = goal.trim();
+    return trimmed.length > 180 ? `${trimmed.slice(0, 180)}...` : trimmed;
+  }
+
   private async _handleScreenshotSelect(path: string) {
     this._selectedScreenshotPath = path;
     if (this._screenshotCache.has(path) || this._loadingScreenshots.has(path)) return;
@@ -873,12 +944,38 @@ export class JorbThreadView extends LitElement {
       const screenshotPaths = this._extractScreenshotPaths(scriptResult.result);
       const androidTaskId = this._extractAndroidTaskId(scriptResult.result) || undefined;
       const success = Boolean(scriptResult.success);
+      const scriptGoal = this._getScriptGoal(scriptResult.result);
+
+      if (scriptResult.script === 'android.task_do') {
+        items.push({
+          id: `android-task-do-${idx}-${ts}`,
+          timestamp: ts,
+          kind: 'android-task',
+          title: 'Android Task Started',
+          summary: this._summarizeAndroidTaskResult(scriptResult.result) || 'Task created',
+          details: scriptResult.result,
+          androidTaskId,
+          success,
+        });
+      } else if (scriptResult.script === 'android.task_get') {
+        items.push({
+          id: `android-task-get-${idx}-${ts}`,
+          timestamp: ts,
+          kind: 'android-task',
+          title: `Android Task Poll${androidTaskId ? ` (${androidTaskId})` : ''}`,
+          summary: this._summarizeAndroidTaskResult(scriptResult.result) || (success ? 'Poll success' : 'Poll failure'),
+          details: scriptResult.result,
+          androidTaskId,
+          success,
+        });
+      }
+
       items.push({
         id: `script-${idx}-${ts}`,
         timestamp: ts,
         kind: 'script',
         title: `Script: ${scriptResult.script || 'unknown'}`,
-        summary: success ? 'Success' : 'Failure',
+        summary: scriptGoal ? `Goal: ${scriptGoal}` : (success ? 'Success' : 'Failure'),
         details: scriptResult.result,
         content: scriptResult.error || undefined,
         screenshotPaths,
@@ -928,6 +1025,7 @@ export class JorbThreadView extends LitElement {
       <div class="legend">
         <span class="legend-item">🧭 Router / Switchboard</span>
         <span class="legend-item">🧠 Jorb LLM</span>
+        <span class="legend-item">🤖 Android Task Lifecycle</span>
         <span class="legend-item">📱 AndroidPhone Picture</span>
         <span class="legend-item">🗣️ Human Talking</span>
         <span class="legend-item">🧪 Script + Result</span>
@@ -985,40 +1083,80 @@ export class JorbThreadView extends LitElement {
             <div class="timeline-kind">${item.kind}</div>
             ${item.summary ? html`<div class="timeline-summary">${item.summary}</div>` : nothing}
             ${item.content ? html`<div class="timeline-content">${item.content}</div>` : nothing}
-            ${item.details ? html`<pre class="timeline-code">${this._safeJson(item.details)}</pre>` : nothing}
-            ${item.screenshotPaths && item.screenshotPaths.length > 0 ? html`
-              <div class="timeline-summary">
-                ${item.screenshotPaths.length} screenshot${item.screenshotPaths.length !== 1 ? 's' : ''}
-                ${item.androidTaskId ? html`(task ${item.androidTaskId})` : nothing}
-              </div>
-              <div class="screenshot-links">
-                ${item.screenshotPaths.map((path, i) => html`
-                  <button
-                    class="screenshot-link"
-                    ?disabled=${this._loadingScreenshots.has(path)}
-                    @click=${() => this._handleScreenshotSelect(path)}
-                  >
-                    ${this._loadingScreenshots.has(path) ? 'Loading...' : `Open shot ${i + 1}`}
-                  </button>
-                `)}
-              </div>
-            ` : nothing}
-            ${item.imageBase64 ? html`
-              <img
-                class="timeline-image"
-                alt="Android screenshot"
-                src="data:image/png;base64,${item.imageBase64}"
-              />
-            ` : nothing}
-            ${this._selectedScreenshotPath
-              && item.screenshotPaths?.includes(this._selectedScreenshotPath)
-              && this._screenshotCache.has(this._selectedScreenshotPath) ? html`
-              <img
-                class="timeline-image"
-                alt="Android screenshot"
-                src="data:image/png;base64,${this._screenshotCache.get(this._selectedScreenshotPath)}"
-              />
-            ` : nothing}
+            ${item.kind === 'script' ? html`
+              <details class="timeline-details">
+                <summary>Expand script result</summary>
+                ${item.details ? html`<pre class="timeline-code">${this._safeJson(item.details)}</pre>` : nothing}
+                ${item.screenshotPaths && item.screenshotPaths.length > 0 ? html`
+                  <div class="timeline-summary">
+                    ${item.screenshotPaths.length} screenshot${item.screenshotPaths.length !== 1 ? 's' : ''}
+                    ${item.androidTaskId ? html`(task ${item.androidTaskId})` : nothing}
+                  </div>
+                  <div class="screenshot-links">
+                    ${item.screenshotPaths.map((path, i) => html`
+                      <button
+                        class="screenshot-link"
+                        ?disabled=${this._loadingScreenshots.has(path)}
+                        @click=${() => this._handleScreenshotSelect(path)}
+                      >
+                        ${this._loadingScreenshots.has(path) ? 'Loading...' : `Open shot ${i + 1}`}
+                      </button>
+                    `)}
+                  </div>
+                ` : nothing}
+                ${item.imageBase64 ? html`
+                  <img
+                    class="timeline-image"
+                    alt="Android screenshot"
+                    src="data:image/png;base64,${item.imageBase64}"
+                  />
+                ` : nothing}
+                ${this._selectedScreenshotPath
+                  && item.screenshotPaths?.includes(this._selectedScreenshotPath)
+                  && this._screenshotCache.has(this._selectedScreenshotPath) ? html`
+                  <img
+                    class="timeline-image"
+                    alt="Android screenshot"
+                    src="data:image/png;base64,${this._screenshotCache.get(this._selectedScreenshotPath)}"
+                  />
+                ` : nothing}
+              </details>
+            ` : html`
+              ${item.details ? html`<pre class="timeline-code">${this._safeJson(item.details)}</pre>` : nothing}
+              ${item.screenshotPaths && item.screenshotPaths.length > 0 ? html`
+                <div class="timeline-summary">
+                  ${item.screenshotPaths.length} screenshot${item.screenshotPaths.length !== 1 ? 's' : ''}
+                  ${item.androidTaskId ? html`(task ${item.androidTaskId})` : nothing}
+                </div>
+                <div class="screenshot-links">
+                  ${item.screenshotPaths.map((path, i) => html`
+                    <button
+                      class="screenshot-link"
+                      ?disabled=${this._loadingScreenshots.has(path)}
+                      @click=${() => this._handleScreenshotSelect(path)}
+                    >
+                      ${this._loadingScreenshots.has(path) ? 'Loading...' : `Open shot ${i + 1}`}
+                    </button>
+                  `)}
+                </div>
+              ` : nothing}
+              ${item.imageBase64 ? html`
+                <img
+                  class="timeline-image"
+                  alt="Android screenshot"
+                  src="data:image/png;base64,${item.imageBase64}"
+                />
+              ` : nothing}
+              ${this._selectedScreenshotPath
+                && item.screenshotPaths?.includes(this._selectedScreenshotPath)
+                && this._screenshotCache.has(this._selectedScreenshotPath) ? html`
+                <img
+                  class="timeline-image"
+                  alt="Android screenshot"
+                  src="data:image/png;base64,${this._screenshotCache.get(this._selectedScreenshotPath)}"
+                />
+              ` : nothing}
+            `}
           </div>
         `)}
       </div>

@@ -380,6 +380,32 @@ class TestRunTask:
         assert "3 steps" in result.error
 
     @pytest.mark.asyncio
+    async def test_max_steps_includes_loop_hint_for_repeated_action(self) -> None:
+        """Adds loop diagnostics when action/screen repeat for many steps."""
+        runner = AndroidPhoneRunner(model="test", api_key="test", step_delay=0, max_steps=6)
+
+        mock_screen = {
+            "screenshot_base64": "abc123",
+            "xml": "<hierarchy/>",
+            "clickable_elements": [
+                {"text": "Thermostat", "resource_id": "tile", "center_x": 540, "center_y": 955, "clickable": True}
+            ],
+            "element_count": 1,
+            "dominant_package": "com.google.android.apps.chromecast.app",
+        }
+
+        tap_action = PhoneAction(action="tap", params={"x": 540, "y": 955})
+
+        with patch.object(runner, "_capture_screen_state", return_value=mock_screen):
+            with patch.object(runner, "_call_llm", return_value=(tap_action, 100, 50)):
+                with patch.object(runner, "_execute_action", return_value=(True, None)):
+                    result = await runner.run_task("test task")
+
+        assert result.success is False
+        assert result.steps_taken == 6
+        assert "Likely stuck: repeated action 'tap(540,955)'" in (result.error or "")
+
+    @pytest.mark.asyncio
     async def test_loads_task_prompt_template(self) -> None:
         """Loads and uses task-specific prompt template."""
         runner = AndroidPhoneRunner(model="test", api_key="test", step_delay=0)

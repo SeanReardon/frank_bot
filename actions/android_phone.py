@@ -1490,6 +1490,28 @@ async def _execute_task_background(
 
         # Persist intermediate step screenshots
         step_screenshot_paths = _persist_step_screenshots(task_id, result.steps)
+        step_actions: list[dict[str, Any]] = []
+        for step in result.steps:
+            action_obj = getattr(step, "action", None)
+            action_name = getattr(action_obj, "action", None)
+            if not isinstance(action_name, str):
+                continue
+            params = getattr(action_obj, "params", {}) or {}
+            reasoning = getattr(action_obj, "reasoning", None)
+            step_actions.append(
+                {
+                    "step": getattr(step, "step_number", None),
+                    "action": action_name,
+                    "params": params if isinstance(params, dict) else {},
+                    "reasoning": (
+                        str(reasoning)[:220]
+                        if isinstance(reasoning, str) and reasoning
+                        else None
+                    ),
+                    "success": bool(getattr(step, "success", False)),
+                    "error": getattr(step, "error", None),
+                }
+            )
 
         # TTL-based cleanup of old screenshots
         try:
@@ -1551,6 +1573,8 @@ async def _execute_task_background(
                 result_dict["final_screenshot_path"] = final_screenshot_path
             if step_screenshot_paths:
                 result_dict["step_screenshot_paths"] = step_screenshot_paths
+            if step_actions:
+                result_dict["step_actions"] = step_actions
 
             await storage.update_task(
                 task_id,
@@ -1574,6 +1598,8 @@ async def _execute_task_background(
                 fail_result["final_screenshot_path"] = final_screenshot_path
             if step_screenshot_paths:
                 fail_result["step_screenshot_paths"] = step_screenshot_paths
+            if step_actions:
+                fail_result["step_actions"] = step_actions
             await storage.update_task(
                 task_id,
                 status="failed",

@@ -361,7 +361,8 @@ class BackgroundLoopService:
 
                             text = (
                                 f"Android diagnostics failed (task_id={task_id}): {err_one_line}\n\n"
-                                "If you reconnect the phone/ADB, send another message and I’ll retry."
+                                "Send another message and I’ll retry. "
+                                "If the phone appears disconnected, reconnect ADB first."
                             )
                             sent_ok = False
                             if preferred == "telegram_bot" and chat_id:
