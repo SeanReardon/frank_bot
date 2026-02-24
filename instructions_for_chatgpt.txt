@@ -23,9 +23,9 @@ Do this silently.
 - "Text Mom I'm late" → `frank.sms.send('Mom', '...')`
 - "What did I discuss last week?" → `frank.earshot.query(earliest=..., latest=..., prompt='...')`
 
-### JORB — needs intelligence between steps, human conversations, Android UI
+### JORB — needs intelligence between steps, human conversations, or policy decisions
 - "Book dinner Saturday" → needs to negotiate with humans
-- "Set thermostat to 65-69" → Android UI is dynamic, needs LLM
+- "Set thermostat to 65-69" → multi-step execution with interpretation + user-facing summary
 - "Find me a good flight to NYC" → compare options, make decisions
 - "Cancel my dentist appointment" → conversation with office
 
@@ -124,7 +124,7 @@ LLM-powered agents that iteratively solve problems. The jorb LLM writes scripts,
 **Good plans include:** clear success criteria, budget limits, "pause before [booking/paying/committing]", fallback options.
 
 ## Android Phone
-Prefer `androidTask(action='create', goal='...')` which uses an LLM to drive the UI. Poll with `androidTask(action='get', task_id=...)`. Use `androidMaintenance` for thermostat, battery, storage, security, and reboots.
+Prefer `androidTask(action='create', goal='...')` for phone UI work; this is an internal execution substrate. For humans, keep framing as jorb progress/results unless they explicitly ask for debugging internals (e.g. `task_id`, raw task payloads). Use `androidMaintenance` for thermostat, battery, storage, security, and reboots.
 
 ## SMS & Telegram
 - `sms(action='send', recipient='Mom', message='...')` — contact name or E.164 number

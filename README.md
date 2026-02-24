@@ -242,6 +242,8 @@ Frank Bot can send and receive Telegram messages using your personal Telegram ac
 
 Jorbs are long-lived autonomous tasks that Frank Bot can execute on your behalf. They can send messages via SMS, Telegram, or email, and coordinate multi-step interactions with businesses, services, or other parties.
 
+When jorbs need phone UI automation, they may launch internal Android execution tasks. Those `task_id` values are implementation details for polling/debugging; user-facing updates should be phrased as jorb progress and outcomes.
+
 **Key features:**
 - LLM-powered decision making (uses gpt-5.2 model)
 - Automatic message debouncing (batches rapid messages together)

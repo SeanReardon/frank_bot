@@ -65,6 +65,7 @@ from actions.android_phone import (
     android_phone_launch_action,
     android_phone_wake_action,
     android_phone_screenshot_action,
+    screenshot_get_action,
     android_phone_find_and_tap_action,
     thermostat_set_range_action,
     thermostat_get_status_action,
@@ -779,6 +780,13 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(android_phone_screenshot_action)
         return await responder(payload)
 
+    async def android_screenshot_get_handler(request: Request):
+        await _require_api_key_or_stytch_session(request)
+        stats.get_endpoint_stats("androidScreenshotGet").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(screenshot_get_action)
+        return await responder(payload)
+
     async def android_find_tap_handler(request: Request):
         await _require_api_key(request)
         await _check_android_rate_limit(request)
@@ -1013,6 +1021,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/android/launch", android_launch_handler, methods=["GET"]),
         Route("/actions/android/wake", android_wake_handler, methods=["GET"]),
         Route("/actions/android/screenshot", android_screenshot_handler, methods=["GET"]),
+        Route("/actions/androidPhone/screenshot/get", android_screenshot_get_handler, methods=["GET"]),
         Route("/actions/android/find-tap", android_find_tap_handler, methods=["GET"]),
         # Android phone endpoints (new naming convention for LLM-in-the-loop)
         Route("/actions/androidPhone/getScreen", android_phone_get_screen_handler, methods=["GET"]),

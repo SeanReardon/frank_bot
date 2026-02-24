@@ -290,6 +290,83 @@ def _format_jorb_for_context(jorb: Jorb, messages: list[JorbMessage]) -> dict:
     }
 
 
+def _humanize_android_terminal_update(task_id: str, status: str, task: dict[str, Any]) -> str:
+    """
+    Build a human-friendly terminal summary for Android task polling.
+
+    This path is used as a guardrail fallback when we already reached a terminal
+    task state and want exactly one outbound update without another LLM loop.
+    """
+    lines = [f"Android run complete ({status or 'terminal'})."]
+    lines.append(f"Internal run id: {task_id}")
+
+    current_step = task.get("current_step")
+    if isinstance(current_step, str) and current_step.strip():
+        lines.append(f"Final step: {current_step.strip()[:160]}")
+
+    err = task.get("error")
+    if isinstance(err, str) and err.strip():
+        err_one = " ".join(err.split())
+        if len(err_one) > 300:
+            err_one = err_one[:300] + "..."
+        lines.append(f"Issue: {err_one}")
+
+    inner = task.get("result")
+    extracted: dict[str, Any] | None = None
+    result_desc = None
+    if isinstance(inner, dict):
+        maybe_extracted = inner.get("extracted_data")
+        if isinstance(maybe_extracted, dict):
+            extracted = maybe_extracted
+        result_desc = inner.get("result")
+
+    if result_desc:
+        lines.append(f"Outcome: {str(result_desc)[:220]}")
+
+    if extracted:
+        # Common thermostat shape
+        current_temp = extracted.get("current_temp")
+        low = extracted.get("target_low")
+        high = extracted.get("target_high")
+        mode = extracted.get("mode")
+        humidity = extracted.get("humidity")
+        hvac_status = extracted.get("status")
+
+        if any(v is not None for v in (current_temp, low, high, mode, humidity, hvac_status)):
+            summary_bits = []
+            if current_temp is not None:
+                summary_bits.append(f"current {current_temp}F")
+            if low is not None and high is not None:
+                summary_bits.append(f"target {low}-{high}F")
+            elif low is not None:
+                summary_bits.append(f"target {low}F")
+            elif high is not None:
+                summary_bits.append(f"target {high}F")
+            if mode:
+                summary_bits.append(f"mode {mode}")
+            if hvac_status:
+                summary_bits.append(f"status {hvac_status}")
+            if humidity is not None:
+                summary_bits.append(f"humidity {humidity}%")
+            if summary_bits:
+                lines.append("Result: " + ", ".join(summary_bits) + ".")
+        else:
+            # Generic structured payload: keep readable but never dump raw JSON.
+            pairs = []
+            for k, v in extracted.items():
+                if v is None:
+                    continue
+                pairs.append(f"{k}: {v}")
+                if len(pairs) >= 8:
+                    break
+            if pairs:
+                lines.append("Result: " + "; ".join(pairs) + ".")
+    elif status == "completed":
+        lines.append("No structured result was returned. I can retry with a tighter goal if you want.")
+
+    return "\n".join(lines)
+
+
 class AgentRunner:
     """
     Service for running the LLM agent to process jorb events.
@@ -2056,16 +2133,22 @@ class AgentRunner:
                         "status": "error",
                         "error": str(exc),
                     }
-                await self._storage.add_script_result(
-                    jorb_id,
-                    {
-                        "script": "android.task_get",
-                        "result": task,
-                        "success": poll_success,
-                    },
-                )
-
                 status = str(task.get("status") or "").strip().lower()
+                is_terminal = status in ("completed", "failed", "cancelled", "error", "not_found")
+                terminal_seen_id = str((jwm.jorb.metadata or {}).get("last_android_task_terminal_seen") or "").strip()
+
+                # Avoid duplicate terminal script rows when background polling has
+                # already recorded this task's terminal state.
+                if not (is_terminal and terminal_seen_id == task_id):
+                    await self._storage.add_script_result(
+                        jorb_id,
+                        {
+                            "script": "android.task_get",
+                            "result": task,
+                            "success": poll_success,
+                        },
+                    )
+
                 if poll_success and status in ("pending", "running"):
                     wake_at_iso = (datetime.now(timezone.utc) + timedelta(seconds=poll_seconds_int)).isoformat()
                     await self.update_jorb_status(
@@ -2092,6 +2175,12 @@ class AgentRunner:
                     status="running",
                     awaiting="human_reply",
                     wake_at=None,
+                    metadata_json=json.dumps(
+                        {
+                            **(jwm.jorb.metadata or {}),
+                            "last_android_task_terminal_seen": task_id,
+                        }
+                    ),
                 )
 
                 # Best-effort: send a terminal update once (keeps things safe even
@@ -2103,37 +2192,7 @@ class AgentRunner:
                     chat_id = str(meta.get("telegram_bot_chat_id") or "").strip() or None
                     recipient = jwm.jorb.contacts[0].identifier if jwm.jorb.contacts else None
 
-                    inner = task.get("result")
-                    extracted = None
-                    result_desc = None
-                    if isinstance(inner, dict):
-                        extracted = inner.get("extracted_data")
-                        result_desc = inner.get("result")
-
-                    lines = [f"Android task finished (task_id={task_id}, status={status or 'terminal'})."]
-                    if isinstance(task.get("current_step"), str) and task.get("current_step"):
-                        lines.append(f"Last step: {str(task.get('current_step'))[:160]}")
-                    if isinstance(task.get("error"), str) and task.get("error"):
-                        err_one = " ".join(str(task.get("error")).split())
-                        if len(err_one) > 300:
-                            err_one = err_one[:300] + "..."
-                        lines.append(f"Error: {err_one}")
-                    if result_desc:
-                        lines.append(f"Result: {str(result_desc)[:300]}")
-                    if extracted:
-                        try:
-                            extracted_json = json.dumps(extracted, ensure_ascii=False)
-                        except Exception:
-                            extracted_json = str(extracted)
-                        if len(extracted_json) > 600:
-                            extracted_json = extracted_json[:600] + "..."
-                        lines.append(f"Extracted data: {extracted_json}")
-                    elif status == "completed":
-                        lines.append(
-                            "Note: extracted data was empty. If you want, ask me to retry with a more specific goal."
-                        )
-
-                    text = "\n".join(lines)
+                    text = _humanize_android_terminal_update(task_id=task_id, status=status, task=task)
                     sent_ok = False
                     if not self._check_rate_limit(jorb_id):
                         if preferred == "telegram_bot" and chat_id:

@@ -1587,3 +1587,35 @@ class TestTaskGetActionIncludeSteps:
 
             assert len(result["step_screenshot_paths"]) == 1
             assert result["step_screenshot_paths"][0] == existing
+
+
+class TestScreenshotGetAction:
+    """Tests for screenshot_get_action helper endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_reads_screenshot_from_allowed_dir(self) -> None:
+        from actions.android_phone import screenshot_get_action
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            screenshot_path = os.path.join(tmpdir, "task123.png")
+            png_bytes = base64.b64decode(MOCK_1X1_PNG_B64)
+            with open(screenshot_path, "wb") as f:
+                f.write(png_bytes)
+
+            with patch("actions.android_phone.SCREENSHOTS_DIR", tmpdir):
+                result = await screenshot_get_action({"path": screenshot_path})
+
+        assert result["path"] == screenshot_path
+        assert result["filename"] == "task123.png"
+        assert result["mime_type"] == "image/png"
+        assert result["base64"] == MOCK_1X1_PNG_B64
+
+    @pytest.mark.asyncio
+    async def test_rejects_path_outside_screenshots_dir(self) -> None:
+        from actions.android_phone import screenshot_get_action
+
+        with tempfile.TemporaryDirectory() as allowed_dir:
+            with tempfile.NamedTemporaryFile(suffix=".png") as outside:
+                with patch("actions.android_phone.SCREENSHOTS_DIR", allowed_dir):
+                    with pytest.raises(ValueError, match="outside allowed directory"):
+                        await screenshot_get_action({"path": outside.name})

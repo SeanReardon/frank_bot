@@ -408,6 +408,15 @@ class BackgroundLoopService:
                 await self._storage.update_jorb(jorb.id, awaiting=None, wake_at=None)
                 return True
 
+            # Mark terminal observation so downstream POLL handlers can avoid
+            # writing duplicate terminal android.task_get entries.
+            try:
+                meta = getattr(jorb, "metadata", {}) or {}
+                meta["last_android_task_terminal_seen"] = task_id
+                await self._storage.update_jorb(jorb.id, metadata_json=json.dumps(meta))
+            except Exception:
+                logger.exception("Failed to persist terminal android task marker for %s", jorb.id)
+
             await self._storage.update_jorb(jorb.id, awaiting=None, wake_at=None)
             refreshed = await self._storage.get_jorb(jorb.id) or jorb
             await runner.process_jorb_event(refreshed, event=None)

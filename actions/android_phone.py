@@ -1732,6 +1732,48 @@ async def task_get_action(
     return response
 
 
+async def screenshot_get_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Read a persisted Android screenshot file and return it as base64.
+
+    Args:
+        path: Screenshot path returned by task_get/script result payloads.
+
+    Returns:
+        path, filename, mime_type, base64
+    """
+    args = arguments or {}
+    requested_path = str(args.get("path", "")).strip()
+    if not requested_path:
+        raise ValueError("'path' is required")
+
+    screenshots_root = os.path.realpath(SCREENSHOTS_DIR)
+    resolved_path = os.path.realpath(requested_path)
+    if not resolved_path.startswith(screenshots_root + os.sep):
+        raise ValueError("Screenshot path is outside allowed directory")
+
+    if not resolved_path.lower().endswith(".png"):
+        raise ValueError("Only .png screenshots are supported")
+
+    if not os.path.isfile(resolved_path):
+        raise ValueError("Screenshot file not found")
+
+    try:
+        with open(resolved_path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("utf-8")
+    except Exception as exc:
+        raise ValueError(f"Failed to read screenshot file: {exc}") from exc
+
+    return {
+        "path": requested_path,
+        "filename": os.path.basename(resolved_path),
+        "mime_type": "image/png",
+        "base64": encoded,
+    }
+
+
 async def task_list_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -2069,6 +2111,7 @@ __all__ = [
     "api_learn_action",      # androidPhoneApiLearn - learn capabilities
     "task_do_action",        # androidPhoneTaskDo - start a task
     "task_get_action",       # androidPhoneTaskGet - get task status
+    "screenshot_get_action", # androidPhoneScreenshotGet - read persisted screenshot
     "task_list_action",      # androidPhoneTaskList - list tasks
     "task_cancel_action",    # androidPhoneTaskCancel - cancel a task
     # Backwards compatibility aliases

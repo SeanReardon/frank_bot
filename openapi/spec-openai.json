@@ -1104,8 +1104,8 @@
     "/openai/android/task": {
       "get": {
         "operationId": "androidTask",
-        "summary": "Android goal-based tasks (LLM-in-the-loop)",
-        "description": "action: create (goal, app), get (task_id), list (status, limit), cancel (task_id)",
+        "summary": "Android execution tasks (internal substrate)",
+        "description": "action: create (goal, app), get (task_id), list (status, limit), cancel (task_id). Usually orchestrated by jorbs; expose task internals only when needed for debugging or polling.",
         "parameters": [
           {
             "in": "query",
@@ -1303,7 +1303,7 @@
     "/openai/jorb": {
       "get": {
         "operationId": "jorb",
-        "summary": "Jorb operations (autonomous tasks)",
+        "summary": "Jorb operations (human-facing autonomous work)",
         "description": "action: list, create, get, cancel, messages, approve, brief, stats",
         "parameters": [
           {

@@ -32,6 +32,8 @@ interface TimelineItem {
   content?: string;
   details?: unknown;
   imageBase64?: string;
+  screenshotPaths?: string[];
+  androidTaskId?: string;
   success?: boolean;
 }
 
@@ -460,6 +462,27 @@ export class JorbThreadView extends LitElement {
       display: block;
     }
 
+    .screenshot-links {
+      margin-top: var(--spacing-sm);
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--spacing-xs);
+    }
+
+    .screenshot-link {
+      padding: 3px 8px;
+      border-radius: var(--border-radius-sm);
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--kente-blue);
+      cursor: pointer;
+      font-size: var(--font-size-xs);
+    }
+
+    .screenshot-link:hover:not(:disabled) {
+      border-color: var(--kente-blue);
+    }
+
     .timeline-item.switchboard { border-left: 3px solid var(--kente-blue); }
     .timeline-item.human { border-left: 3px solid var(--kente-orange); }
     .timeline-item.llm { border-left: 3px solid var(--kente-gold); }
@@ -479,6 +502,9 @@ export class JorbThreadView extends LitElement {
   @state() private _error: string | null = null;
   @state() private _hasMore = false;
   @state() private _autoScroll = true;
+  @state() private _selectedScreenshotPath: string | null = null;
+  @state() private _screenshotCache: Map<string, string> = new Map();
+  @state() private _loadingScreenshots: Set<string> = new Set();
 
   private _offset = 0;
   private _limit = 50;
@@ -497,6 +523,9 @@ export class JorbThreadView extends LitElement {
     if (changedProperties.has('jorbId') && this.jorbId) {
       this._offset = 0;
       this._messages = [];
+      this._selectedScreenshotPath = null;
+      this._screenshotCache = new Map();
+      this._loadingScreenshots = new Set();
       this._fetchJorb();
     }
 
@@ -689,6 +718,95 @@ export class JorbThreadView extends LitElement {
     return null;
   }
 
+  private _extractScreenshotPaths(result: unknown): string[] {
+    if (!result || typeof result !== 'object') return [];
+    const obj = result as Record<string, unknown>;
+    const collected: string[] = [];
+
+    const addPath = (val: unknown) => {
+      if (typeof val === 'string' && val.trim().length > 0) {
+        collected.push(val);
+      }
+    };
+
+    addPath(obj.final_screenshot_path);
+    if (Array.isArray(obj.step_screenshot_paths)) {
+      obj.step_screenshot_paths.forEach(addPath);
+    }
+
+    const nested = obj.result;
+    if (nested && typeof nested === 'object') {
+      const n = nested as Record<string, unknown>;
+      addPath(n.final_screenshot_path);
+      if (Array.isArray(n.step_screenshot_paths)) {
+        n.step_screenshot_paths.forEach(addPath);
+      }
+    }
+
+    return Array.from(new Set(collected));
+  }
+
+  private _extractAndroidTaskId(result: unknown): string | null {
+    if (!result || typeof result !== 'object') return null;
+    const obj = result as Record<string, unknown>;
+    const id = obj.id || obj.task_id;
+    if (typeof id === 'string' && id.trim().length > 0) return id;
+    return null;
+  }
+
+  private _isTerminalAndroidTaskGet(scriptResult: JorbScriptResult): boolean {
+    if (scriptResult.script !== 'android.task_get') return false;
+    const result = scriptResult.result;
+    if (!result || typeof result !== 'object') return false;
+    const status = String((result as Record<string, unknown>).status || '').toLowerCase();
+    return ['completed', 'failed', 'cancelled', 'error', 'not_found'].includes(status);
+  }
+
+  private _dedupeTerminalTaskResults(scriptResults: JorbScriptResult[]): JorbScriptResult[] {
+    const seen = new Set<string>();
+    const dedupedReversed: JorbScriptResult[] = [];
+
+    for (let i = scriptResults.length - 1; i >= 0; i--) {
+      const current = scriptResults[i];
+      if (!this._isTerminalAndroidTaskGet(current)) {
+        dedupedReversed.push(current);
+        continue;
+      }
+
+      const result = current.result as Record<string, unknown> | null;
+      const status = String((result?.status as string) || '').toLowerCase();
+      const taskId = this._extractAndroidTaskId(current.result) || 'unknown_task';
+      const key = `${taskId}:${status}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      dedupedReversed.push(current);
+    }
+
+    return dedupedReversed.reverse();
+  }
+
+  private async _handleScreenshotSelect(path: string) {
+    this._selectedScreenshotPath = path;
+    if (this._screenshotCache.has(path) || this._loadingScreenshots.has(path)) return;
+
+    const loading = new Set(this._loadingScreenshots);
+    loading.add(path);
+    this._loadingScreenshots = loading;
+
+    try {
+      const response = await api.getAndroidScreenshot(path);
+      const next = new Map(this._screenshotCache);
+      next.set(path, response.base64);
+      this._screenshotCache = next;
+    } catch (err) {
+      console.error('Failed to load screenshot:', err);
+    } finally {
+      const done = new Set(this._loadingScreenshots);
+      done.delete(path);
+      this._loadingScreenshots = done;
+    }
+  }
+
   private _safeJson(value: unknown, maxLen = 2200): string {
     try {
       const text = JSON.stringify(value, null, 2);
@@ -748,10 +866,12 @@ export class JorbThreadView extends LitElement {
       }
     }
 
-    const scriptResults = jorb?.script_results || [];
+    const scriptResults = this._dedupeTerminalTaskResults(jorb?.script_results || []);
     scriptResults.forEach((scriptResult, idx) => {
       const ts = this._getScriptTimestamp(scriptResult, idx);
       const imageBase64 = this._extractImageBase64(scriptResult.result);
+      const screenshotPaths = this._extractScreenshotPaths(scriptResult.result);
+      const androidTaskId = this._extractAndroidTaskId(scriptResult.result) || undefined;
       const success = Boolean(scriptResult.success);
       items.push({
         id: `script-${idx}-${ts}`,
@@ -761,6 +881,8 @@ export class JorbThreadView extends LitElement {
         summary: success ? 'Success' : 'Failure',
         details: scriptResult.result,
         content: scriptResult.error || undefined,
+        screenshotPaths,
+        androidTaskId,
         success,
       });
 
@@ -864,11 +986,37 @@ export class JorbThreadView extends LitElement {
             ${item.summary ? html`<div class="timeline-summary">${item.summary}</div>` : nothing}
             ${item.content ? html`<div class="timeline-content">${item.content}</div>` : nothing}
             ${item.details ? html`<pre class="timeline-code">${this._safeJson(item.details)}</pre>` : nothing}
+            ${item.screenshotPaths && item.screenshotPaths.length > 0 ? html`
+              <div class="timeline-summary">
+                ${item.screenshotPaths.length} screenshot${item.screenshotPaths.length !== 1 ? 's' : ''}
+                ${item.androidTaskId ? html`(task ${item.androidTaskId})` : nothing}
+              </div>
+              <div class="screenshot-links">
+                ${item.screenshotPaths.map((path, i) => html`
+                  <button
+                    class="screenshot-link"
+                    ?disabled=${this._loadingScreenshots.has(path)}
+                    @click=${() => this._handleScreenshotSelect(path)}
+                  >
+                    ${this._loadingScreenshots.has(path) ? 'Loading...' : `Open shot ${i + 1}`}
+                  </button>
+                `)}
+              </div>
+            ` : nothing}
             ${item.imageBase64 ? html`
               <img
                 class="timeline-image"
                 alt="Android screenshot"
                 src="data:image/png;base64,${item.imageBase64}"
+              />
+            ` : nothing}
+            ${this._selectedScreenshotPath
+              && item.screenshotPaths?.includes(this._selectedScreenshotPath)
+              && this._screenshotCache.has(this._selectedScreenshotPath) ? html`
+              <img
+                class="timeline-image"
+                alt="Android screenshot"
+                src="data:image/png;base64,${this._screenshotCache.get(this._selectedScreenshotPath)}"
               />
             ` : nothing}
           </div>

@@ -385,6 +385,13 @@ export interface JorbScriptResult {
   timestamp?: string | null;
 }
 
+export interface AndroidScreenshotResponse {
+  path: string;
+  filename: string;
+  mime_type: string;
+  base64: string;
+}
+
 export interface JorbCheckpoint {
   id: string;
   timestamp: string;
@@ -539,6 +546,15 @@ export async function cancelJorb(jorbId: string, reason?: string): Promise<Cance
   const queryString = params.toString();
   const path = `/actions/jorbs/${encodeURIComponent(jorbId)}/cancel${queryString ? `?${queryString}` : ''}`;
   return request<CancelJorbResponse>(path);
+}
+
+/**
+ * Read a persisted Android screenshot file as base64.
+ */
+export async function getAndroidScreenshot(path: string): Promise<AndroidScreenshotResponse> {
+  return request<AndroidScreenshotResponse>(
+    `/actions/androidPhone/screenshot/get?path=${encodeURIComponent(path)}`
+  );
 }
 
 // Jorb Stats types and functions
