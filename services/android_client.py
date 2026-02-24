@@ -29,9 +29,7 @@ from services.stats import stats
 logger = logging.getLogger(__name__)
 
 # Default ADB connection settings
-# NOTE: We intentionally do NOT bake in a default TCP/IP host.
-# If you want ADB-over-TCP, set ANDROID_ADB_HOST explicitly.
-# Historical value (removed to avoid confusion): 10.0.0.95
+# USB is preferred, but we keep a homelab TCP fallback in config/env.
 DEFAULT_ADB_PORT = 5555
 DEFAULT_ADB_TIMEOUT = 30  # seconds
 
@@ -342,12 +340,28 @@ class AndroidClient:
             )
 
         result = await self._run_adb_global("connect", self._device_serial)
-        if (
-            result.success
-            or "already connected" in result.output.lower()
-        ):
+        output_lower = (result.output or "").lower()
+        error_lower = (result.error or "").lower()
+        failed_markers = (
+            "failed to connect",
+            "unable to connect",
+            "connection refused",
+            "no route to host",
+            "network is unreachable",
+            "connection timed out",
+            "cannot connect",
+        )
+        has_failure_text = any(marker in output_lower for marker in failed_markers) or any(
+            marker in error_lower for marker in failed_markers
+        )
+        already_connected = "already connected" in output_lower
+
+        if not has_failure_text and (result.success or already_connected):
             self._connected = True
             result.success = True
+        elif has_failure_text and not result.error:
+            result.success = False
+            result.error = result.output.strip() or "ADB connect failed"
         return result
 
     async def disconnect(self) -> ADBResult:

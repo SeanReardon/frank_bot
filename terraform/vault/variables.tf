@@ -134,9 +134,7 @@ variable "android_device_serial" {
 variable "android_adb_host" {
   type        = string
   description = "IP address for ADB over TCP (wireless debugging fallback)"
-  # Intentionally no default; set explicitly if you use TCP/IP ADB.
-  # Historical value (removed to avoid confusion): 10.0.0.95
-  default     = ""
+  default     = "10.0.0.95"
 }
 
 variable "android_adb_port" {

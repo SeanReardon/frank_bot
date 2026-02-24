@@ -547,7 +547,11 @@ def get_settings() -> Settings:
         earshot_api_key=secrets["earshot_api_key"],
         # Android phone settings
         android_device_serial=secrets["android_device_serial"] or "",
-        android_adb_host=secrets["android_adb_host"] or "",
+        # Keep TCP/IP ADB usable even when Vault has no adb_host configured.
+        android_adb_host=(
+            (secrets.get("android_adb_host") or "").strip()
+            or os.getenv("ANDROID_ADB_HOST", "10.0.0.95").strip()
+        ),
         android_adb_port=int(secrets["android_adb_port"] or "5555"),
         android_llm_model=os.getenv("ANDROID_LLM_MODEL", "gpt-5.2"),
         android_llm_api_key=secrets.get("android_llm_api_key"),

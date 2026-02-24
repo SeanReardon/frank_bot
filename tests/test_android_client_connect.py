@@ -59,3 +59,23 @@ async def test_tcp_disconnect_uses_global_adb() -> None:
         "disconnect",
         "192.0.2.10:5555",
     )
+
+
+@pytest.mark.asyncio
+async def test_tcp_connect_fails_when_output_reports_refused() -> None:
+    """Treat adb's textual failure output as a real connect failure."""
+    client = AndroidClient(host="192.0.2.10", port=5555, serial=None)
+    client._run_adb_global = AsyncMock(
+        return_value=ADBResult(
+            success=True,
+            output=(
+                "failed to connect to '192.0.2.10:5555': "
+                "Connection refused"
+            ),
+        )
+    )
+
+    result = await client.connect()
+
+    assert result.success is False
+    assert "failed to connect" in (result.error or "").lower()

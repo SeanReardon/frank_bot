@@ -68,8 +68,8 @@ except Exception as e:
         "smtp_port": 587,
         "digest_time": "08:00",
         "android_device_serial": os.getenv("ANDROID_DEVICE_SERIAL", ""),
-        # No default host: prefer USB; set ANDROID_ADB_HOST explicitly for TCP/IP ADB.
-        "android_adb_host": os.getenv("ANDROID_ADB_HOST", ""),
+        # Prefer USB when configured, but provide a homelab TCP fallback target.
+        "android_adb_host": os.getenv("ANDROID_ADB_HOST", "10.0.0.95"),
         "android_adb_port": int(os.getenv("ANDROID_ADB_PORT", "5555")),
         "android_llm_model": os.getenv("ANDROID_LLM_MODEL", "gpt-5.2"),
         "android_maintenance_cron": os.getenv("ANDROID_MAINTENANCE_CRON", "0 3 1 * *"),

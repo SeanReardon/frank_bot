@@ -60,8 +60,8 @@ services:
       # - USB (preferred): set ANDROID_DEVICE_SERIAL (e.g. from `adb devices`)
       # - TCP/IP (fallback): set ANDROID_ADB_HOST/ANDROID_ADB_PORT (wireless debugging)
       ANDROID_DEVICE_SERIAL: "${ANDROID_DEVICE_SERIAL:-}"
-      ANDROID_ADB_HOST: "${ANDROID_ADB_HOST:-}"
-      ANDROID_ADB_PORT: "${ANDROID_ADB_PORT:-}"
+      ANDROID_ADB_HOST: "${ANDROID_ADB_HOST:-10.0.0.95}"
+      ANDROID_ADB_PORT: "${ANDROID_ADB_PORT:-5555}"
 
       # Optional manifest metadata (defaults if not in .env)
       ACTIONS_NAME_FOR_HUMAN: "${ACTIONS_NAME_FOR_HUMAN:-Frank Bot}"
