@@ -994,6 +994,26 @@ class ClaudiaNamespace:
         args = {"repo_id": repo_id}
         return _run_async(list_claudia_prompts_action(args))
 
+    def prompts_with_invalid(
+        self,
+        repo_id: str,
+        include_invalid: bool = True,
+    ) -> dict[str, Any]:
+        """
+        List prompts, optionally including invalid ones for debugging.
+
+        Parameters:
+            repo_id: Repository ID
+            include_invalid: Include invalid prompts (default True)
+
+        Returns:
+            Dict with prompts list (including invalid if requested)
+        """
+        from actions.claudia import list_claudia_prompts_action
+
+        args = {"repo_id": repo_id, "include_invalid": include_invalid}
+        return _run_async(list_claudia_prompts_action(args))
+
     def prompt_get(self, repo_id: str, prompt_id: str) -> dict[str, Any]:
         """
         Get details of a specific prompt.
@@ -1040,6 +1060,73 @@ class ClaudiaNamespace:
 
         args = {"repo_id": repo_id}
         return _run_async(get_claudia_queue_action(args))
+
+    def prompt_queue(self, repo_id: str) -> dict[str, Any]:
+        """
+        Get the prompt queue status for a repository.
+
+        Parameters:
+            repo_id: Repository ID
+
+        Returns:
+            Dict with prompt queue status
+        """
+        from actions.claudia import get_claudia_prompt_queue_action
+
+        args = {"repo_id": repo_id}
+        return _run_async(get_claudia_prompt_queue_action(args))
+
+    def tasks(
+        self,
+        repo_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """
+        List tasks across all repos with optional filters.
+
+        Parameters:
+            repo_id: Filter by repository (optional)
+            status: Filter by status (optional)
+            limit: Max results (default 50)
+
+        Returns:
+            Dict with tasks list
+        """
+        from actions.claudia import list_claudia_tasks_action
+
+        args = {
+            "repo_id": repo_id,
+            "status": status,
+            "limit": limit,
+        }
+        return _run_async(list_claudia_tasks_action(args))
+
+    def repo_tasks(self, repo_id: str) -> dict[str, Any]:
+        """
+        List tasks for a single repository.
+
+        Parameters:
+            repo_id: Repository ID
+
+        Returns:
+            Dict with tasks list
+        """
+        from actions.claudia import list_claudia_repo_tasks_action
+
+        args = {"repo_id": repo_id}
+        return _run_async(list_claudia_repo_tasks_action(args))
+
+    def blocked_tasks(self) -> dict[str, Any]:
+        """
+        List blocked tasks across all repositories.
+
+        Returns:
+            Dict with blocked tasks list
+        """
+        from actions.claudia import list_claudia_blocked_tasks_action
+
+        return _run_async(list_claudia_blocked_tasks_action())
 
     def executions(
         self,

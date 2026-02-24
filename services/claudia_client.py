@@ -8,6 +8,10 @@ API endpoints (from ~/dev/claudia/openapi.yml):
 - GET    /api/repos                              # List repos
 - GET    /api/repos/{repoId}                     # Get repo details
 - GET    /api/repos/{repoId}/queue               # Get queue state
+- GET    /api/repos/{repoId}/prompt-queue        # Get prompt queue state
+- GET    /api/repos/{repoId}/tasks               # List tasks for a repo
+- GET    /api/tasks                              # List tasks across repos
+- GET    /api/blocked-tasks                      # List blocked tasks
 - POST   /api/repos/{repoId}/chats               # Create a chat
 - GET    /api/repos/{repoId}/chats               # List chats
 - GET    /api/repos/{repoId}/chats/{chatId}      # Get chat with messages
@@ -584,9 +588,16 @@ class ClaudiaClient:
     # Prompt Operations
     # ------------------------------------------------------------------ #
 
-    def list_prompts(self, repo_id: str) -> list[ClaudiaPrompt]:
+    def list_prompts(
+        self,
+        repo_id: str,
+        include_invalid: bool | None = None,
+    ) -> list[ClaudiaPrompt]:
         """List all prompts for a repository."""
-        data = self._get(f"/api/repos/{repo_id}/prompts")
+        params: dict[str, Any] | None = None
+        if include_invalid is not None:
+            params = {"include_invalid": include_invalid}
+        data = self._get(f"/api/repos/{repo_id}/prompts", params=params)
         prompts = []
         items = data if isinstance(data, list) else []
         for item in items:
@@ -678,6 +689,48 @@ class ClaudiaClient:
         if not isinstance(data, dict):
             raise ClaudiaAPIError("Unexpected response format")
 
+        return data
+
+    # ------------------------------------------------------------------ #
+    # Tasks / Blocked Tasks
+    # ------------------------------------------------------------------ #
+
+    def list_repo_tasks(self, repo_id: str) -> list[dict[str, Any]]:
+        """List tasks for a repository."""
+        data = self._get(f"/api/repos/{repo_id}/tasks")
+        return data if isinstance(data, list) else data.get("tasks", [])
+
+    def list_tasks(
+        self,
+        repo_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List tasks across all repos with optional filters."""
+        params: dict[str, Any] = {"limit": limit}
+        if repo_id:
+            params["repoId"] = repo_id
+        if status:
+            params["status"] = status
+        data = self._get("/api/tasks", params=params)
+        if isinstance(data, list):
+            return data
+        return data.get("tasks", []) if isinstance(data, dict) else []
+
+    def list_blocked_tasks(self) -> list[dict[str, Any]]:
+        """List blocked tasks across all repos."""
+        data = self._get("/api/blocked-tasks")
+        return data if isinstance(data, list) else data.get("tasks", [])
+
+    # ------------------------------------------------------------------ #
+    # Prompt Queue State
+    # ------------------------------------------------------------------ #
+
+    def get_prompt_queue_state(self, repo_id: str) -> dict[str, Any]:
+        """Get prompt queue status for a repository."""
+        data = self._get(f"/api/repos/{repo_id}/prompt-queue")
+        if not isinstance(data, dict):
+            raise ClaudiaAPIError("Unexpected response format")
         return data
 
     # ------------------------------------------------------------------ #

@@ -238,9 +238,12 @@ async def api_learn_action(
                 "frank.claudia.chat_end(repo_id='repo_1', chat_id='chat_42')",
                 "frank.claudia.prompts(repo_id='repo_1')",
                 "frank.claudia.prompt_execute(repo_id='repo_1', prompt_id='prompt_5')",
+                "frank.claudia.prompt_queue(repo_id='repo_1')",
                 "frank.claudia.queue(repo_id='repo_1')",
                 "frank.claudia.executions(repo_id='repo_1', status='running')",
                 "frank.claudia.execution_get(execution_id='exec_99')",
+                "frank.claudia.tasks(status='failed', limit=20)",
+                "frank.claudia.blocked_tasks()",
             ],
             "common_params": {
                 "repo_id": "Repository ID",

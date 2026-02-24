@@ -96,6 +96,10 @@ from actions.claudia import (
     list_claudia_executions_action,
     get_claudia_execution_action,
     get_claudia_queue_action,
+    get_claudia_prompt_queue_action,
+    list_claudia_repo_tasks_action,
+    list_claudia_tasks_action,
+    list_claudia_blocked_tasks_action,
 )
 from server.sms_webhook import sms_webhook_handler
 from server.stytch_middleware import require_stytch_session, get_stytch_session
@@ -603,6 +607,89 @@ def build_action_routes(settings: Settings) -> list[Route]:
         responder = _build_responder(get_claudia_queue_action)
         return await responder(payload)
 
+    async def claudia_prompt_queue_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaPromptQueueGet").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        responder = _build_responder(get_claudia_prompt_queue_action)
+        return await responder(payload)
+
+    async def claudia_repo_tasks_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaRepoTasks").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        payload = dict(request.query_params)
+        payload["repo_id"] = repo_id
+        responder = _build_responder(list_claudia_repo_tasks_action)
+        return await responder(payload)
+
+    async def claudia_tasks_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaTasks").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(list_claudia_tasks_action)
+        return await responder(payload)
+
+    async def claudia_blocked_tasks_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaBlockedTasks").record_call()
+        responder = _build_responder(list_claudia_blocked_tasks_action)
+        return await responder({})
+
+    # Claudia POST handlers (body-based for larger payloads)
+    async def claudia_chat_create_post_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaChatCreate").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        payload = await _read_body(request)
+        payload["repo_id"] = repo_id
+        responder = _build_responder(create_claudia_chat_action)
+        return await responder(payload)
+
+    async def claudia_chat_message_post_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaChatSend").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        chat_id = request.path_params.get("chat_id", "")
+        payload = await _read_body(request)
+        payload["repo_id"] = repo_id
+        payload["chat_id"] = chat_id
+        responder = _build_responder(send_claudia_message_action)
+        return await responder(payload)
+
+    async def claudia_chat_end_post_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaChatEnd").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        chat_id = request.path_params.get("chat_id", "")
+        payload = await _read_body(request)
+        payload["repo_id"] = repo_id
+        payload["chat_id"] = chat_id
+        responder = _build_responder(end_claudia_chat_action)
+        return await responder(payload)
+
+    async def claudia_prompt_create_post_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaPromptCreate").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        payload = await _read_body(request)
+        payload["repo_id"] = repo_id
+        responder = _build_responder(create_claudia_prompt_action)
+        return await responder(payload)
+
+    async def claudia_prompt_execute_post_handler(request: Request):
+        await _require_api_key(request)
+        stats.get_endpoint_stats("claudiaPromptExecute").record_call()
+        repo_id = request.path_params.get("repo_id", "")
+        prompt_id = request.path_params.get("prompt_id", "")
+        payload = await _read_body(request)
+        payload["repo_id"] = repo_id
+        payload["prompt_id"] = prompt_id
+        responder = _build_responder(execute_claudia_prompt_action)
+        return await responder(payload)
+
     # Android phone control endpoints (new naming convention: androidPhone)
     # All androidPhone endpoints are rate-limited
     async def android_phone_get_screen_handler(request: Request):
@@ -897,14 +984,23 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/claudia/repos", claudia_repos_handler, methods=["GET"]),
         Route("/actions/claudia/chat/create", claudia_chat_create_handler, methods=["GET"]),
         Route("/actions/claudia/repos/{repo_id}/chats", claudia_chats_list_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/chats", claudia_chat_create_post_handler, methods=["POST"]),
         Route("/actions/claudia/repos/{repo_id}/chats/{chat_id}", claudia_chat_get_handler, methods=["GET"]),
         Route("/actions/claudia/repos/{repo_id}/chats/{chat_id}/message", claudia_chat_message_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/chats/{chat_id}/messages", claudia_chat_message_post_handler, methods=["POST"]),
         Route("/actions/claudia/repos/{repo_id}/chats/{chat_id}/end", claudia_chat_end_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/chats/{chat_id}/end", claudia_chat_end_post_handler, methods=["POST"]),
         Route("/actions/claudia/repos/{repo_id}/prompts", claudia_prompts_list_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/prompts", claudia_prompt_create_post_handler, methods=["POST"]),
         Route("/actions/claudia/repos/{repo_id}/prompts/create", claudia_prompt_create_handler, methods=["GET"]),
         Route("/actions/claudia/repos/{repo_id}/prompts/{prompt_id}", claudia_prompt_get_handler, methods=["GET"]),
         Route("/actions/claudia/repos/{repo_id}/prompts/{prompt_id}/execute", claudia_prompt_execute_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/prompts/{prompt_id}/execute", claudia_prompt_execute_post_handler, methods=["POST"]),
         Route("/actions/claudia/repos/{repo_id}/queue", claudia_queue_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/prompt-queue", claudia_prompt_queue_handler, methods=["GET"]),
+        Route("/actions/claudia/repos/{repo_id}/tasks", claudia_repo_tasks_handler, methods=["GET"]),
+        Route("/actions/claudia/tasks", claudia_tasks_handler, methods=["GET"]),
+        Route("/actions/claudia/blocked-tasks", claudia_blocked_tasks_handler, methods=["GET"]),
         Route("/actions/claudia/executions", claudia_executions_list_handler, methods=["GET"]),
         Route("/actions/claudia/executions/{execution_id}", claudia_execution_get_handler, methods=["GET"]),
         # Android device control endpoints (legacy paths)

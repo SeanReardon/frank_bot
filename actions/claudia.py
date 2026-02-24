@@ -33,6 +33,14 @@ def _get_client():
     return ClaudiaClient()
 
 
+def _get_arg(args: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    """Return the first matching key from args, preserving falsy values."""
+    for key in keys:
+        if key in args:
+            return args[key]
+    return default
+
+
 def _claudia_error_response(
     exc: Exception,
     entity_type: str = "",
@@ -151,12 +159,13 @@ async def create_claudia_chat_action(
         Chat session info including queue position.
     """
     args = arguments or {}
-    repo_name = args.get("repo_name") or args.get("repo")
-    title = args.get("title")
-    initial_message = args.get("message")
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    repo_name = _get_arg(args, "repo_name", "repo")
+    title = _get_arg(args, "title")
+    initial_message = _get_arg(args, "initial_message", "initialMessage", "message")
 
-    if not repo_name:
-        raise ValueError("repo_name is required")
+    if not repo_id and not repo_name:
+        raise ValueError("repo_name or repo_id is required")
     if not title:
         raise ValueError("title is required")
 
@@ -165,15 +174,18 @@ async def create_claudia_chat_action(
     def start():
         client = _get_client()
 
-        # Find the repo by name
-        repo = client.get_repo_by_name(repo_name)
-        if not repo:
-            repos = client.list_repos()
-            available = ", ".join(r.name for r in repos[:10]) or "none"
-            raise ValueError(
-                f"Repository '{repo_name}' not found. "
-                f"Available: {available}"
-            )
+        if repo_id:
+            repo = client.get_repo(repo_id)
+        else:
+            # Find the repo by name
+            repo = client.get_repo_by_name(repo_name)
+            if not repo:
+                repos = client.list_repos()
+                available = ", ".join(r.name for r in repos[:10]) or "none"
+                raise ValueError(
+                    f"Repository '{repo_name}' not found. "
+                    f"Available: {available}"
+                )
 
         # Create the chat
         chat = client.create_chat(repo.id, title, initial_message)
@@ -182,7 +194,9 @@ async def create_claudia_chat_action(
     try:
         repo, chat = await asyncio.to_thread(start)
     except ClaudiaAPIError as exc:
-        return _claudia_error_response(exc, entity_type="repo", entity_id=repo_name)
+        return _claudia_error_response(
+            exc, entity_type="repo", entity_id=repo_name or repo_id or ""
+        )
 
     result: dict[str, Any] = {
         "repo": {
@@ -229,8 +243,8 @@ async def list_claudia_chats_action(
     from services.claudia_client import ClaudiaAPIError
 
     args = arguments or {}
-    repo_id = args.get("repo_id")
-    status = args.get("status")
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    status = _get_arg(args, "status")
 
     if not repo_id:
         raise ValueError("repo_id is required")
@@ -278,8 +292,8 @@ async def get_claudia_chat_action(
     from services.claudia_client import ClaudiaAPIError
 
     args = arguments or {}
-    repo_id = args.get("repo_id")
-    chat_id = args.get("chat_id")
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    chat_id = _get_arg(args, "chat_id", "chatId")
 
     if not repo_id:
         raise ValueError("repo_id is required")
@@ -315,6 +329,7 @@ async def get_claudia_chat_action(
             "created_at": chat.created_at,
             "updated_at": chat.updated_at,
             "prompt_id": chat.prompt_id,
+            "created_by": chat.created_by,
             "messages": [
                 {
                     "id": m.id,
@@ -344,9 +359,9 @@ async def send_claudia_message_action(
         The created message.
     """
     args = arguments or {}
-    repo_id = args.get("repo_id")
-    chat_id = args.get("chat_id")
-    message = args.get("message") or args.get("content")
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    chat_id = _get_arg(args, "chat_id", "chatId")
+    message = _get_arg(args, "message", "content")
 
     if not repo_id:
         raise ValueError("repo_id is required")
@@ -392,8 +407,8 @@ async def end_claudia_chat_action(
         Final chat state.
     """
     args = arguments or {}
-    repo_id = args.get("repo_id")
-    chat_id = args.get("chat_id")
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    chat_id = _get_arg(args, "chat_id", "chatId")
 
     if not repo_id:
         raise ValueError("repo_id is required")
@@ -438,14 +453,15 @@ async def list_claudia_prompts_action(
     from services.claudia_client import ClaudiaAPIError
 
     args = arguments or {}
-    repo_id = args.get("repo_id")
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    include_invalid = _get_arg(args, "include_invalid", "includeInvalid")
 
     if not repo_id:
         raise ValueError("repo_id is required")
 
     def fetch():
         client = _get_client()
-        return client.list_prompts(repo_id)
+        return client.list_prompts(repo_id, include_invalid=include_invalid)
 
     try:
         prompts = await asyncio.to_thread(fetch)
@@ -486,8 +502,8 @@ async def get_claudia_prompt_action(
     from services.claudia_client import ClaudiaAPIError
 
     args = arguments or {}
-    repo_id = args.get("repo_id")
-    prompt_id = args.get("prompt_id")
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    prompt_id = _get_arg(args, "prompt_id", "promptId")
 
     if not repo_id:
         raise ValueError("repo_id is required")
@@ -540,8 +556,8 @@ async def create_claudia_prompt_action(
     from services.claudia_client import ClaudiaAPIError
 
     args = arguments or {}
-    repo_id = args.get("repo_id")
-    chat_id = args.get("chat_id")
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    chat_id = _get_arg(args, "chat_id", "chatId")
 
     if not repo_id:
         raise ValueError("repo_id is required")
@@ -630,8 +646,8 @@ async def execute_claudia_prompt_action(
     from services.claudia_client import ClaudiaAPIError
 
     args = arguments or {}
-    repo_id = args.get("repo_id")
-    prompt_id = args.get("prompt_id")
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    prompt_id = _get_arg(args, "prompt_id", "promptId")
 
     if not repo_id:
         raise ValueError("repo_id is required")
@@ -716,9 +732,9 @@ async def list_claudia_executions_action(
     from services.claudia_client import ClaudiaAPIError
 
     args = arguments or {}
-    repo_id = args.get("repo_id")
-    status = args.get("status")
-    limit = args.get("limit", 50)
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    status = _get_arg(args, "status")
+    limit = _get_arg(args, "limit", default=50)
 
     def fetch():
         client = _get_client()
@@ -753,7 +769,7 @@ async def get_claudia_execution_action(
     from services.claudia_client import ClaudiaAPIError
 
     args = arguments or {}
-    execution_id = args.get("execution_id")
+    execution_id = _get_arg(args, "execution_id", "executionId")
 
     if not execution_id:
         raise ValueError("execution_id is required")
@@ -793,7 +809,7 @@ async def get_claudia_queue_action(
     from services.claudia_client import ClaudiaAPIError
 
     args = arguments or {}
-    repo_id = args.get("repo_id")
+    repo_id = _get_arg(args, "repo_id", "repoId")
 
     if not repo_id:
         raise ValueError("repo_id is required")
@@ -846,6 +862,141 @@ async def get_claudia_queue_action(
                 for item in queue.items
             ],
         },
+    }
+
+
+async def list_claudia_repo_tasks_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    List tasks for a specific repository.
+
+    Args (in arguments dict):
+        repo_id: Repository ID (required)
+
+    Returns:
+        List of tasks for the repository.
+    """
+    from services.claudia_client import ClaudiaAPIError
+
+    args = arguments or {}
+    repo_id = _get_arg(args, "repo_id", "repoId")
+
+    if not repo_id:
+        raise ValueError("repo_id is required")
+
+    def fetch():
+        client = _get_client()
+        return client.list_repo_tasks(repo_id)
+
+    try:
+        tasks = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="repo", entity_id=repo_id)
+
+    return {
+        "message": f"Found {len(tasks)} tasks for repo.",
+        "count": len(tasks),
+        "tasks": tasks,
+    }
+
+
+async def list_claudia_tasks_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    List tasks across all repositories with optional filters.
+
+    Args (in arguments dict):
+        repo_id: Filter by repository (optional)
+        status: Filter by status (optional)
+        limit: Max results (optional, default 50)
+
+    Returns:
+        List of tasks.
+    """
+    from services.claudia_client import ClaudiaAPIError
+
+    args = arguments or {}
+    repo_id = _get_arg(args, "repo_id", "repoId")
+    status = _get_arg(args, "status")
+    limit = _get_arg(args, "limit", default=50)
+
+    def fetch():
+        client = _get_client()
+        return client.list_tasks(repo_id=repo_id, status=status, limit=limit)
+
+    try:
+        tasks = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="task")
+
+    return {
+        "message": f"Found {len(tasks)} tasks.",
+        "count": len(tasks),
+        "tasks": tasks,
+    }
+
+
+async def list_claudia_blocked_tasks_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    List blocked tasks across all repositories.
+
+    Returns:
+        List of blocked tasks.
+    """
+    from services.claudia_client import ClaudiaAPIError
+
+    def fetch():
+        client = _get_client()
+        return client.list_blocked_tasks()
+
+    try:
+        tasks = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="task")
+
+    return {
+        "message": f"Found {len(tasks)} blocked tasks.",
+        "count": len(tasks),
+        "tasks": tasks,
+    }
+
+
+async def get_claudia_prompt_queue_action(
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Get prompt queue status for a repository.
+
+    Args (in arguments dict):
+        repo_id: Repository ID (required)
+
+    Returns:
+        Prompt queue status.
+    """
+    from services.claudia_client import ClaudiaAPIError
+
+    args = arguments or {}
+    repo_id = _get_arg(args, "repo_id", "repoId")
+
+    if not repo_id:
+        raise ValueError("repo_id is required")
+
+    def fetch():
+        client = _get_client()
+        return client.get_prompt_queue_state(repo_id)
+
+    try:
+        state = await asyncio.to_thread(fetch)
+    except ClaudiaAPIError as exc:
+        return _claudia_error_response(exc, entity_type="repo", entity_id=repo_id)
+
+    return {
+        "message": "Prompt queue status retrieved.",
+        "prompt_queue": state,
     }
 
 
@@ -934,6 +1085,13 @@ async def api_learn_action(
                 "'create' (repo_id, chat_id) — generates NEW prompt from chat, "
                 "'execute' (repo_id, prompt_id) — compiles EXISTING prompt into PRDs"
             ),
+            "claudiaPromptQueueGet": "Get prompt queue status (repo_id)",
+            "claudiaTasks": (
+                "List tasks across repos (repo_id?, status?, limit?). "
+                "Use for execution history and task status."
+            ),
+            "claudiaRepoTasks": "List tasks for a repo (repo_id)",
+            "claudiaBlockedTasks": "List blocked tasks across all repos",
             "claudiaQueueGet": "Check queue status (repo_id)",
             "claudiaExecutionList": (
                 "List executions (repo_id?, status?, limit?). "
@@ -984,4 +1142,8 @@ __all__ = [
     "list_claudia_executions_action",
     "get_claudia_execution_action",
     "get_claudia_queue_action",
+    "get_claudia_prompt_queue_action",
+    "list_claudia_repo_tasks_action",
+    "list_claudia_tasks_action",
+    "list_claudia_blocked_tasks_action",
 ]

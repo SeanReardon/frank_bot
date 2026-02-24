@@ -186,6 +186,20 @@ Helpful discovery endpoints:
 
 When the Actions API key is configured (Vault: `secret/frank-bot/actions`), every Actions route expects `X-API-Key: <value>`. For local/dev runs without Vault, you can set `ACTIONS_API_KEY` as an environment variable fallback.
 
+## OpenAPI Specs and ChatGPT Constraints
+
+Frank Bot ships two OpenAPI documents:
+
+1. `openapi/spec.json` – Canonical API (80+ endpoints). This is the real surface area for internal clients and first-party integrations.
+2. `openapi/spec-openai.json` – Consolidated Actions spec for OpenAI Custom GPTs. This keeps the endpoint count under OpenAI’s hard cap and routes the rest of the API through the Scripts endpoints.
+
+Constraints for OpenAI Custom GPTs that we must respect:
+
+- Actions API: maximum 30 endpoints.
+- `instructions_for_chatgpt.txt`: maximum 8000 characters.
+
+The Actions manifest served at `/.well-known/actions.json` points OpenAI to the consolidated spec by default. If you need the full API, use the canonical spec and/or Scripts endpoints.
+
 ### Swarm integration
 
 Configure Swarm/Foursquare credentials in Vault at `secret/frank-bot/swarm` (keys: `oauth_token`, `api_key`). For local/dev runs without Vault, `SWARM_OAUTH_TOKEN` (and optionally `SWARM_API_VERSION`) can be used as a fallback.

@@ -45,6 +45,20 @@ pytest tests/
 npx @redocly/cli lint openapi/spec.json
 ```
 
+## OpenAPI Specs and ChatGPT Limits
+
+Frank Bot exposes two OpenAPI documents:
+
+1. `openapi/spec.json` – Canonical API (80+ endpoints)
+2. `openapi/spec-openai.json` – Consolidated Actions spec for OpenAI Custom GPTs
+
+OpenAI Custom GPT constraints to keep in mind:
+
+- Actions API: max 30 endpoints
+- `instructions_for_chatgpt.txt`: max 8000 characters
+
+The consolidated spec uses the Scripts endpoints to reach the rest of the canonical API while staying under the Actions limit.
+
 ## Adding a New Action
 
 1. Create or update a file in `actions/` with the async handler function
@@ -82,4 +96,3 @@ Dev-only fallbacks (avoid in prod; prefer Vault):
 - The deploy PAT from that path is used for both HTTPS git fetch and GHCR image pulls.
 - This repo continues to own only its application secret schema/policies in Vault.
 - Do not rely on persistent deployment creds in `~/.docker/config.json` or `~/.git-credentials`.
-

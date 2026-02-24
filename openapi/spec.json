@@ -2266,6 +2266,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "include_invalid",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Include invalid prompts with validation errors"
           }
         ],
         "responses": {
@@ -2431,6 +2439,142 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ClaudiaQueueResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/claudia/repos/{repo_id}/prompt-queue": {
+      "get": {
+        "operationId": "claudiaPromptQueueGet",
+        "summary": "Prompt queue status for a repo",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt queue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaPromptQueueResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/claudia/repos/{repo_id}/tasks": {
+      "get": {
+        "operationId": "claudiaRepoTasks",
+        "summary": "List tasks for a repo",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaTaskListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/claudia/tasks": {
+      "get": {
+        "operationId": "claudiaTasks",
+        "summary": "List tasks across all repos",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "repo_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaTaskListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ActionsApiKey": []
+          }
+        ]
+      }
+    },
+    "/claudia/blocked-tasks": {
+      "get": {
+        "operationId": "claudiaBlockedTasks",
+        "summary": "List blocked tasks across all repos",
+        "responses": {
+          "200": {
+            "description": "Blocked tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudiaBlockedTaskListResponse"
                 }
               }
             }
@@ -4137,10 +4281,16 @@
       "ClaudiaChatCreateRequest": {
         "type": "object",
         "properties": {
+          "repo_id": {
+            "type": "string"
+          },
           "repo_name": {
             "type": "string"
           },
           "title": {
+            "type": "string"
+          },
+          "initial_message": {
             "type": "string"
           },
           "message": {
@@ -4148,7 +4298,6 @@
           }
         },
         "required": [
-          "repo_name",
           "title"
         ]
       },
@@ -4202,11 +4351,11 @@
         "properties": {
           "message": {
             "type": "string"
+          },
+          "content": {
+            "type": "string"
           }
-        },
-        "required": [
-          "message"
-        ]
+        }
       },
       "ClaudiaChatMessageResponse": {
         "type": "object",
@@ -4252,11 +4401,11 @@
         "properties": {
           "chat_id": {
             "type": "string"
+          },
+          "chatId": {
+            "type": "string"
           }
-        },
-        "required": [
-          "chat_id"
-        ]
+        }
       },
       "ClaudiaPromptCreateResponse": {
         "type": "object",
@@ -4305,6 +4454,51 @@
           },
           "queue": {
             "type": "object"
+          }
+        }
+      },
+      "ClaudiaPromptQueueResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "prompt_queue": {
+            "type": "object"
+          }
+        }
+      },
+      "ClaudiaTaskListResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "ClaudiaBlockedTaskListResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
           }
         }
       },
