@@ -8,10 +8,32 @@
 import { LitElement, html, css, unsafeCSS, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import * as api from '../lib/api.js';
-import type { Jorb, JorbMessage, JorbStatus } from '../lib/api.js';
+import type { Jorb, JorbMessage, JorbScriptResult, JorbStatus } from '../lib/api.js';
 
 // Import tokens CSS
 import tokensCSS from '../styles/tokens.css?inline';
+
+type TimelineItemKind =
+  | 'switchboard'
+  | 'human'
+  | 'message'
+  | 'llm'
+  | 'script'
+  | 'android-image'
+  | 'checkpoint'
+  | 'outcome';
+
+interface TimelineItem {
+  id: string;
+  timestamp: string;
+  kind: TimelineItemKind;
+  title: string;
+  summary?: string;
+  content?: string;
+  details?: unknown;
+  imageBase64?: string;
+  success?: boolean;
+}
 
 /**
  * Jorb thread view component.
@@ -341,6 +363,110 @@ export class JorbThreadView extends LitElement {
       font-size: var(--font-size-sm);
       color: var(--color-text-muted);
     }
+
+    .legend {
+      border: 1px solid var(--color-border);
+      border-radius: var(--border-radius-sm);
+      background: var(--color-surface-hover);
+      padding: var(--spacing-sm) var(--spacing-md);
+      margin-bottom: var(--spacing-md);
+      display: flex;
+      gap: var(--spacing-sm);
+      flex-wrap: wrap;
+      font-size: var(--font-size-sm);
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--color-border);
+    }
+
+    .timeline {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-sm);
+    }
+
+    .timeline-item {
+      border: 1px solid var(--color-border);
+      border-radius: var(--border-radius-sm);
+      padding: var(--spacing-sm) var(--spacing-md);
+      background: var(--color-surface-hover);
+    }
+
+    .timeline-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--spacing-md);
+      margin-bottom: var(--spacing-xs);
+      font-size: var(--font-size-sm);
+    }
+
+    .timeline-title {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+      font-weight: 600;
+      color: var(--color-text);
+    }
+
+    .timeline-kind {
+      font-size: var(--font-size-xs);
+      color: var(--color-text-muted);
+      border: 1px solid var(--color-border);
+      border-radius: 999px;
+      padding: 1px 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .timeline-content {
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.45;
+      font-size: var(--font-size-sm);
+    }
+
+    .timeline-summary {
+      margin-bottom: var(--spacing-xs);
+      color: var(--color-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
+    .timeline-code {
+      margin-top: var(--spacing-xs);
+      padding: var(--spacing-sm);
+      border-radius: var(--border-radius-sm);
+      background: var(--color-bg);
+      border: 1px dashed var(--color-border);
+      font-family: var(--font-family-mono, monospace);
+      font-size: var(--font-size-xs);
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 260px;
+      overflow: auto;
+    }
+
+    .timeline-image {
+      margin-top: var(--spacing-sm);
+      max-width: 100%;
+      border-radius: var(--border-radius-sm);
+      border: 1px solid var(--color-border);
+      display: block;
+    }
+
+    .timeline-item.switchboard { border-left: 3px solid var(--kente-blue); }
+    .timeline-item.human { border-left: 3px solid var(--kente-orange); }
+    .timeline-item.llm { border-left: 3px solid var(--kente-gold); }
+    .timeline-item.script { border-left: 3px solid var(--kente-green); }
+    .timeline-item.android-image { border-left: 3px solid var(--kente-blue); }
+    .timeline-item.checkpoint { border-left: 3px solid var(--color-border); }
+    .timeline-item.outcome { border-left: 3px solid var(--kente-green); }
   `;
 
   @property({ type: String, attribute: 'jorb-id' })
@@ -353,7 +479,6 @@ export class JorbThreadView extends LitElement {
   @state() private _error: string | null = null;
   @state() private _hasMore = false;
   @state() private _autoScroll = true;
-  @state() private _expandedReasoning: Set<string> = new Set();
 
   private _offset = 0;
   private _limit = 50;
@@ -455,20 +580,12 @@ export class JorbThreadView extends LitElement {
     );
   }
 
-  private _toggleReasoning(messageId: string) {
-    const newSet = new Set(this._expandedReasoning);
-    if (newSet.has(messageId)) {
-      newSet.delete(messageId);
-    } else {
-      newSet.add(messageId);
-    }
-    this._expandedReasoning = newSet;
-  }
-
   private _getChannelIcon(channel: string): string {
     switch (channel) {
       case 'telegram':
         return '✈️';
+      case 'telegram_bot':
+        return '🤖';
       case 'sms':
         return '💬';
       case 'email':
@@ -547,78 +664,162 @@ export class JorbThreadView extends LitElement {
     return `$${cost.toFixed(2)}`;
   }
 
-  private _groupMessagesByDate(messages: JorbMessage[]): Map<string, JorbMessage[]> {
-    const groups = new Map<string, JorbMessage[]>();
+  private _isLikelyBase64Image(value: unknown): value is string {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    if (trimmed.length < 64) return false;
+    return /^[A-Za-z0-9+/=\s]+$/.test(trimmed);
+  }
 
-    for (const msg of messages) {
-      const dateKey = this._formatDate(msg.timestamp);
-      const existing = groups.get(dateKey) || [];
-      groups.set(dateKey, [...existing, msg]);
+  private _extractImageBase64(result: unknown): string | null {
+    if (!result || typeof result !== 'object') return null;
+    const obj = result as Record<string, unknown>;
+    const candidates = [
+      obj.screenshot_base64,
+      obj.final_screenshot_base64,
+      (obj.result && typeof obj.result === 'object' ? (obj.result as Record<string, unknown>).screenshot_base64 : null),
+      (obj.result && typeof obj.result === 'object' ? (obj.result as Record<string, unknown>).final_screenshot_base64 : null),
+    ];
+
+    for (const candidate of candidates) {
+      if (this._isLikelyBase64Image(candidate)) {
+        return candidate.replace(/\s+/g, '');
+      }
+    }
+    return null;
+  }
+
+  private _safeJson(value: unknown, maxLen = 2200): string {
+    try {
+      const text = JSON.stringify(value, null, 2);
+      return text.length > maxLen ? `${text.slice(0, maxLen)}\n...` : text;
+    } catch {
+      return String(value);
+    }
+  }
+
+  private _getScriptTimestamp(scriptResult: JorbScriptResult, index: number): string {
+    const ts = scriptResult.timestamp || '';
+    if (ts) return ts;
+    const fallback = new Date(Date.now() + index).toISOString();
+    return fallback;
+  }
+
+  private _buildTimelineItems(): TimelineItem[] {
+    const items: TimelineItem[] = [];
+    const jorb = this._jorb;
+
+    for (const msg of this._messages) {
+      const isSeanDirect = msg.sender === 'sean_direct';
+      const senderName = isSeanDirect
+        ? 'Sean (human)'
+        : (msg.direction === 'inbound'
+          ? (msg.sender_name || msg.sender || 'Unknown sender')
+          : 'Frank Bot');
+
+      if (msg.direction === 'inbound') {
+        items.push({
+          id: `sw-${msg.id}`,
+          timestamp: msg.timestamp,
+          kind: 'switchboard',
+          title: 'Switchboard Router',
+          summary: `Routed inbound ${msg.channel} message to this jorb`,
+          content: `${senderName}: ${msg.content}`,
+        });
+      }
+
+      items.push({
+        id: `msg-${msg.id}`,
+        timestamp: msg.timestamp,
+        kind: isSeanDirect ? 'human' : 'message',
+        title: isSeanDirect ? 'Human Talking' : `${msg.direction === 'inbound' ? 'Inbound' : 'Outbound'} Message`,
+        summary: `${this._getChannelIcon(msg.channel)} ${senderName}`,
+        content: msg.content,
+      });
+
+      if (msg.direction === 'outbound' && msg.agent_reasoning) {
+        items.push({
+          id: `llm-${msg.id}`,
+          timestamp: msg.timestamp,
+          kind: 'llm',
+          title: 'Jorb LLM Reasoning',
+          content: msg.agent_reasoning,
+        });
+      }
     }
 
-    return groups;
+    const scriptResults = jorb?.script_results || [];
+    scriptResults.forEach((scriptResult, idx) => {
+      const ts = this._getScriptTimestamp(scriptResult, idx);
+      const imageBase64 = this._extractImageBase64(scriptResult.result);
+      const success = Boolean(scriptResult.success);
+      items.push({
+        id: `script-${idx}-${ts}`,
+        timestamp: ts,
+        kind: 'script',
+        title: `Script: ${scriptResult.script || 'unknown'}`,
+        summary: success ? 'Success' : 'Failure',
+        details: scriptResult.result,
+        content: scriptResult.error || undefined,
+        success,
+      });
+
+      if (imageBase64) {
+        items.push({
+          id: `img-${idx}-${ts}`,
+          timestamp: ts,
+          kind: 'android-image',
+          title: 'Android Phone Picture',
+          summary: 'Captured screenshot',
+          imageBase64,
+        });
+      }
+    });
+
+    const checkpoints = (jorb as api.JorbDetailResponse | null)?.checkpoints || [];
+    checkpoints.forEach((checkpoint) => {
+      items.push({
+        id: `ckpt-${checkpoint.id}`,
+        timestamp: checkpoint.timestamp,
+        kind: 'checkpoint',
+        title: 'Checkpoint',
+        summary: checkpoint.summary,
+        content: checkpoint.token_count != null ? `Token count: ${checkpoint.token_count}` : undefined,
+      });
+    });
+
+    if (jorb?.outcome) {
+      items.push({
+        id: 'outcome',
+        timestamp: jorb.outcome.completed_at || jorb.updated_at,
+        kind: 'outcome',
+        title: jorb.status === 'complete' ? 'Final Result' : 'Final Failure',
+        content: jorb.outcome.result || jorb.outcome.failure_reason || 'No outcome details provided.',
+      });
+    }
+
+    return items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }
 
-  private _renderMessage(msg: JorbMessage) {
-    const isExpanded = this._expandedReasoning.has(msg.id);
-    const senderName = msg.direction === 'inbound'
-      ? (msg.sender_name || msg.sender || 'Unknown')
-      : 'Frank Bot';
-
+  private _renderLegend() {
     return html`
-      <div class="message ${msg.direction}">
-        <div class="message-bubble">
-          <div class="message-header">
-            <span class="message-sender">
-              <span class="channel-icon">${this._getChannelIcon(msg.channel)}</span>
-              ${senderName}
-            </span>
-            <span class="message-time" title="${msg.timestamp}">
-              ${this._formatTime(msg.timestamp)}
-            </span>
-          </div>
-          <div class="message-content">${msg.content}</div>
-          ${msg.direction === 'outbound' && msg.agent_reasoning ? html`
-            <div class="message-reasoning">
-              <button
-                class="reasoning-toggle"
-                @click=${() => this._toggleReasoning(msg.id)}
-              >
-                ${isExpanded ? '▼' : '▶'} Agent Reasoning
-              </button>
-              ${isExpanded ? html`
-                <div class="reasoning-content">${msg.agent_reasoning}</div>
-              ` : nothing}
-            </div>
-          ` : nothing}
-        </div>
+      <div class="legend">
+        <span class="legend-item">🧭 Router / Switchboard</span>
+        <span class="legend-item">🧠 Jorb LLM</span>
+        <span class="legend-item">📱 AndroidPhone Picture</span>
+        <span class="legend-item">🗣️ Human Talking</span>
+        <span class="legend-item">🧪 Script + Result</span>
+        <span class="legend-item">📨 Message</span>
       </div>
     `;
   }
 
-  private _renderDateSeparator(date: string) {
-    return html`
-      <div style="
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-md);
-        color: var(--color-text-muted);
-        font-size: var(--font-size-sm);
-        margin: var(--spacing-md) 0;
-      ">
-        <div style="flex: 1; height: 1px; background: var(--color-border);"></div>
-        <span>${date}</span>
-        <div style="flex: 1; height: 1px; background: var(--color-border);"></div>
-      </div>
-    `;
-  }
-
-  private _renderMessages() {
+  private _renderTimelineItems() {
     if (this._loading) {
       return html`
         <div class="loading">
           <div class="spinner"></div>
-          <span>Loading messages...</span>
+          <span>Loading timeline...</span>
         </div>
       `;
     }
@@ -627,15 +828,15 @@ export class JorbThreadView extends LitElement {
       return html`<div class="error">${this._error}</div>`;
     }
 
-    if (this._messages.length === 0) {
+    const timeline = this._buildTimelineItems();
+
+    if (timeline.length === 0) {
       return html`
         <div class="empty-state">
-          <p>No messages in this thread yet.</p>
+          <p>No timeline entries yet.</p>
         </div>
       `;
     }
-
-    const grouped = this._groupMessagesByDate(this._messages);
 
     return html`
       ${this._hasMore ? html`
@@ -645,15 +846,34 @@ export class JorbThreadView extends LitElement {
             @click=${this._loadMore}
             ?disabled=${this._loadingMore}
           >
-            ${this._loadingMore ? 'Loading...' : 'Load Older Messages'}
+            ${this._loadingMore ? 'Loading...' : 'Load Older Entries'}
           </button>
         </div>
       ` : nothing}
-
-      ${Array.from(grouped.entries()).map(([date, msgs]) => html`
-        ${this._renderDateSeparator(date)}
-        ${msgs.map(msg => this._renderMessage(msg))}
-      `)}
+      ${this._renderLegend()}
+      <div class="timeline">
+        ${timeline.map((item) => html`
+          <div class="timeline-item ${item.kind}">
+            <div class="timeline-header">
+              <span class="timeline-title">${item.title}</span>
+              <span class="message-time" title=${item.timestamp}>
+                ${this._formatDate(item.timestamp)} ${this._formatTime(item.timestamp)}
+              </span>
+            </div>
+            <div class="timeline-kind">${item.kind}</div>
+            ${item.summary ? html`<div class="timeline-summary">${item.summary}</div>` : nothing}
+            ${item.content ? html`<div class="timeline-content">${item.content}</div>` : nothing}
+            ${item.details ? html`<pre class="timeline-code">${this._safeJson(item.details)}</pre>` : nothing}
+            ${item.imageBase64 ? html`
+              <img
+                class="timeline-image"
+                alt="Android screenshot"
+                src="data:image/png;base64,${item.imageBase64}"
+              />
+            ` : nothing}
+          </div>
+        `)}
+      </div>
     `;
   }
 
@@ -700,19 +920,7 @@ export class JorbThreadView extends LitElement {
         </div>
 
         <div class="messages-container">
-          ${jorb?.outcome ? html`
-            <div class="outcome-banner ${jorb.status}">
-              <div class="outcome-banner-header">
-                ${jorb.status === 'complete' ? '✓ Task Completed' : '✗ Task Failed'}
-              </div>
-              ${jorb.outcome.result || jorb.outcome.failure_reason ? html`
-                <div class="outcome-banner-content">
-                  ${jorb.outcome.result || jorb.outcome.failure_reason}
-                </div>
-              ` : nothing}
-            </div>
-          ` : nothing}
-          ${this._renderMessages()}
+          ${this._renderTimelineItems()}
         </div>
 
         <div class="thread-footer">

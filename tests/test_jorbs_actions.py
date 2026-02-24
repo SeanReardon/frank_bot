@@ -298,6 +298,26 @@ class TestGetJorbAction:
         assert result["message_count"] == 1
         assert result["messages"][0]["content"] == "Hello!"
 
+    async def test_get_jorb_includes_script_results(self, mock_storage):
+        """Test jorb detail includes script results timeline payload."""
+        jorb = await mock_storage.create_jorb("Diagnostics", "Run diagnostics")
+        await mock_storage.add_script_result(
+            jorb.id,
+            {
+                "script": "android.task_get",
+                "result": {"status": "completed", "result": "ok"},
+                "success": True,
+                "timestamp": "2026-02-24T12:00:00Z",
+            },
+        )
+
+        result = await get_jorb_action({"jorb_id": jorb.id})
+
+        assert "script_results" in result
+        assert len(result["script_results"]) == 1
+        assert result["script_results"][0]["script"] == "android.task_get"
+        assert result["script_results"][0]["success"] is True
+
     async def test_get_jorb_not_found(self, mock_storage):
         """Test getting a non-existent jorb raises error."""
         with pytest.raises(ValueError, match="Jorb not found"):

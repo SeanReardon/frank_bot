@@ -354,7 +354,7 @@ export function getWebCommit(): string {
 // Jorb types and functions
 
 export type JorbStatus = 'planning' | 'running' | 'paused' | 'complete' | 'failed' | 'cancelled';
-export type JorbChannel = 'telegram' | 'sms' | 'email';
+export type JorbChannel = 'telegram' | 'telegram_bot' | 'sms' | 'email';
 
 export interface JorbContact {
   identifier: string;
@@ -374,6 +374,15 @@ export interface JorbOutcome {
   result: string | null;
   completed_at: string | null;
   failure_reason: string | null;
+}
+
+export interface JorbScriptResult {
+  script: string;
+  result: unknown;
+  success: boolean;
+  error?: string | null;
+  traceback?: string | null;
+  timestamp?: string | null;
 }
 
 export interface JorbCheckpoint {
@@ -396,6 +405,7 @@ export interface Jorb {
   needs_approval_for: string | null;
   awaiting: string | null;
   metrics: JorbMetrics;
+  script_results?: JorbScriptResult[];
   outcome?: JorbOutcome;
 }
 

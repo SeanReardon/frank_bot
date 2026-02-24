@@ -316,6 +316,7 @@ async def get_jorb_action(
         "needs_approval_for": jorb.needs_approval_for,
         "awaiting": jorb.awaiting,
         "metrics": jorb.metrics,
+        "script_results": jorb.script_results,
     }
 
     # Include outcome for completed/failed jorbs
