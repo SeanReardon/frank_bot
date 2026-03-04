@@ -18,7 +18,8 @@ COPY pyproject.toml poetry.lock* ./
 RUN poetry install --only=main --no-root
 
 # Production image
-FROM python:3.11-slim
+# 2026-03-03: FROM python:3.11-slim
+FROM ghcr.io/contrived-com/python-3-11-slim-visa:2026-03-04_sha-4057d02_rt-frank-bot-frank-bot_tp-eb155bec_iss-20260304T015821Z
 
 WORKDIR /app
 

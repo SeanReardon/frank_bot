@@ -22,7 +22,8 @@ ENV VITE_GIT_COMMIT=$GIT_COMMIT
 RUN npm run build:lib
 
 # Stage 2: Production nginx server
-FROM nginx:alpine
+# 2026-03-03: FROM nginx:alpine
+FROM ghcr.io/contrived-com/nginx-alpine-visa:2026-03-04_sha-1d13701_rt-frank-bot-web_tp-eb155bec_iss-20260304T015821Z
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/nginx.conf
