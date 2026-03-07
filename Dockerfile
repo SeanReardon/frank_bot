@@ -19,7 +19,8 @@ RUN poetry install --only=main --no-root
 
 # Production image
 # 2026-03-03: FROM python:3.11-slim
-FROM ghcr.io/contrived-com/python-3-11-slim-visa:2026-03-04_sha-4057d02_rt-frank-bot-frank-bot_tp-eb155bec_iss-20260304T015821Z
+# 2026-03-06: FROM ghcr.io/contrived-com/python-3-11-slim-visa:2026-03-04_sha-4057d02_rt-frank-bot-frank-bot_tp-eb155bec_iss-20260304T015821Z
+FROM ghcr.io/contrived-com/python-3-11-slim-visa:2026-03-06_sha-d6e4d22_rt-frank-bot-frank-bot_tp-2823763c_iss-20260306T194434Z
 
 WORKDIR /app
 
@@ -63,5 +64,5 @@ RUN chmod +x /app/scripts/entrypoint.sh
 # Expose port for HTTP transport
 EXPOSE 8000
 
-# Entrypoint starts gnirehtet relay then launches the app
-ENTRYPOINT ["/app/scripts/entrypoint.sh"]
+# Chain through the visa launcher so the transponder starts before gnirehtet/app init.
+ENTRYPOINT ["/opt/transponder/bin/with-transponder", "/app/scripts/entrypoint.sh"]

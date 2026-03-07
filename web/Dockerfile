@@ -23,7 +23,8 @@ RUN npm run build:lib
 
 # Stage 2: Production nginx server
 # 2026-03-03: FROM nginx:alpine
-FROM ghcr.io/contrived-com/nginx-alpine-visa:2026-03-04_sha-1d13701_rt-frank-bot-web_tp-eb155bec_iss-20260304T015821Z
+# 2026-03-06: FROM ghcr.io/contrived-com/nginx-alpine-visa:2026-03-04_sha-1d13701_rt-frank-bot-web_tp-eb155bec_iss-20260304T015821Z
+FROM ghcr.io/contrived-com/nginx-alpine-visa:2026-03-06_sha-1d13701_rt-frank-bot-web_tp-2823763c_iss-20260306T194434Z
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/nginx.conf

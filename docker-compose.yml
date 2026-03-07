@@ -123,8 +123,13 @@ services:
     volumes:
       # Share data directory with API (for Telegram session, etc.)
       - ./data:/app/data
+    environment:
+      VAULT_ADDR: "${VAULT_ADDR:-}"
+      VAULT_ROLE_ID: "${VAULT_ROLE_ID:-}"
+      VAULT_SECRET_ID: "${VAULT_SECRET_ID:-}"
     networks:
       - frank-bot
+      - concordia
     depends_on:
       - frank-bot
 
