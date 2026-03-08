@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 import time
+import mimetypes
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine
@@ -352,7 +353,7 @@ class TelegramBotListener:
     def __init__(
         self,
         on_message: Callable[
-            [str, str, str, str],
+            [str, str, str, str, list[dict[str, Any]]],
             Coroutine[Any, Any, None],
         ],
         token: str | None = None,
@@ -361,7 +362,9 @@ class TelegramBotListener:
         Initialize the listener.
 
         Args:
-            on_message: Async callback(text, username, chat_id, sender_name)
+            on_message: Async callback(
+                text, username, chat_id, sender_name, attachments
+            )
                         called for each valid incoming message.
             token: Bot token. If None, reads from settings.
         """
@@ -380,6 +383,123 @@ class TelegramBotListener:
         self._last_update_username: str | None = None
         self._last_update_chat_id: str | None = None
         self._last_message_preview: str | None = None
+
+    async def _get_file_info(self, file_id: str) -> dict[str, Any]:
+        """Resolve a Telegram file_id into a downloadable file path."""
+        if not self._token:
+            raise ValueError("Bot token not configured")
+
+        url = f"{TELEGRAM_BOT_API_BASE}/bot{self._token}/getFile"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params={"file_id": file_id})
+
+        if resp.status_code != 200:
+            raise RuntimeError(f"getFile HTTP {resp.status_code}")
+
+        payload = resp.json()
+        if not payload.get("ok"):
+            raise RuntimeError(str(payload.get("description", "getFile failed")))
+
+        result = payload.get("result") or {}
+        return result if isinstance(result, dict) else {}
+
+    async def _download_file(
+        self,
+        remote_path: str,
+        local_path: str,
+    ) -> None:
+        """Download a Telegram file to a local path."""
+        if not self._token:
+            raise ValueError("Bot token not configured")
+
+        url = f"{TELEGRAM_BOT_API_BASE}/file/bot{self._token}/{remote_path}"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(url)
+
+        if resp.status_code != 200:
+            raise RuntimeError(f"file download HTTP {resp.status_code}")
+
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        with open(local_path, "wb") as f:
+            f.write(resp.content)
+        os.chmod(local_path, 0o600)
+
+    async def _extract_attachments(
+        self,
+        message: dict[str, Any],
+        update_id: int | None,
+    ) -> list[dict[str, Any]]:
+        """Download supported Telegram attachments and return local descriptors."""
+        attachments: list[dict[str, Any]] = []
+        file_candidates: list[dict[str, Any]] = []
+
+        photos = message.get("photo")
+        if isinstance(photos, list) and photos:
+            best_photo = photos[-1]
+            if isinstance(best_photo, dict) and best_photo.get("file_id"):
+                file_candidates.append({
+                    "kind": "image",
+                    "file_id": str(best_photo.get("file_id")),
+                    "file_unique_id": str(best_photo.get("file_unique_id") or ""),
+                    "mime_type": "image/jpeg",
+                })
+
+        document = message.get("document")
+        if isinstance(document, dict) and document.get("file_id"):
+            mime_type = str(document.get("mime_type") or "")
+            if mime_type.startswith("image/"):
+                file_candidates.append({
+                    "kind": "image",
+                    "file_id": str(document.get("file_id")),
+                    "file_unique_id": str(document.get("file_unique_id") or ""),
+                    "mime_type": mime_type,
+                    "filename": str(document.get("file_name") or ""),
+                })
+
+        if not file_candidates:
+            return attachments
+
+        data_dir = os.getenv("DATA_DIR", "./data")
+        attachment_dir = os.path.join(data_dir, "telegram_bot_attachments")
+
+        for idx, candidate in enumerate(file_candidates, start=1):
+            file_id = str(candidate.get("file_id") or "").strip()
+            if not file_id:
+                continue
+            attachment: dict[str, Any] = {
+                "source": "telegram_bot",
+                "kind": candidate.get("kind") or "file",
+                "telegram_file_id": file_id,
+                "telegram_file_unique_id": candidate.get("file_unique_id"),
+                "mime_type": candidate.get("mime_type"),
+            }
+            try:
+                file_info = await self._get_file_info(file_id)
+                remote_path = str(file_info.get("file_path") or "").strip()
+                if not remote_path:
+                    raise RuntimeError("Telegram file path missing")
+
+                filename = os.path.basename(remote_path)
+                guessed_mime, _ = mimetypes.guess_type(filename)
+                ext = os.path.splitext(filename)[1] or ".bin"
+                local_name = (
+                    f"tg_{update_id or 'unknown'}_{idx}{ext}"
+                )
+                local_path = os.path.join(attachment_dir, local_name)
+                await self._download_file(remote_path, local_path)
+
+                attachment.update({
+                    "path": local_path,
+                    "filename": filename,
+                    "mime_type": attachment.get("mime_type") or guessed_mime,
+                })
+            except Exception as exc:
+                attachment["error"] = str(exc)
+                logger.warning("Failed to download Telegram attachment %s: %s", file_id, exc)
+
+            attachments.append(attachment)
+
+        return attachments
 
     @property
     def is_configured(self) -> bool:
@@ -573,10 +693,6 @@ class TelegramBotListener:
         if not message:
             return
 
-        text = message.get("text")
-        if not text:
-            return
-
         self._last_update_at = datetime.now(timezone.utc).isoformat()
 
         sender = message.get("from", {})
@@ -591,11 +707,6 @@ class TelegramBotListener:
 
         self._last_update_username = username or None
         self._last_update_chat_id = chat_id
-
-        preview = str(text).strip().replace("\n", " ")
-        if len(preview) > 200:
-            preview = preview[:200] + "..."
-        self._last_message_preview = preview
 
         # Check allowlist
         from services.telegram_allowlist import is_allowed_username
@@ -620,6 +731,22 @@ class TelegramBotListener:
                 )
                 return
 
+        attachments = await self._extract_attachments(
+            message,
+            self._last_update_id,
+        )
+
+        text = str(message.get("text") or message.get("caption") or "").strip()
+        if not text and attachments:
+            text = "[Photo attachment]"
+        if not text:
+            return
+
+        preview = text.replace("\n", " ")
+        if len(preview) > 200:
+            preview = preview[:200] + "..."
+        self._last_message_preview = preview
+
         logger.info(
             "Bot message from %s (@%s) in chat %s: %s",
             sender_name,
@@ -629,7 +756,13 @@ class TelegramBotListener:
         )
 
         try:
-            await self._on_message(text, username, chat_id, sender_name)
+            await self._on_message(
+                text,
+                username,
+                chat_id,
+                sender_name,
+                attachments,
+            )
         except Exception as exc:
             logger.error(
                 "Error in bot message callback for @%s: %s", username, exc

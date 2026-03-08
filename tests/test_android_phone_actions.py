@@ -376,8 +376,8 @@ class TestGetScreenAction:
             assert "Failed to capture screenshot" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_xml_failure_raises_error(self) -> None:
-        """Raises ValueError when XML dump fails."""
+    async def test_xml_failure_returns_screenshot_with_xml_error(self) -> None:
+        """XML dump failures should still return screenshot context."""
         mock_png_data = b"\x89PNG\r\n\x1a\n"
 
         mock_client = MagicMock()
@@ -389,14 +389,22 @@ class TestGetScreenAction:
             error="uiautomator dump failed"
         ))
 
+        mock_client.parse_ui_elements = MagicMock(return_value=[])
+        mock_client._run_adb = AsyncMock(
+            return_value=ADBResult(success=True, output=DUMPSYS_UNLOCKED)
+        )
+
         with patch("actions.android_phone.get_android_client", return_value=mock_client):
             with patch("builtins.open", mock_open(read_data=mock_png_data)):
                 from actions.android_phone import get_screen_action
 
-                with pytest.raises(ValueError) as exc_info:
-                    await get_screen_action({})
+                result = await get_screen_action({})
 
-                assert "Failed to get screen XML" in str(exc_info.value)
+                assert result["xml"] == ""
+                assert result["xml_error"] == "uiautomator dump failed"
+                assert "screenshot_base64" in result
+                assert "unavailable" in result["message"]
+                assert result["screen_status"] == "unlocked"
 
     @pytest.mark.asyncio
     async def test_returns_element_count(self) -> None:

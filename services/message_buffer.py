@@ -33,6 +33,7 @@ class BufferedMessage:
     content: str
     timestamp: str  # ISO 8601
     metadata: dict[str, Any] = field(default_factory=dict)
+    attachments: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -46,6 +47,7 @@ class BufferedEvent:
     timestamp: str  # Timestamp of first message
     message_count: int  # Number of messages combined
     metadata: dict[str, Any] = field(default_factory=dict)
+    attachments: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -120,6 +122,7 @@ class MessageBuffer:
         sender_name: str | None = None,
         timestamp: str | None = None,
         metadata: dict[str, Any] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> bool:
         """
         Add a message to the buffer.
@@ -156,6 +159,7 @@ class MessageBuffer:
                 content=content,
                 timestamp=timestamp,
                 metadata=metadata or {},
+                attachments=list(attachments or []),
             )
         )
 
@@ -206,6 +210,11 @@ class MessageBuffer:
             timestamp=entry.first_message_time or first_msg.timestamp,
             message_count=len(entry.messages),
             metadata=first_msg.metadata,
+            attachments=[
+                attachment
+                for message in entry.messages
+                for attachment in message.attachments
+            ],
         )
 
         logger.info(

@@ -166,7 +166,11 @@ class TestTelegramBotListenerProcessUpdate:
         ):
             await listener._process_update(update)
             callback.assert_called_once_with(
-                "Hello bot!", "SeanReardon", "12345", "Sean Reardon"
+                "Hello bot!",
+                "SeanReardon",
+                "12345",
+                "Sean Reardon",
+                [],
             )
 
     @pytest.mark.asyncio
@@ -215,6 +219,82 @@ class TestTelegramBotListenerProcessUpdate:
         callback.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_process_update_photo_with_caption(self) -> None:
+        callback = AsyncMock()
+        listener = TelegramBotListener(on_message=callback, token="test-token")
+
+        update = {
+            "update_id": 101,
+            "message": {
+                "caption": "do you see these results?",
+                "photo": [
+                    {"file_id": "small-photo"},
+                    {"file_id": "large-photo", "file_unique_id": "uniq-1"},
+                ],
+                "from": {"username": "SeanReardon", "first_name": "Sean"},
+                "chat": {"id": 123},
+            },
+        }
+
+        with patch(
+            "services.telegram_allowlist.is_allowed_username",
+            return_value=True,
+        ), patch.object(
+            listener,
+            "_get_file_info",
+            new=AsyncMock(return_value={"file_path": "photos/file_1.jpg"}),
+        ), patch.object(
+            listener,
+            "_download_file",
+            new=AsyncMock(),
+        ):
+            await listener._process_update(update)
+
+        callback.assert_called_once()
+        args = callback.call_args[0]
+        assert args[0] == "do you see these results?"
+        assert args[1] == "SeanReardon"
+        assert args[2] == "123"
+        assert args[3] == "Sean"
+        attachments = args[4]
+        assert len(attachments) == 1
+        assert attachments[0]["kind"] == "image"
+        assert attachments[0]["path"].endswith("tg_101_1.jpg")
+
+    @pytest.mark.asyncio
+    async def test_process_update_photo_without_caption_uses_placeholder_text(self) -> None:
+        callback = AsyncMock()
+        listener = TelegramBotListener(on_message=callback, token="test-token")
+
+        update = {
+            "update_id": 102,
+            "message": {
+                "photo": [{"file_id": "only-photo"}],
+                "from": {"username": "SeanReardon"},
+                "chat": {"id": 123},
+            },
+        }
+
+        with patch(
+            "services.telegram_allowlist.is_allowed_username",
+            return_value=True,
+        ), patch.object(
+            listener,
+            "_get_file_info",
+            new=AsyncMock(return_value={"file_path": "photos/file_2.jpg"}),
+        ), patch.object(
+            listener,
+            "_download_file",
+            new=AsyncMock(),
+        ):
+            await listener._process_update(update)
+
+        callback.assert_called_once()
+        args = callback.call_args[0]
+        assert args[0] == "[Photo attachment]"
+        assert len(args[4]) == 1
+
+    @pytest.mark.asyncio
     async def test_process_update_sender_name_fallback(self) -> None:
         callback = AsyncMock()
         listener = TelegramBotListener(on_message=callback, token="test-token")
@@ -235,7 +315,11 @@ class TestTelegramBotListenerProcessUpdate:
             await listener._process_update(update)
             # No first/last name — falls back to username
             callback.assert_called_once_with(
-                "test", "SeanReardon", "123", "SeanReardon"
+                "test",
+                "SeanReardon",
+                "123",
+                "SeanReardon",
+                [],
             )
 
 
@@ -275,7 +359,13 @@ class TestTelegramBotListenerPollLoop:
                 listener._running = True
                 await listener._poll_loop()
 
-        callback.assert_called_once_with("hi", "SeanReardon", "42", "Sean")
+        callback.assert_called_once_with(
+            "hi",
+            "SeanReardon",
+            "42",
+            "Sean",
+            [],
+        )
 
     @pytest.mark.asyncio
     async def test_poll_loop_handles_errors(self) -> None:

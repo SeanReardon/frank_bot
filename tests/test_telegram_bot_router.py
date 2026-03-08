@@ -54,6 +54,7 @@ class TestFlushCallback:
             timestamp="2026-02-13T10:00:00+00:00",
             message_count=1,
             metadata={"telegram_bot_chat_id": "12345"},
+            attachments=[{"kind": "image", "path": "/tmp/test-image.png"}],
         )
 
         mock_runner = MagicMock()
@@ -86,6 +87,7 @@ class TestFlushCallback:
         assert incoming.transport == "telegram_bot_buffer"
         assert incoming.event_id is not None
         assert incoming.trace_id is not None
+        assert incoming.attachments == [{"kind": "image", "path": "/tmp/test-image.png"}]
 
     @pytest.mark.asyncio
     async def test_flush_records_trace_files_for_agentic_replay(
@@ -109,6 +111,7 @@ class TestFlushCallback:
             timestamp="2026-02-13T10:00:00+00:00",
             message_count=1,
             metadata={"telegram_bot_chat_id": "12345"},
+            attachments=[{"kind": "image", "path": "/tmp/event.png"}],
         )
 
         mock_runner = MagicMock()
@@ -131,6 +134,7 @@ class TestFlushCallback:
         assert len(traces) == 1
         assert events[0]["transport"] == "telegram_bot_buffer"
         assert events[0]["task_class"] == "diagnostic_probe"
+        assert events[0]["attachments"][0]["path"] == "/tmp/event.png"
         assert traces[0]["event"]["channel"] == "telegram_bot"
 
     @pytest.mark.asyncio
@@ -229,7 +233,13 @@ class TestHandleBotMessage:
             "services.telegram_bot_router._get_message_buffer",
             return_value=mock_buffer,
         ):
-            await _handle_bot_message("Hello", "alice", "12345", "Alice")
+            await _handle_bot_message(
+                "Hello",
+                "alice",
+                "12345",
+                "Alice",
+                [{"kind": "image", "path": "/tmp/hello.png"}],
+            )
 
         mock_buffer.buffer_message.assert_called_once()
         call_kwargs = mock_buffer.buffer_message.call_args[1]
@@ -239,6 +249,7 @@ class TestHandleBotMessage:
         assert call_kwargs["content"] == "Hello"
         assert call_kwargs["sender_name"] == "Alice"
         assert call_kwargs["metadata"] == {"telegram_bot_chat_id": "12345"}
+        assert call_kwargs["attachments"] == [{"kind": "image", "path": "/tmp/hello.png"}]
 
     @pytest.mark.asyncio
     async def test_buffers_message_without_username(self):

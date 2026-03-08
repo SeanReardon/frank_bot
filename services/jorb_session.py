@@ -9,8 +9,10 @@ This is the second stage of the two-stage pattern:
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import mimetypes
 import os
 from dataclasses import dataclass, field
 from datetime import datetime  # noqa: F401 - used by format functions
@@ -213,6 +215,7 @@ def _format_event_context(
     content: str,
     timestamp: str,
     message_count: int = 1,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Format the current event for context."""
     return {
@@ -222,7 +225,55 @@ def _format_event_context(
         "content": content,
         "timestamp": timestamp,
         "message_count": message_count,
+        "attachments": attachments or [],
     }
+
+
+def _build_user_content(
+    event_context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build multimodal user content from the event context."""
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": (
+                "New message received:\n\n"
+                f"```json\n{json.dumps(event_context, indent=2)}\n```"
+            ),
+        }
+    ]
+
+    for attachment in event_context.get("attachments") or []:
+        if not isinstance(attachment, dict):
+            continue
+        if attachment.get("kind") != "image":
+            continue
+
+        path = str(attachment.get("path") or "").strip()
+        if not path or not os.path.exists(path):
+            continue
+
+        mime_type = str(attachment.get("mime_type") or "").strip()
+        if not mime_type:
+            guessed, _ = mimetypes.guess_type(path)
+            mime_type = guessed or "image/png"
+
+        try:
+            with open(path, "rb") as f:
+                data = base64.b64encode(f.read()).decode("utf-8")
+        except Exception as exc:
+            logger.warning("Failed to read event image attachment %s: %s", path, exc)
+            continue
+
+        blocks.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{mime_type};base64,{data}",
+                "detail": "high",
+            },
+        })
+
+    return blocks
 
 
 def _format_policy_context(policy: dict[str, Any]) -> str:
@@ -587,6 +638,7 @@ class JorbSession:
         content: str,
         timestamp: str,
         message_count: int = 1,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> JorbSessionResponse:
         """
         Process an incoming message and decide on action.
@@ -615,11 +667,15 @@ class JorbSession:
 
         # Build the user message (current event)
         event_context = _format_event_context(
-            channel, sender, sender_name, content, timestamp, message_count
+            channel,
+            sender,
+            sender_name,
+            content,
+            timestamp,
+            message_count,
+            attachments=attachments,
         )
-        user_message = (
-            f"New message received:\n\n```json\n{json.dumps(event_context, indent=2)}\n```"
-        )
+        user_content = _build_user_content(event_context)
 
         # Replace the placeholder in template
         system_prompt = system_prompt.replace("{{CURRENT_EVENT}}", "See user message")
@@ -633,7 +689,7 @@ class JorbSession:
 
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
+                {"role": "user", "content": user_content},
             ]
 
             logger.info(

@@ -246,6 +246,7 @@ async def _on_bot_message_flush(event: BufferedEvent) -> None:
         message_count=event.message_count,
         transport="telegram_bot_buffer",
         transport_message_id=str(event.metadata.get("telegram_bot_chat_id") or "") if event.metadata else None,
+        attachments=list(event.attachments or []),
     )
 
     logger.info(
@@ -304,6 +305,7 @@ async def _handle_bot_message(
     username: str,
     chat_id: str,
     sender_name: str,
+    attachments: list[dict[str, object]] | None = None,
 ) -> None:
     """
     Handle a single inbound Telegram Bot API message.
@@ -333,6 +335,7 @@ async def _handle_bot_message(
         metadata={
             "telegram_bot_chat_id": str(chat_id),
         },
+        attachments=list(attachments or []),
     )
 
     logger.info(

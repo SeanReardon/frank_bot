@@ -1661,6 +1661,7 @@ class AgentRunner:
                     content=event.content,
                     timestamp=event.timestamp,
                     message_count=event.message_count,
+                    attachments=list(event.attachments or []),
                 )
                 event = None  # Only use event for first iteration
             else:

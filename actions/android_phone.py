@@ -213,15 +213,18 @@ async def get_screen_action(
     except Exception as exc:
         raise ValueError(f"Failed to read screenshot file: {exc}") from exc
 
-    # Get accessibility XML
+    # Get accessibility XML. Some screens intermittently fail to produce a
+    # uiautomator dump; keep the screenshot path usable instead of failing hard.
     xml_result = await client.get_screen_xml()
-    if not xml_result.success:
-        raise ValueError(f"Failed to get screen XML: {xml_result.error}")
-
-    raw_xml = xml_result.output
-
-    # Parse UI elements
-    elements = client.parse_ui_elements(raw_xml)
+    xml_error: str | None = None
+    raw_xml = ""
+    elements = []
+    if xml_result.success:
+        raw_xml = xml_result.output
+        elements = client.parse_ui_elements(raw_xml)
+    else:
+        xml_error = xml_result.error or "unknown xml error"
+        logger.warning("Proceeding without screen XML: %s", xml_error)
 
     # Best-effort: identify the dominant package on screen. Useful for debugging
     # "wrong screen" / "app didn't launch" failures.
@@ -292,11 +295,19 @@ async def get_screen_action(
     return {
         "screenshot_base64": screenshot_base64,
         "xml": raw_xml,
+        "xml_error": xml_error,
         "clickable_elements": clickable_elements,
         "element_count": len(elements),
         "dominant_package": dominant_package,
         **lockscreen_state,
-        "message": f"Screen captured with {len(clickable_elements)} interactive elements",
+        "message": (
+            f"Screen captured with {len(clickable_elements)} interactive elements"
+            if not xml_error
+            else (
+                "Screen captured, but accessibility XML was unavailable: "
+                f"{xml_error}"
+            )
+        ),
     }
 
 
