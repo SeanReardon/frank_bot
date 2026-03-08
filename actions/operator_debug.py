@@ -39,6 +39,63 @@ def _message_dict(
     }
 
 
+def _android_screen_context(task: dict[str, Any]) -> dict[str, Any] | None:
+    result = task.get("result")
+    result_data = result if isinstance(result, dict) else {}
+    extracted = result_data.get("extracted_data")
+    extracted_data = extracted if isinstance(extracted, dict) else {}
+    metadata = task.get("metadata")
+    metadata_dict = metadata if isinstance(metadata, dict) else {}
+
+    screen_status = (
+        extracted_data.get("screen_status")
+        or metadata_dict.get("screen_status")
+    )
+    screen_status_source = (
+        extracted_data.get("screen_status_source")
+        or metadata_dict.get("screen_status_source")
+    )
+    focused_app = (
+        extracted_data.get("focused_app")
+        or metadata_dict.get("focused_app")
+    )
+    focused_window = (
+        extracted_data.get("focused_window")
+        or metadata_dict.get("focused_window")
+    )
+    status_reason = (
+        extracted_data.get("status_reason")
+        or metadata_dict.get("status_reason")
+        or extracted_data.get("lockscreen_reason")
+        or metadata_dict.get("lockscreen_reason")
+    )
+    lockscreen_detected = bool(
+        extracted_data.get("lockscreen_detected")
+        or metadata_dict.get("lockscreen_detected")
+    )
+
+    if not any(
+        [
+            screen_status,
+            screen_status_source,
+            focused_app,
+            focused_window,
+            status_reason,
+            lockscreen_detected,
+        ]
+    ):
+        return None
+
+    return {
+        "screen_status": screen_status,
+        "screen_status_source": screen_status_source,
+        "focused_app": focused_app,
+        "focused_window": focused_window,
+        "status_reason": status_reason,
+        "lockscreen_detected": lockscreen_detected,
+    }
+
+
 async def get_operator_debug_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -87,11 +144,14 @@ async def get_operator_debug_action(
         reverse=True,
     )
 
-    android_tasks = [
-        task.to_dict()
-        for task in await android_storage.list_tasks(limit=limit)
-    ]
-    aggregate_metrics = await storage.get_aggregate_metrics(status_filter="all")
+    android_tasks = []
+    for task in await android_storage.list_tasks(limit=limit):
+        task_payload = task.to_dict()
+        task_payload["screen_context"] = _android_screen_context(task_payload)
+        android_tasks.append(task_payload)
+    aggregate_metrics = await storage.get_aggregate_metrics(
+        status_filter="all"
+    )
     recent_traces = await trace_store.list_recent_traces(limit=limit)
     recent_events = await trace_store.list_recent_events(limit=limit)
     all_stats = stats.get_all_stats()
@@ -109,6 +169,7 @@ async def get_operator_debug_action(
                 "task_id": task["id"],
                 "error": task.get("error"),
                 "updated_at": task.get("updated_at"),
+                "screen_context": task.get("screen_context"),
             }
             for task in android_tasks
             if task.get("error")
@@ -116,7 +177,10 @@ async def get_operator_debug_action(
     }
 
     android_cost = round(
-        sum(float(task.get("estimated_cost") or 0.0) for task in android_tasks),
+        sum(
+            float(task.get("estimated_cost") or 0.0)
+            for task in android_tasks
+        ),
         6,
     )
     jorb_summaries = [

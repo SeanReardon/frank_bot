@@ -1345,6 +1345,7 @@ APP_PACKAGES = {
     "chrome": "com.android.chrome",
     "maps": "com.google.android.apps.maps",
     "settings": "com.android.settings",
+    "speedtest": "org.zwanoo.android.speedtest",
 }
 
 
@@ -1365,9 +1366,91 @@ def _detect_app_from_goal(goal: str) -> str | None:
         return "uber_eats"
     elif any(word in goal_lower for word in ["map", "direction", "navigate"]):
         return "maps"
+    elif any(
+        phrase in goal_lower
+        for phrase in [
+            "speedtest",
+            "speed test",
+            "ookla",
+            "download mbps",
+            "upload mbps",
+            "ping",
+            "latency test",
+            "internet speed",
+            "network speed",
+        ]
+    ):
+        return "speedtest"
     elif any(word in goal_lower for word in ["search", "browse", "website", "google"]):
         return "chrome"
     return None
+
+
+def _select_task_prompt(goal: str, app: str | None) -> tuple[str, dict[str, Any]]:
+    """Choose a task-specific prompt when the intent is clear."""
+    goal_lower = goal.lower()
+    task_prompt = "_generic"
+    parameters: dict[str, Any] = {"GOAL": goal}
+
+    if app == "google_home":
+        thermostat_markers = (
+            "thermostat",
+            "temperature",
+            "temp",
+            "hvac",
+            "nest",
+            "setpoint",
+        )
+        looks_like_thermostat = any(m in goal_lower for m in thermostat_markers)
+        looks_like_set_action = any(
+            phrase in goal_lower
+            for phrase in (
+                "set the thermostat",
+                "set thermostat",
+                "change the thermostat",
+                "adjust the thermostat",
+                "set to",
+                "set range",
+            )
+        )
+
+        # Matches "65-68", "65 to 68", "65–68"
+        def _extract_range(text: str) -> tuple[int, int] | None:
+            m = re.search(r"\b(\d{2})\s*(?:-|–|to)\s*(\d{2})\b", text)
+            if not m:
+                return None
+            try:
+                a = int(m.group(1))
+                b = int(m.group(2))
+            except (TypeError, ValueError):
+                return None
+            return (a, b)
+
+        temp_range = _extract_range(goal_lower) if looks_like_thermostat else None
+        if looks_like_thermostat and looks_like_set_action and temp_range:
+            low, high = temp_range
+            return "thermostat-setRange", {"low_temp": low, "high_temp": high}
+        if looks_like_thermostat:
+            return "thermostat-getStatus", {}
+
+    if app == "speedtest":
+        speedtest_markers = (
+            "speedtest",
+            "speed test",
+            "ookla",
+            "download",
+            "upload",
+            "ping",
+            "latency",
+            "jitter",
+            "mbps",
+            "internet speed",
+            "network speed",
+        )
+        if any(marker in goal_lower for marker in speedtest_markers):
+            return "speedtest-run", {}
+
+    return task_prompt, parameters
 
 
 SCREENSHOTS_DIR = os.path.join(".", "data", "screenshots")
@@ -1587,59 +1670,8 @@ async def _execute_task_background(
         await storage.update_task(task_id, current_step="Running automation")
         logger.info("Task %s: Starting automation for goal: %s", task_id, goal[:50])
 
-        # Choose a task prompt based on goal/app.
-        #
-        # We prefer task-specific prompts when we can confidently detect the
-        # intent, because the generic prompt can "complete" without extracting
-        # the requested structured data.
-        goal_lower = goal.lower()
-        task_prompt = "_generic"
-        parameters: dict[str, Any] = {"GOAL": goal}
-
-        if app == "google_home":
-            thermostat_markers = (
-                "thermostat",
-                "temperature",
-                "temp",
-                "hvac",
-                "nest",
-                "setpoint",
-            )
-            looks_like_thermostat = any(m in goal_lower for m in thermostat_markers)
-            looks_like_set_action = any(
-                phrase in goal_lower
-                for phrase in (
-                    "set the thermostat",
-                    "set thermostat",
-                    "change the thermostat",
-                    "adjust the thermostat",
-                    "set to",
-                    "set range",
-                )
-            )
-
-            # If the goal includes an explicit range, prefer setRange.
-            def _extract_range(text: str) -> tuple[int, int] | None:
-                # Matches "65-68", "65 to 68", "65–68"
-                m = re.search(r"\b(\d{2})\s*(?:-|–|to)\s*(\d{2})\b", text)
-                if not m:
-                    return None
-                try:
-                    a = int(m.group(1))
-                    b = int(m.group(2))
-                except (TypeError, ValueError):
-                    return None
-                return (a, b)
-
-            temp_range = _extract_range(goal_lower) if looks_like_thermostat else None
-            if looks_like_thermostat and looks_like_set_action and temp_range:
-                low, high = temp_range
-                task_prompt = "thermostat-setRange"
-                parameters = {"low_temp": low, "high_temp": high}
-            elif looks_like_thermostat:
-                # Default to getStatus for "settings"/"check"/"what's it set to" style intents.
-                task_prompt = "thermostat-getStatus"
-                parameters = {}
+        # Prefer task-specific prompts when we can confidently detect intent.
+        task_prompt, parameters = _select_task_prompt(goal, app)
 
         result = await runner.run_task(
             task_prompt=task_prompt,
@@ -1780,12 +1812,15 @@ async def _execute_task_background(
                 )
         else:
             fail_result: dict[str, Any] = {}
+            extracted = result.extracted_data or {}
             if final_screenshot_path:
                 fail_result["final_screenshot_path"] = final_screenshot_path
             if step_screenshot_paths:
                 fail_result["step_screenshot_paths"] = step_screenshot_paths
             if step_actions:
                 fail_result["step_actions"] = step_actions
+            if extracted:
+                fail_result["extracted_data"] = extracted
             await storage.update_task(
                 task_id,
                 status="failed",
@@ -1799,7 +1834,12 @@ async def _execute_task_background(
                 artifacts=artifacts,
                 metadata={
                     "task_prompt": task_prompt,
-                    "lockscreen_detected": bool((result.extracted_data or {}).get("lockscreen_detected")),
+                    "lockscreen_detected": bool(extracted.get("lockscreen_detected")),
+                    "screen_status": extracted.get("screen_status"),
+                    "screen_status_source": extracted.get("screen_status_source"),
+                    "focused_app": extracted.get("focused_app"),
+                    "focused_window": extracted.get("focused_window"),
+                    "status_reason": extracted.get("status_reason"),
                 },
             )
             logger.info("Task %s: Failed - %s", task_id, result.error)

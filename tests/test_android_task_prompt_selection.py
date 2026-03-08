@@ -10,7 +10,8 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_background_android_task_uses_thermostat_prompt_for_thermostat_goal() -> None:
+async def test_background_android_task_uses_thermostat_prompt_for_thermostat_goal(
+) -> None:
     from services.android_phone_runner import RunResult
     from services.android_client import ADBResult
     from services.android_task_storage import AndroidTaskStorage
@@ -22,9 +23,15 @@ async def test_background_android_task_uses_thermostat_prompt_for_thermostat_goa
     )
 
     mock_client = MagicMock()
-    mock_client.connect = AsyncMock(return_value=ADBResult(success=True, output="connected"))
-    mock_client.wake_device = AsyncMock(return_value=ADBResult(success=True, output="awake"))
-    mock_client.launch_app = AsyncMock(return_value=ADBResult(success=True, output="launched"))
+    mock_client.connect = AsyncMock(
+        return_value=ADBResult(success=True, output="connected")
+    )
+    mock_client.wake_device = AsyncMock(
+        return_value=ADBResult(success=True, output="awake")
+    )
+    mock_client.launch_app = AsyncMock(
+        return_value=ADBResult(success=True, output="launched")
+    )
 
     mock_runner = MagicMock()
     mock_runner.is_configured = True
@@ -45,16 +52,16 @@ async def test_background_android_task_uses_thermostat_prompt_for_thermostat_goa
         steps=[],
     ))
 
-    with patch("actions.android_phone.get_android_client", return_value=mock_client), patch(
+    with patch(
+        "actions.android_phone.get_android_client",
+        return_value=mock_client,
+    ), patch(
         "services.android_phone_runner.get_android_phone_runner",
         return_value=mock_runner,
     ), patch(
         "services.android_task_storage.get_android_task_storage",
         return_value=storage,
-    ), patch(
-        "actions.android_phone.asyncio.sleep",
-        new=AsyncMock(),
-    ):
+    ), patch("actions.android_phone.asyncio.sleep", new=AsyncMock()):
         from actions.android_phone import _execute_task_background
 
         await _execute_task_background(task.id, task.goal, task.app)
@@ -73,7 +80,8 @@ async def test_background_android_task_uses_thermostat_prompt_for_thermostat_goa
 
 
 @pytest.mark.asyncio
-async def test_background_android_task_uses_generic_prompt_for_non_thermostat_goal() -> None:
+async def test_background_android_task_uses_generic_prompt_for_non_thermostat_goal(
+) -> None:
     from services.android_phone_runner import RunResult
     from services.android_client import ADBResult
     from services.android_task_storage import AndroidTaskStorage
@@ -83,9 +91,15 @@ async def test_background_android_task_uses_generic_prompt_for_non_thermostat_go
     task = await storage.create_task(goal=goal, app="uber")
 
     mock_client = MagicMock()
-    mock_client.connect = AsyncMock(return_value=ADBResult(success=True, output="connected"))
-    mock_client.wake_device = AsyncMock(return_value=ADBResult(success=True, output="awake"))
-    mock_client.launch_app = AsyncMock(return_value=ADBResult(success=True, output="launched"))
+    mock_client.connect = AsyncMock(
+        return_value=ADBResult(success=True, output="connected")
+    )
+    mock_client.wake_device = AsyncMock(
+        return_value=ADBResult(success=True, output="awake")
+    )
+    mock_client.launch_app = AsyncMock(
+        return_value=ADBResult(success=True, output="launched")
+    )
 
     mock_runner = MagicMock()
     mock_runner.is_configured = True
@@ -95,20 +109,23 @@ async def test_background_android_task_uses_generic_prompt_for_non_thermostat_go
         steps_taken=1,
         total_tokens_used=500,
         total_cost=0.01,
-        extracted_data={"result": "Checked prices", "extracted_data": {"prices": []}},
+        extracted_data={
+            "result": "Checked prices",
+            "extracted_data": {"prices": []},
+        },
         steps=[],
     ))
 
-    with patch("actions.android_phone.get_android_client", return_value=mock_client), patch(
+    with patch(
+        "actions.android_phone.get_android_client",
+        return_value=mock_client,
+    ), patch(
         "services.android_phone_runner.get_android_phone_runner",
         return_value=mock_runner,
     ), patch(
         "services.android_task_storage.get_android_task_storage",
         return_value=storage,
-    ), patch(
-        "actions.android_phone.asyncio.sleep",
-        new=AsyncMock(),
-    ):
+    ), patch("actions.android_phone.asyncio.sleep", new=AsyncMock()):
         from actions.android_phone import _execute_task_background
 
         await _execute_task_background(task.id, task.goal, task.app)
@@ -118,3 +135,82 @@ async def test_background_android_task_uses_generic_prompt_for_non_thermostat_go
     assert kwargs["task_prompt"] == "_generic"
     assert kwargs["parameters"] == {"GOAL": goal}
 
+
+@pytest.mark.asyncio
+async def test_background_android_task_uses_speedtest_prompt_for_speedtest_goal(
+) -> None:
+    from services.android_phone_runner import RunResult
+    from services.android_client import ADBResult
+    from services.android_task_storage import AndroidTaskStorage
+
+    goal = (
+        "Open the Speedtest by Ookla app, run a fresh speed test, and report "
+        "ping, download, upload, and server location"
+    )
+    storage = AndroidTaskStorage()
+    task = await storage.create_task(goal=goal, app="speedtest")
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock(
+        return_value=ADBResult(success=True, output="connected")
+    )
+    mock_client.wake_device = AsyncMock(
+        return_value=ADBResult(success=True, output="awake")
+    )
+    mock_client.unlock_device = AsyncMock(
+        return_value=ADBResult(success=True, output="unlocked")
+    )
+    mock_client.launch_app = AsyncMock(
+        return_value=ADBResult(success=True, output="launched")
+    )
+
+    mock_runner = MagicMock()
+    mock_runner.is_configured = True
+    mock_runner.run_task = AsyncMock(return_value=RunResult(
+        success=True,
+        final_action="done",
+        steps_taken=4,
+        total_tokens_used=900,
+        total_cost=0.02,
+        extracted_data={
+            "ping_ms": 11.2,
+            "download_mbps": 310.8,
+            "upload_mbps": 22.5,
+            "server": "San Francisco, CA",
+        },
+        steps=[],
+    ))
+
+    with patch(
+        "actions.android_phone.get_android_client",
+        return_value=mock_client,
+    ), patch(
+        "services.android_phone_runner.get_android_phone_runner",
+        return_value=mock_runner,
+    ), patch(
+        "services.android_task_storage.get_android_task_storage",
+        return_value=storage,
+    ), patch("actions.android_phone.asyncio.sleep", new=AsyncMock()):
+        from actions.android_phone import _execute_task_background
+
+        await _execute_task_background(task.id, task.goal, task.app)
+
+    mock_client.launch_app.assert_called_once_with(
+        "org.zwanoo.android.speedtest"
+    )
+    mock_runner.run_task.assert_called_once()
+    _, kwargs = mock_runner.run_task.call_args
+    assert kwargs["task_prompt"] == "speedtest-run"
+    assert kwargs["parameters"] == {}
+
+
+def test_detect_app_from_goal_routes_speedtest_queries() -> None:
+    from actions.android_phone import _detect_app_from_goal
+
+    assert (
+        _detect_app_from_goal(
+            "Run a speed test and report ping and download"
+        )
+        == "speedtest"
+    )
+    assert _detect_app_from_goal("Open Speedtest by Ookla") == "speedtest"

@@ -47,7 +47,12 @@ async def test_operator_debug_action_returns_agent_facing_snapshot(
             content="please debug the thermostat",
         ),
     )
-    await storage.increment_metrics(jorb.id, messages_in=1, tokens_used=321, estimated_cost=0.123)
+    await storage.increment_metrics(
+        jorb.id,
+        messages_in=1,
+        tokens_used=321,
+        estimated_cost=0.123,
+    )
     await storage.add_script_result(
         jorb.id,
         {
@@ -58,16 +63,43 @@ async def test_operator_debug_action_returns_agent_facing_snapshot(
         },
     )
 
-    task = await android_storage.create_task("Take a screenshot of the thermostat app", app="Nest")
+    task = await android_storage.create_task(
+        "Take a screenshot of the thermostat app",
+        app="Nest",
+    )
     await android_storage.update_task(
         task.id,
-        status="completed",
+        status="failed",
         steps_taken=2,
         current_step="done",
         tokens_used=88,
         estimated_cost=0.055,
-        artifacts=[{"kind": "screenshot", "path": "./data/android_tasks/screen.png"}],
-        result={"summary": "Captured screenshot"},
+        artifacts=[
+            {
+                "kind": "screenshot",
+                "path": "./data/android_tasks/screen.png",
+            }
+        ],
+        error="Phone screen status is lockscreen.",
+        result={
+            "summary": "Captured screenshot",
+            "extracted_data": {
+                "screen_status": "lockscreen",
+                "screen_status_source": "dumpsys_window",
+                "focused_app": "com.android.systemui",
+                "focused_window": "StatusBar",
+                "status_reason": "showing_lockscreen",
+                "lockscreen_detected": True,
+            },
+        },
+        metadata={
+            "screen_status": "lockscreen",
+            "screen_status_source": "dumpsys_window",
+            "focused_app": "com.android.systemui",
+            "focused_window": "StatusBar",
+            "status_reason": "showing_lockscreen",
+            "lockscreen_detected": True,
+        },
     )
 
     event_id, trace_id = await trace_store.record_event(
@@ -78,7 +110,11 @@ async def test_operator_debug_action_returns_agent_facing_snapshot(
             "task_class": "diagnostic_probe",
         }
     )
-    await trace_store.append_step(trace_id, "session_action", {"action": "RUN_SCRIPT"})
+    await trace_store.append_step(
+        trace_id,
+        "session_action",
+        {"action": "RUN_SCRIPT"},
+    )
     await trace_store.finalize(trace_id, {"ok": True}, status="completed")
 
     result = await get_operator_debug_action({"limit": 10})
@@ -86,13 +122,24 @@ async def test_operator_debug_action_returns_agent_facing_snapshot(
     assert result["audience"] == "agentic_tooling"
     assert result["models"]["agent_runner"] == "gpt-5.2"
     assert result["token_cost_summary"]["jorbs"]["tokens_used"] == 321
-    assert result["token_cost_summary"]["android_tasks"]["estimated_cost"] == pytest.approx(0.055)
+    assert result["token_cost_summary"]["android_tasks"][
+        "estimated_cost"
+    ] == pytest.approx(0.055)
     assert result["jorbs"]["recent"][0]["task_class"] == "android_capture"
     assert result["latest_script_results"][0]["script"] == "inspect_android_state"
     assert result["android"]["tasks"][0]["artifacts"][0]["kind"] == "screenshot"
+    assert result["android"]["tasks"][0]["screen_context"][
+        "screen_status"
+    ] == "lockscreen"
+    assert result["android"]["tasks"][0]["screen_context"][
+        "focused_app"
+    ] == "com.android.systemui"
     assert result["recent_messages"][0]["content"] == "please debug the thermostat"
     assert result["recent_events"][0]["event_id"] == event_id
     assert result["recent_traces"][0]["trace_id"] == trace_id
+    assert result["last_error_by_subsystem"]["android_tasks"][0][
+        "screen_context"
+    ]["status_reason"] == "showing_lockscreen"
 
 
 def test_operator_debug_action_runs_through_http_route(
