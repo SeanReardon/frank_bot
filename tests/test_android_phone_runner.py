@@ -650,6 +650,37 @@ class TestThermostatIntegration:
         assert result.extracted_data["status"] == "idle"
 
     @pytest.mark.asyncio
+    async def test_lockscreen_error_includes_screen_status_context(self) -> None:
+        """Lockscreen exits should preserve high-level screen context."""
+        runner = AndroidPhoneRunner(model="test", api_key="test", step_delay=0)
+
+        mock_screen = {
+            "screenshot_base64": "abc123",
+            "xml": "<hierarchy/>",
+            "clickable_elements": [],
+            "element_count": 0,
+            "lockscreen_detected": True,
+            "lockscreen_confidence": "high",
+            "lockscreen_reason": "showing_lockscreen, status_bar_keyguard",
+            "screen_status": "lockscreen",
+            "screen_status_source": "dumpsys_window",
+            "focused_app": "com.android.systemui",
+            "focused_window": "StatusBar",
+            "status_reason": "showing_lockscreen, status_bar_keyguard",
+        }
+
+        with patch.object(runner, "_capture_screen_state", return_value=mock_screen):
+            result = await runner.run_task("take a screenshot", parameters={}, max_steps=5)
+
+        assert result.success is False
+        assert result.final_action == "lockscreen_detected"
+        assert "screen status is lockscreen" in (result.error or "")
+        assert "focused_app=com.android.systemui" in (result.error or "")
+        assert result.extracted_data["screen_status"] == "lockscreen"
+        assert result.extracted_data["screen_status_source"] == "dumpsys_window"
+        assert result.extracted_data["focused_window"] == "StatusBar"
+
+    @pytest.mark.asyncio
     async def test_llm_loop_respects_max_steps(self) -> None:
         """Verifies runner stops at max_steps and reports failure."""
         runner = AndroidPhoneRunner(model="test", api_key="test", step_delay=0)

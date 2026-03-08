@@ -28,54 +28,151 @@ _health_cache_time: float = 0
 HEALTH_CACHE_TTL = 30  # seconds
 
 
+def _extract_dumpsys_field(
+    dumpsys_window: str,
+    pattern: str,
+) -> str | None:
+    match = re.search(pattern, dumpsys_window, re.MULTILINE)
+    if not match:
+        return None
+    value = match.group(1).strip()
+    return value or None
+
+
+def _screen_status_from_dumpsys(dumpsys_window: str | None) -> dict[str, Any]:
+    dumpsys = dumpsys_window or ""
+    if not dumpsys.strip():
+        return {
+            "screen_status": "unknown",
+            "screen_status_source": "none",
+            "focused_window": None,
+            "focused_app": None,
+            "keyguard_flags": {},
+            "status_reason": None,
+        }
+
+    keyguard_flags = {
+        "showing_lockscreen": bool(
+            re.search(r"mShowingLockscreen\s*=\s*true", dumpsys)
+        ),
+        "status_bar_keyguard": bool(
+            re.search(r"isStatusBarKeyguard\s*=\s*true", dumpsys)
+        ),
+        "dreaming_lockscreen": bool(
+            re.search(r"mDreamingLockscreen\s*=\s*true", dumpsys)
+        ),
+    }
+    focused_window = _extract_dumpsys_field(
+        dumpsys,
+        r"mCurrentFocus=Window\{[^\}]+\s+u\d+\s+([^}]+)\}",
+    )
+    focused_app = _extract_dumpsys_field(
+        dumpsys,
+        r"mFocusedApp=.*ActivityRecord\{[^\}]+\s+u\d+\s+([^/\s]+)/",
+    )
+
+    if keyguard_flags["showing_lockscreen"] or keyguard_flags["status_bar_keyguard"]:
+        reasons = [
+            name
+            for name, enabled in keyguard_flags.items()
+            if enabled
+        ]
+        return {
+            "screen_status": "lockscreen",
+            "screen_status_source": "dumpsys_window",
+            "focused_window": focused_window,
+            "focused_app": focused_app,
+            "keyguard_flags": keyguard_flags,
+            "status_reason": ", ".join(reasons),
+        }
+
+    if keyguard_flags["dreaming_lockscreen"]:
+        return {
+            "screen_status": "ambient_lockscreen",
+            "screen_status_source": "dumpsys_window",
+            "focused_window": focused_window,
+            "focused_app": focused_app,
+            "keyguard_flags": keyguard_flags,
+            "status_reason": "dreaming_lockscreen",
+        }
+
+    return {
+        "screen_status": "unlocked",
+        "screen_status_source": "dumpsys_window",
+        "focused_window": focused_window,
+        "focused_app": focused_app,
+        "keyguard_flags": keyguard_flags,
+        "status_reason": "no_keyguard_flags",
+    }
+
+
 def _detect_lockscreen_state(
     raw_xml: str,
     clickable_elements: list[dict[str, Any]],
     dumpsys_window: str | None = None,
 ) -> dict[str, Any]:
-    """Best-effort keyguard detection for safer Android automation."""
-    reasons: list[str] = []
-    confidence = "low"
-
-    dumpsys = dumpsys_window or ""
-    if re.search(r"mDreamingLockscreen\s*=\s*true", dumpsys):
-        reasons.append("ambient_lockscreen")
-    if re.search(r"mShowingLockscreen\s*=\s*true", dumpsys):
-        reasons.append("showing_lockscreen")
-    if re.search(r"isStatusBarKeyguard\s*=\s*true", dumpsys):
-        reasons.append("status_bar_keyguard")
+    """Use dumpsys first, then conservative XML hints as fallback."""
+    status = _screen_status_from_dumpsys(dumpsys_window)
+    if status["screen_status"] in {"lockscreen", "ambient_lockscreen"}:
+        return {
+            **status,
+            "lockscreen_detected": True,
+            "lockscreen_confidence": "high",
+            "lockscreen_reason": status["status_reason"],
+        }
 
     xml_lower = raw_xml.lower()
-    if "com.android.systemui" in xml_lower:
-        reasons.append("systemui_foreground")
+    explicit_xml_reasons: list[str] = []
+    explicit_tokens = (
+        "keyguard",
+        "lockscreen",
+        "lock icon",
+        "emergency call",
+        "emergency_button",
+        "emergency_call_button",
+        "swipe to unlock",
+        "enter pin",
+        "enter password",
+        "use password",
+        "bouncer",
+        "pinentry",
+        "passwordentry",
+    )
+
+    for token in explicit_tokens:
+        if token in xml_lower:
+            explicit_xml_reasons.append(f"xml:{token}")
 
     visible_text = " ".join(
         str(item.get("text") or item.get("content_desc") or "").lower()
         for item in clickable_elements
     )
     for token in (
-        "emergency",
-        "unlock",
+        "emergency call",
         "swipe to unlock",
-        "fingerprint",
-        "face unlock",
         "enter pin",
+        "enter password",
         "use password",
-        "camera",
     ):
         if token in visible_text:
-            reasons.append(f"ui:{token}")
+            explicit_xml_reasons.append(f"ui:{token}")
 
-    if {"ambient_lockscreen", "showing_lockscreen", "status_bar_keyguard"} & set(reasons):
-        confidence = "high"
-    elif reasons:
-        confidence = "medium"
+    unique_reasons = sorted(set(explicit_xml_reasons))
+    if len(unique_reasons) >= 2:
+        return {
+            **status,
+            "screen_status": "maybe_lockscreen",
+            "screen_status_source": "xml_heuristic",
+            "lockscreen_detected": True,
+            "lockscreen_confidence": "medium",
+            "lockscreen_reason": ", ".join(unique_reasons),
+        }
 
-    unique_reasons = sorted(set(reasons))
     return {
-        "lockscreen_detected": bool(unique_reasons),
-        "lockscreen_confidence": confidence if unique_reasons else "none",
-        "lockscreen_reason": ", ".join(unique_reasons) if unique_reasons else None,
+        **status,
+        "lockscreen_detected": False,
+        "lockscreen_confidence": "none",
+        "lockscreen_reason": None,
     }
 
 

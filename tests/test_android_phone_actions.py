@@ -30,6 +30,28 @@ SAMPLE_UI_XML = """<?xml version="1.0" encoding="UTF-8"?>
 </hierarchy>
 """
 
+LOCKSCREEN_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy>
+<node bounds="[0,0][1080,2400]" class="android.widget.FrameLayout" clickable="false" content-desc="" enabled="true" focused="false" package="com.android.systemui" resource-id="com.android.systemui:id/keyguard_root" scrollable="false" text="">
+<node bounds="[0,1800][1080,1980]" class="android.widget.Button" clickable="true" content-desc="" enabled="true" focused="false" package="com.android.systemui" resource-id="com.android.systemui:id/emergency_call_button" scrollable="false" text="Emergency call"/>
+</node>
+</hierarchy>
+"""
+
+DUMPSYS_UNLOCKED = """
+mShowingLockscreen=false
+isStatusBarKeyguard=false
+mCurrentFocus=Window{123456 u0 com.google.android.apps.nexuslauncher/com.google.android.apps.nexuslauncher.NexusLauncherActivity}
+mFocusedApp=ActivityRecord{123456 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t12}
+"""
+
+DUMPSYS_LOCKSCREEN = """
+mShowingLockscreen=true
+isStatusBarKeyguard=true
+mCurrentFocus=Window{abcdef u0 StatusBar}
+mFocusedApp=ActivityRecord{abcdef u0 com.android.systemui/.keyguard.KeyguardViewMediator t1}
+"""
+
 
 class TestGetScreenAction:
     """Tests for get_screen_action."""
@@ -88,6 +110,139 @@ class TestGetScreenAction:
 
                 assert "xml" in result
                 assert result["xml"] == SAMPLE_UI_XML
+
+    @pytest.mark.asyncio
+    async def test_prefers_dumpsys_for_unlocked_screen_status(self) -> None:
+        """SystemUI alone should not mark the screen as locked."""
+        mock_png_data = b"\x89PNG\r\n\x1a\n"
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock(
+            return_value=ADBResult(success=True, output="connected")
+        )
+        mock_client.take_screenshot = AsyncMock(
+            return_value=ADBResult(success=True, output="/tmp/screenshot.png")
+        )
+        mock_client.get_screen_xml = AsyncMock(
+            return_value=ADBResult(success=True, output=SAMPLE_UI_XML)
+        )
+        mock_client.parse_ui_elements = MagicMock(
+            return_value=[
+                UIElement(
+                    text="Settings",
+                    content_desc="",
+                    resource_id="",
+                    class_name="android.widget.TextView",
+                    package="com.android.systemui",
+                    bounds=(0, 0, 100, 100),
+                    clickable=True,
+                    scrollable=False,
+                    focused=False,
+                    enabled=True,
+                )
+            ]
+        )
+        mock_client._run_adb = AsyncMock(
+            return_value=ADBResult(success=True, output=DUMPSYS_UNLOCKED)
+        )
+
+        with patch(
+            "actions.android_phone.get_android_client",
+            return_value=mock_client,
+        ):
+            with patch("builtins.open", mock_open(read_data=mock_png_data)):
+                from actions.android_phone import get_screen_action
+
+                result = await get_screen_action({})
+
+        assert result["screen_status"] == "unlocked"
+        assert result["screen_status_source"] == "dumpsys_window"
+        assert result["lockscreen_detected"] is False
+        assert result["focused_app"] == "com.google.android.apps.nexuslauncher"
+
+    @pytest.mark.asyncio
+    async def test_detects_lockscreen_from_dumpsys_flags(self) -> None:
+        """Keyguard flags in dumpsys should mark the screen as locked."""
+        mock_png_data = b"\x89PNG\r\n\x1a\n"
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock(
+            return_value=ADBResult(success=True, output="connected")
+        )
+        mock_client.take_screenshot = AsyncMock(
+            return_value=ADBResult(success=True, output="/tmp/screenshot.png")
+        )
+        mock_client.get_screen_xml = AsyncMock(
+            return_value=ADBResult(success=True, output=SAMPLE_UI_XML)
+        )
+        mock_client.parse_ui_elements = MagicMock(return_value=[])
+        mock_client._run_adb = AsyncMock(
+            return_value=ADBResult(success=True, output=DUMPSYS_LOCKSCREEN)
+        )
+
+        with patch(
+            "actions.android_phone.get_android_client",
+            return_value=mock_client,
+        ):
+            with patch("builtins.open", mock_open(read_data=mock_png_data)):
+                from actions.android_phone import get_screen_action
+
+                result = await get_screen_action({})
+
+        assert result["screen_status"] == "lockscreen"
+        assert result["lockscreen_detected"] is True
+        assert result["lockscreen_confidence"] == "high"
+        assert result["screen_status_source"] == "dumpsys_window"
+        assert result["focused_app"] == "com.android.systemui"
+
+    @pytest.mark.asyncio
+    async def test_uses_xml_only_as_fallback_signal(self) -> None:
+        """Explicit keyguard XML can still produce a cautious fallback."""
+        mock_png_data = b"\x89PNG\r\n\x1a\n"
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock(
+            return_value=ADBResult(success=True, output="connected")
+        )
+        mock_client.take_screenshot = AsyncMock(
+            return_value=ADBResult(success=True, output="/tmp/screenshot.png")
+        )
+        mock_client.get_screen_xml = AsyncMock(
+            return_value=ADBResult(success=True, output=LOCKSCREEN_XML)
+        )
+        mock_client.parse_ui_elements = MagicMock(
+            return_value=[
+                UIElement(
+                    text="Emergency call",
+                    content_desc="",
+                    resource_id="com.android.systemui:id/emergency_call_button",
+                    class_name="android.widget.Button",
+                    package="com.android.systemui",
+                    bounds=(0, 0, 100, 100),
+                    clickable=True,
+                    scrollable=False,
+                    focused=False,
+                    enabled=True,
+                )
+            ]
+        )
+        mock_client._run_adb = AsyncMock(
+            return_value=ADBResult(success=True, output=DUMPSYS_UNLOCKED)
+        )
+
+        with patch(
+            "actions.android_phone.get_android_client",
+            return_value=mock_client,
+        ):
+            with patch("builtins.open", mock_open(read_data=mock_png_data)):
+                from actions.android_phone import get_screen_action
+
+                result = await get_screen_action({})
+
+        assert result["screen_status"] == "maybe_lockscreen"
+        assert result["lockscreen_detected"] is True
+        assert result["lockscreen_confidence"] == "medium"
+        assert result["screen_status_source"] == "xml_heuristic"
 
     @pytest.mark.asyncio
     async def test_returns_clickable_elements_with_required_fields(self) -> None:

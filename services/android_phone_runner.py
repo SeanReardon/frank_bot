@@ -648,9 +648,30 @@ class AndroidPhoneRunner:
                 screen_state = await self._capture_screen_state()
                 final_screenshot = screen_state.get("screenshot_base64")
                 if screen_state.get("lockscreen_detected"):
+                    screen_status = str(
+                        screen_state.get("screen_status") or "lockscreen"
+                    )
+                    focused_app = screen_state.get("focused_app")
+                    focused_window = screen_state.get("focused_window")
+                    status_reason = (
+                        screen_state.get("status_reason")
+                        or screen_state.get("lockscreen_reason")
+                        or "keyguard detected"
+                    )
+                    location_bits = []
+                    if focused_app:
+                        location_bits.append(f"focused_app={focused_app}")
+                    if focused_window:
+                        location_bits.append(f"focused_window={focused_window}")
+                    location_suffix = (
+                        f" ({', '.join(location_bits)})"
+                        if location_bits
+                        else ""
+                    )
                     error = (
-                        "Phone appears to be on the lockscreen or ambient display"
-                        f" ({screen_state.get('lockscreen_reason') or 'keyguard detected'}). "
+                        f"Phone screen status is {screen_status}"
+                        f"{location_suffix} "
+                        f"because {status_reason}. "
                         "Unlock the device manually, then retry the task."
                     )
                     logger.warning("Lockscreen detected during Android automation: %s", error)
@@ -667,6 +688,13 @@ class AndroidPhoneRunner:
                         final_screenshot_base64=final_screenshot,
                         extracted_data={
                             "lockscreen_detected": True,
+                            "screen_status": screen_status,
+                            "screen_status_source": screen_state.get(
+                                "screen_status_source"
+                            ),
+                            "focused_app": focused_app,
+                            "focused_window": focused_window,
+                            "status_reason": status_reason,
                             "lockscreen_confidence": screen_state.get("lockscreen_confidence"),
                             "lockscreen_reason": screen_state.get("lockscreen_reason"),
                         },
