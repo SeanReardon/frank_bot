@@ -53,6 +53,18 @@ _ANDROID_SCREEN_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bandroid\s+screenshot\b", re.IGNORECASE),
 )
 
+_DIRECT_SCREENSHOT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        (
+            r"\b(?:take|get|grab|send|show)\s+(?:me\s+)?"
+            r"(?:another\s+|a\s+|the\s+|new\s+)?screenshot\b"
+        ),
+        re.IGNORECASE,
+    ),
+    re.compile(r"\banother\s+screenshot\b", re.IGNORECASE),
+    re.compile(r"\bnew\s+screenshot\b", re.IGNORECASE),
+)
+
 
 def _is_android_screen_request(text: str) -> bool:
     normalized = (text or "").strip()
@@ -63,6 +75,14 @@ def _is_android_screen_request(text: str) -> bool:
     lowered = normalized.lower()
     if "android" in lowered and ("screenshot" in lowered or "screen" in lowered):
         if any(k in lowered for k in ("send", "show", "pic", "photo", "picture")):
+            return True
+
+    # Default screenshot requests from the Telegram bot should use the
+    # deterministic Android capture path rather than the generic jorb/LLM loop.
+    # This catches plain asks like "can you get me another screenshot?" that
+    # don't explicitly mention Android.
+    if "screenshot" in lowered:
+        if any(p.search(normalized) for p in _DIRECT_SCREENSHOT_PATTERNS):
             return True
 
     return any(p.search(normalized) for p in _ANDROID_SCREEN_PATTERNS)
