@@ -15,7 +15,8 @@ from typing import Any
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from services.agent_runner import AgentRunner, IncomingEvent
+from services.agent_runner import AgentRunner
+from services.incoming_events import create_incoming_event
 from services.contact_lookup import ContactLookup
 from services.jorb_storage import JorbStorage
 from services.message_buffer import BufferedEvent, MessageBuffer
@@ -62,13 +63,14 @@ async def _on_sms_buffer_flush(event: BufferedEvent) -> None:
         return
 
     # Convert BufferedEvent to IncomingEvent
-    incoming_event = IncomingEvent(
+    incoming_event = await create_incoming_event(
         channel="sms",
         sender=event.sender,
         sender_name=event.sender_name,
         content=event.content,
         timestamp=event.timestamp,
         message_count=event.message_count,
+        transport="sms_buffer",
     )
 
     logger.info(

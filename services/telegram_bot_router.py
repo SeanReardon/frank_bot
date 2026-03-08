@@ -21,7 +21,8 @@ import os
 import re
 from datetime import datetime, timezone
 
-from services.agent_runner import AgentRunner, IncomingEvent
+from services.agent_runner import AgentRunner
+from services.incoming_events import create_incoming_event
 from services.message_buffer import BufferedEvent, MessageBuffer
 from services.telegram_bot import TelegramBotListener
 
@@ -235,7 +236,7 @@ async def _on_bot_message_flush(event: BufferedEvent) -> None:
             "telegram_bot_chat_id", ""
         )
 
-    incoming_event = IncomingEvent(
+    incoming_event = await create_incoming_event(
         channel="telegram_bot",
         sender=event.sender,
         sender_name=event.sender_name,
@@ -243,6 +244,8 @@ async def _on_bot_message_flush(event: BufferedEvent) -> None:
         timestamp=event.timestamp,
         metadata=metadata,
         message_count=event.message_count,
+        transport="telegram_bot_buffer",
+        transport_message_id=str(event.metadata.get("telegram_bot_chat_id") or "") if event.metadata else None,
     )
 
     logger.info(

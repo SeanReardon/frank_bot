@@ -1,28 +1,41 @@
 """
-Jorb Storage Service for SQLite persistence.
+Jorb Storage Service using durable JSON records.
 
-Stores jorbs and their message history in a SQLite database.
-Supports CRUD operations and checkpoint management for long-running tasks.
+Each jorb lives in its own JSON file under `./data/jorbs/`, which keeps
+conversation history, checkpoints, script results, and routing metadata
+inspectable by humans and agentic tooling without SQLite.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import sqlite3
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal
 
-import aiosqlite
+from services.file_store import (
+    derive_json_storage_dir,
+    ensure_directory,
+    newest_first,
+    read_json_file,
+    to_thread,
+    write_json_atomic,
+)
+from services.task_classes import FREEFORM_TASK_CLASS, classify_task_class
 
 logger = logging.getLogger(__name__)
 
-# Default database path
+# Legacy path hint retained for env/backwards compatibility. The actual JSON
+# store lives in `./data/jorbs/`.
 DEFAULT_DB_PATH = "./data/jorbs.db"
+STORE_SCHEMA_VERSION = 2
 
-# Status type for type checking
 JorbStatus = Literal["planning", "running", "paused", "complete", "failed", "cancelled"]
 Direction = Literal["inbound", "outbound"]
 Channel = Literal["telegram", "telegram_bot", "sms", "email"]
@@ -70,6 +83,7 @@ class Jorb:
     original_plan: str
     contacts_json: str = "[]"  # JSON array of JorbContact dicts
     personality: str = "default"  # Personality ID for LLM sessions
+    task_class: str = FREEFORM_TASK_CLASS
     progress_summary: str | None = None
     created_at: str = ""  # ISO 8601 timestamp
     updated_at: str = ""  # ISO 8601 timestamp
@@ -212,140 +226,83 @@ def _generate_checkpoint_id() -> str:
     return f"ckpt_{uuid.uuid4().hex[:8]}"
 
 
-_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS jorbs (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(
-        status IN ('planning', 'running', 'paused', 'complete', 'failed', 'cancelled')
-    ),
-    original_plan TEXT NOT NULL,
-    contacts_json TEXT DEFAULT '[]',
-    personality TEXT DEFAULT 'default',
-    progress_summary TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    paused_reason TEXT,
-    needs_approval_for TEXT,
-    awaiting TEXT,
-    -- Metrics columns (added in v2)
-    messages_in INTEGER DEFAULT 0,
-    messages_out INTEGER DEFAULT 0,
-    tokens_used INTEGER DEFAULT 0,
-    estimated_cost REAL DEFAULT 0.0,
-    context_resets INTEGER DEFAULT 0,
-    -- Outcome columns (added in v2)
-    outcome_result TEXT,
-    outcome_completed_at TEXT,
-    outcome_failure_reason TEXT,
-    -- Script results column (added in v4)
-    script_results TEXT DEFAULT '[]',
-    -- Metadata blob for routing/transports (added in v5)
-    metadata_json TEXT DEFAULT '{}',
-    -- Wake schedule for background worker tick loop (added in v5)
-    wake_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS jorb_messages (
-    id TEXT PRIMARY KEY,
-    jorb_id TEXT NOT NULL REFERENCES jorbs(id) ON DELETE CASCADE,
-    timestamp TEXT NOT NULL,
-    direction TEXT NOT NULL CHECK(direction IN ('inbound', 'outbound')),
-    channel TEXT NOT NULL CHECK(channel IN ('telegram', 'telegram_bot', 'sms', 'email')),
-    sender TEXT,
-    sender_name TEXT,
-    recipient TEXT,
-    content TEXT NOT NULL,
-    agent_reasoning TEXT
-);
-
-CREATE TABLE IF NOT EXISTS jorb_checkpoints (
-    id TEXT PRIMARY KEY,
-    jorb_id TEXT NOT NULL REFERENCES jorbs(id) ON DELETE CASCADE,
-    timestamp TEXT NOT NULL,
-    summary TEXT NOT NULL,
-    token_count INTEGER
-);
-
-CREATE INDEX IF NOT EXISTS idx_jorb_messages_jorb_id
-    ON jorb_messages(jorb_id);
-CREATE INDEX IF NOT EXISTS idx_jorb_messages_timestamp
-    ON jorb_messages(jorb_id, timestamp);
-CREATE INDEX IF NOT EXISTS idx_jorbs_status
-    ON jorbs(status);
-CREATE INDEX IF NOT EXISTS idx_jorb_checkpoints_jorb_id
-    ON jorb_checkpoints(jorb_id);
-"""
-
-# Migration SQL to add metrics and outcome columns to existing databases
-_MIGRATION_V2_SQL = """
--- Add metrics columns if they don't exist
-ALTER TABLE jorbs ADD COLUMN messages_in INTEGER DEFAULT 0;
-ALTER TABLE jorbs ADD COLUMN messages_out INTEGER DEFAULT 0;
-ALTER TABLE jorbs ADD COLUMN tokens_used INTEGER DEFAULT 0;
-ALTER TABLE jorbs ADD COLUMN estimated_cost REAL DEFAULT 0.0;
-ALTER TABLE jorbs ADD COLUMN context_resets INTEGER DEFAULT 0;
--- Add outcome columns if they don't exist
-ALTER TABLE jorbs ADD COLUMN outcome_result TEXT;
-ALTER TABLE jorbs ADD COLUMN outcome_completed_at TEXT;
-ALTER TABLE jorbs ADD COLUMN outcome_failure_reason TEXT;
-"""
-
-
-def _row_to_jorb(row: aiosqlite.Row) -> Jorb:
-    """Convert a database row to a Jorb object."""
-    # Parse script_results JSON (may be None in older databases before migration)
-    script_results_json = row["script_results"]
-    script_results: list[dict] = []
-    if script_results_json:
+def _parse_json_string(value: Any, fallback: Any) -> Any:
+    if isinstance(value, str):
         try:
-            script_results = json.loads(script_results_json)
-        except (json.JSONDecodeError, TypeError):
-            script_results = []
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return fallback
+    return value if value is not None else fallback
 
+
+def _jorb_to_payload(jorb: Jorb) -> dict[str, Any]:
+    payload = asdict(jorb)
+    payload["script_results"] = list(jorb.script_results or [])
+    return payload
+
+
+def _payload_to_jorb(payload: dict[str, Any]) -> Jorb:
+    script_results = _parse_json_string(payload.get("script_results"), [])
+    if not isinstance(script_results, list):
+        script_results = []
     return Jorb(
-        id=row["id"],
-        name=row["name"],
-        status=row["status"],
-        original_plan=row["original_plan"],
-        contacts_json=row["contacts_json"],
-        personality=row["personality"] or "default",
-        progress_summary=row["progress_summary"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
-        paused_reason=row["paused_reason"],
-        needs_approval_for=row["needs_approval_for"],
-        awaiting=row["awaiting"],
-        # Metrics fields (may be None in older databases before migration)
-        messages_in=row["messages_in"] or 0,
-        messages_out=row["messages_out"] or 0,
-        tokens_used=row["tokens_used"] or 0,
-        estimated_cost=row["estimated_cost"] or 0.0,
-        context_resets=row["context_resets"] or 0,
-        # Outcome fields
-        outcome_result=row["outcome_result"],
-        outcome_completed_at=row["outcome_completed_at"],
-        outcome_failure_reason=row["outcome_failure_reason"],
-        # Script results field
+        id=payload["id"],
+        name=payload["name"],
+        status=payload["status"],
+        original_plan=payload["original_plan"],
+        contacts_json=str(payload.get("contacts_json") or "[]"),
+        personality=str(payload.get("personality") or "default"),
+        task_class=str(payload.get("task_class") or FREEFORM_TASK_CLASS),
+        progress_summary=payload.get("progress_summary"),
+        created_at=str(payload.get("created_at") or ""),
+        updated_at=str(payload.get("updated_at") or ""),
+        paused_reason=payload.get("paused_reason"),
+        needs_approval_for=payload.get("needs_approval_for"),
+        awaiting=payload.get("awaiting"),
+        messages_in=int(payload.get("messages_in") or 0),
+        messages_out=int(payload.get("messages_out") or 0),
+        tokens_used=int(payload.get("tokens_used") or 0),
+        estimated_cost=float(payload.get("estimated_cost") or 0.0),
+        context_resets=int(payload.get("context_resets") or 0),
+        outcome_result=payload.get("outcome_result"),
+        outcome_completed_at=payload.get("outcome_completed_at"),
+        outcome_failure_reason=payload.get("outcome_failure_reason"),
         script_results=script_results,
-        metadata_json=(row["metadata_json"] or "{}") if "metadata_json" in row.keys() else "{}",  # type: ignore[attr-defined]
-        wake_at=(row["wake_at"] if "wake_at" in row.keys() else None),  # type: ignore[attr-defined]
+        metadata_json=str(payload.get("metadata_json") or "{}"),
+        wake_at=payload.get("wake_at"),
     )
 
 
-def _row_to_message(row: aiosqlite.Row) -> JorbMessage:
-    """Convert a database row to a JorbMessage object."""
+def _payload_to_message(payload: dict[str, Any]) -> JorbMessage:
     return JorbMessage(
-        id=row["id"],
-        jorb_id=row["jorb_id"],
-        timestamp=row["timestamp"],
-        direction=row["direction"],
-        channel=row["channel"],
-        sender=row["sender"],
-        sender_name=row["sender_name"],
-        recipient=row["recipient"],
-        content=row["content"],
-        agent_reasoning=row["agent_reasoning"],
+        id=payload["id"],
+        jorb_id=payload["jorb_id"],
+        timestamp=payload["timestamp"],
+        direction=payload["direction"],
+        channel=payload["channel"],
+        sender=payload.get("sender"),
+        sender_name=payload.get("sender_name"),
+        recipient=payload.get("recipient"),
+        content=payload.get("content", ""),
+        agent_reasoning=payload.get("agent_reasoning"),
+    )
+
+
+def _message_to_payload(message: JorbMessage) -> dict[str, Any]:
+    return asdict(message)
+
+
+def _checkpoint_to_payload(checkpoint: JorbCheckpoint) -> dict[str, Any]:
+    return asdict(checkpoint)
+
+
+def _payload_to_checkpoint(payload: dict[str, Any]) -> JorbCheckpoint:
+    return JorbCheckpoint(
+        id=payload["id"],
+        jorb_id=payload["jorb_id"],
+        timestamp=payload["timestamp"],
+        summary=payload["summary"],
+        token_count=payload.get("token_count"),
     )
 
 
@@ -353,127 +310,152 @@ class JorbStorage:
     """
     Service for storing and retrieving jorbs and their messages.
 
-    Uses SQLite via aiosqlite for async persistence.
+    Records are stored as durable JSON files so they can be inspected directly,
+    replayed by agents, and migrated without a database runtime dependency.
     """
+
+    _locks: dict[str, asyncio.Lock] = {}
 
     def __init__(self, db_path: str | None = None):
         """
         Initialize the jorb storage service.
 
         Args:
-            db_path: Path to SQLite database. Defaults to JORBS_DB_PATH env var or ./data/jorbs.db
+            db_path: Legacy path hint. `.db`/`.json` suffixes are converted into a
+                directory-backed JSON store beside the hint path.
         """
-        self._db_path = db_path or os.getenv("JORBS_DB_PATH", DEFAULT_DB_PATH)
+        self._path_hint = db_path or os.getenv("JORBS_DB_PATH", DEFAULT_DB_PATH)
+        self._legacy_path = Path(self._path_hint)
+        self._data_dir = derive_json_storage_dir(self._path_hint, "./data/jorbs")
+        self._schema_path = self._data_dir / "_schema.json"
+        self._db_path = str(self._data_dir)  # Backwards-compat for tests/introspection.
         self._initialized = False
+        lock_key = str(self._data_dir.resolve())
+        if lock_key not in self._locks:
+            self._locks[lock_key] = asyncio.Lock()
+        self._lock = self._locks[lock_key]
+
+    def _jorb_path(self, jorb_id: str) -> Path:
+        return self._data_dir / f"{jorb_id}.json"
+
+    async def _read_record(self, jorb_id: str) -> dict[str, Any] | None:
+        payload = await to_thread(read_json_file, self._jorb_path(jorb_id), None)
+        return payload if isinstance(payload, dict) else None
+
+    async def _write_record(self, jorb_id: str, payload: dict[str, Any]) -> None:
+        await to_thread(write_json_atomic, self._jorb_path(jorb_id), payload)
 
     async def _ensure_initialized(self) -> None:
-        """Initialize the database schema if needed."""
+        """Initialize the JSON store and migrate legacy SQLite data if needed."""
         if self._initialized:
             return
 
-        # Ensure directory exists
-        db_dir = os.path.dirname(self._db_path)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-
-        async with aiosqlite.connect(self._db_path) as conn:
-            await conn.executescript(_SCHEMA_SQL)
-            await conn.commit()
-
-            # Run migration for existing databases (adds new columns if missing)
-            await self._run_migrations(conn)
-
-        self._initialized = True
-        logger.info("Initialized jorb storage schema at %s", self._db_path)
-
-    async def _run_migrations(self, conn: aiosqlite.Connection) -> None:
-        """Run database migrations for schema updates."""
-        # Check if metrics columns exist
-        cursor = await conn.execute("PRAGMA table_info(jorbs)")
-        columns = {row[1] for row in await cursor.fetchall()}
-
-        # Migration v2: Add metrics and outcome columns
-        # Migration v3: Add personality column
-        # Migration v4: Add script_results column
-        # Migration v5: Add metadata_json + wake_at columns
-        new_columns = [
-            ("messages_in", "INTEGER DEFAULT 0"),
-            ("messages_out", "INTEGER DEFAULT 0"),
-            ("tokens_used", "INTEGER DEFAULT 0"),
-            ("estimated_cost", "REAL DEFAULT 0.0"),
-            ("context_resets", "INTEGER DEFAULT 0"),
-            ("outcome_result", "TEXT"),
-            ("outcome_completed_at", "TEXT"),
-            ("outcome_failure_reason", "TEXT"),
-            ("personality", "TEXT DEFAULT 'default'"),
-            ("script_results", "TEXT DEFAULT '[]'"),
-            ("metadata_json", "TEXT DEFAULT '{}'"),
-            ("wake_at", "TEXT"),
-        ]
-
-        for col_name, col_type in new_columns:
-            if col_name not in columns:
-                try:
-                    await conn.execute(f"ALTER TABLE jorbs ADD COLUMN {col_name} {col_type}")
-                    logger.info("Added column %s to jorbs table", col_name)
-                except Exception as e:
-                    # Column might already exist from previous partial migration
-                    logger.debug("Column %s migration skipped: %s", col_name, e)
-
-        await conn.commit()
-
-        # Migration v6: allow 'telegram_bot' in jorb_messages.channel CHECK constraint.
-        # SQLite cannot ALTER a CHECK constraint, so we rebuild the table when needed.
-        try:
-            cursor = await conn.execute(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name='jorb_messages'"
+        ensure_directory(self._data_dir)
+        if not self._schema_path.exists():
+            await to_thread(
+                write_json_atomic,
+                self._schema_path,
+                {
+                    "store": "jorbs",
+                    "schema_version": STORE_SCHEMA_VERSION,
+                    "backing": "json_files",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
             )
-            row = await cursor.fetchone()
-            create_sql = (row[0] if row and row[0] else "") if row else ""
 
-            if create_sql and "telegram_bot" not in create_sql:
-                logger.info("Migrating jorb_messages.channel to allow telegram_bot")
-                await conn.executescript(
-                    """
-                    PRAGMA foreign_keys=OFF;
+        if not any(self._data_dir.glob("jorb_*.json")):
+            await self._maybe_migrate_legacy_sqlite()
+        self._initialized = True
+        logger.info("Initialized jorb JSON store at %s", self._data_dir)
 
-                    ALTER TABLE jorb_messages RENAME TO jorb_messages_old;
+    async def _maybe_migrate_legacy_sqlite(self) -> None:
+        legacy_file = self._legacy_path
+        if legacy_file.suffix != ".db" or not legacy_file.exists():
+            return
+        if legacy_file.stat().st_size < 100:
+            return
 
-                    CREATE TABLE jorb_messages (
-                        id TEXT PRIMARY KEY,
-                        jorb_id TEXT NOT NULL REFERENCES jorbs(id) ON DELETE CASCADE,
-                        timestamp TEXT NOT NULL,
-                        direction TEXT NOT NULL CHECK(direction IN ('inbound', 'outbound')),
-                        channel TEXT NOT NULL CHECK(channel IN ('telegram', 'telegram_bot', 'sms', 'email')),
-                        sender TEXT,
-                        sender_name TEXT,
-                        recipient TEXT,
-                        content TEXT NOT NULL,
-                        agent_reasoning TEXT
-                    );
+        def _looks_like_sqlite(path: Path) -> bool:
+            with path.open("rb") as handle:
+                return handle.read(16).startswith(b"SQLite format 3")
 
-                    INSERT INTO jorb_messages (
-                        id, jorb_id, timestamp, direction, channel,
-                        sender, sender_name, recipient, content, agent_reasoning
-                    )
-                    SELECT
-                        id, jorb_id, timestamp, direction, channel,
-                        sender, sender_name, recipient, content, agent_reasoning
-                    FROM jorb_messages_old;
+        try:
+            looks_like_sqlite = await to_thread(_looks_like_sqlite, legacy_file)
+        except Exception:
+            logger.debug("Legacy path %s is not a readable SQLite file", legacy_file)
+            return
+        if not looks_like_sqlite:
+            return
 
-                    DROP TABLE jorb_messages_old;
+        logger.info("Migrating legacy jorb SQLite store from %s", legacy_file)
 
-                    CREATE INDEX IF NOT EXISTS idx_jorb_messages_jorb_id
-                        ON jorb_messages(jorb_id);
-                    CREATE INDEX IF NOT EXISTS idx_jorb_messages_timestamp
-                        ON jorb_messages(jorb_id, timestamp);
+        def _migrate() -> list[dict[str, Any]]:
+            conn = sqlite3.connect(legacy_file)
+            conn.row_factory = sqlite3.Row
+            try:
+                jorbs_rows = conn.execute("SELECT * FROM jorbs").fetchall()
+                message_rows = conn.execute("SELECT * FROM jorb_messages ORDER BY timestamp ASC").fetchall()
+                checkpoint_rows = conn.execute("SELECT * FROM jorb_checkpoints ORDER BY timestamp ASC").fetchall()
+            finally:
+                conn.close()
 
-                    PRAGMA foreign_keys=ON;
-                    """
+            messages_by_jorb: dict[str, list[dict[str, Any]]] = {}
+            for row in message_rows:
+                payload = dict(row)
+                messages_by_jorb.setdefault(str(payload["jorb_id"]), []).append(payload)
+
+            checkpoints_by_jorb: dict[str, list[dict[str, Any]]] = {}
+            for row in checkpoint_rows:
+                payload = dict(row)
+                checkpoints_by_jorb.setdefault(str(payload["jorb_id"]), []).append(payload)
+
+            records: list[dict[str, Any]] = []
+            for row in jorbs_rows:
+                payload = dict(row)
+                script_results = _parse_json_string(payload.get("script_results"), [])
+                if not isinstance(script_results, list):
+                    script_results = []
+                jorb_payload = {
+                    "id": payload["id"],
+                    "name": payload["name"],
+                    "status": payload["status"],
+                    "original_plan": payload["original_plan"],
+                    "contacts_json": payload.get("contacts_json") or "[]",
+                    "personality": payload.get("personality") or "default",
+                    "task_class": classify_task_class(payload.get("name"), payload.get("original_plan")),
+                    "progress_summary": payload.get("progress_summary"),
+                    "created_at": payload.get("created_at") or "",
+                    "updated_at": payload.get("updated_at") or "",
+                    "paused_reason": payload.get("paused_reason"),
+                    "needs_approval_for": payload.get("needs_approval_for"),
+                    "awaiting": payload.get("awaiting"),
+                    "messages_in": payload.get("messages_in") or 0,
+                    "messages_out": payload.get("messages_out") or 0,
+                    "tokens_used": payload.get("tokens_used") or 0,
+                    "estimated_cost": payload.get("estimated_cost") or 0.0,
+                    "context_resets": payload.get("context_resets") or 0,
+                    "outcome_result": payload.get("outcome_result"),
+                    "outcome_completed_at": payload.get("outcome_completed_at"),
+                    "outcome_failure_reason": payload.get("outcome_failure_reason"),
+                    "script_results": script_results,
+                    "metadata_json": payload.get("metadata_json") or "{}",
+                    "wake_at": payload.get("wake_at"),
+                }
+                records.append(
+                    {
+                        "schema_version": STORE_SCHEMA_VERSION,
+                        "jorb": jorb_payload,
+                        "messages": messages_by_jorb.get(str(payload["id"]), []),
+                        "checkpoints": checkpoints_by_jorb.get(str(payload["id"]), []),
+                    }
                 )
-                await conn.commit()
-        except Exception as e:
-            logger.warning("jorb_messages channel migration skipped/failed: %s", e)
+            return records
+
+        records = await to_thread(_migrate)
+        for record in records:
+            jorb_id = str(record["jorb"]["id"])
+            await self._write_record(jorb_id, record)
+        logger.info("Migrated %d jorbs from legacy SQLite store", len(records))
 
     async def create_jorb(
         self,
@@ -481,6 +463,7 @@ class JorbStorage:
         plan: str,
         contacts: list[JorbContact] | None = None,
         personality: str = "default",
+        task_class: str | None = None,
     ) -> Jorb:
         """
         Create a new jorb.
@@ -490,6 +473,7 @@ class JorbStorage:
             plan: The full plan text
             contacts: List of contacts involved in the jorb
             personality: Personality ID for this jorb's LLM sessions (default: "default")
+            task_class: Optional structured task class override
 
         Returns:
             The created Jorb with generated ID
@@ -510,45 +494,19 @@ class JorbStorage:
             original_plan=plan,
             contacts_json=contacts_json,
             personality=personality,
+            task_class=task_class or classify_task_class(name, plan),
             created_at=now,
             updated_at=now,
         )
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            await conn.execute(
-                """
-                INSERT INTO jorbs (
-                    id, name, status, original_plan, contacts_json, personality,
-                    progress_summary, created_at, updated_at,
-                    paused_reason, needs_approval_for, awaiting,
-                    messages_in, messages_out, tokens_used, estimated_cost, context_resets,
-                    outcome_result, outcome_completed_at, outcome_failure_reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    jorb.id,
-                    jorb.name,
-                    jorb.status,
-                    jorb.original_plan,
-                    jorb.contacts_json,
-                    jorb.personality,
-                    jorb.progress_summary,
-                    jorb.created_at,
-                    jorb.updated_at,
-                    jorb.paused_reason,
-                    jorb.needs_approval_for,
-                    jorb.awaiting,
-                    jorb.messages_in,
-                    jorb.messages_out,
-                    jorb.tokens_used,
-                    jorb.estimated_cost,
-                    jorb.context_resets,
-                    jorb.outcome_result,
-                    jorb.outcome_completed_at,
-                    jorb.outcome_failure_reason,
-                ),
-            )
-            await conn.commit()
+        record = {
+            "schema_version": STORE_SCHEMA_VERSION,
+            "jorb": _jorb_to_payload(jorb),
+            "messages": [],
+            "checkpoints": [],
+        }
+        async with self._lock:
+            await self._write_record(jorb_id, record)
 
         logger.info("Created jorb %s: %s (personality: %s)", jorb.id, jorb.name, jorb.personality)
         return jorb
@@ -565,18 +523,10 @@ class JorbStorage:
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute(
-                "SELECT * FROM jorbs WHERE id = ?",
-                (jorb_id,),
-            )
-            row = await cursor.fetchone()
-
-            if row is None:
-                return None
-
-            return _row_to_jorb(row)
+        record = await self._read_record(jorb_id)
+        if record is None:
+            return None
+        return _payload_to_jorb(record.get("jorb") or {})
 
     async def list_jorbs(
         self,
@@ -596,32 +546,19 @@ class JorbStorage:
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            conn.row_factory = aiosqlite.Row
+        records = []
+        for path in newest_first(self._data_dir.glob("jorb_*.json")):
+            payload = await to_thread(read_json_file, path, None)
+            if isinstance(payload, dict) and isinstance(payload.get("jorb"), dict):
+                records.append(_payload_to_jorb(payload["jorb"]))
 
-            if status_filter == "open":
-                cursor = await conn.execute(
-                    """
-                    SELECT * FROM jorbs
-                    WHERE status IN ('planning', 'running', 'paused')
-                    ORDER BY updated_at DESC
-                    """
-                )
-            elif status_filter == "closed":
-                cursor = await conn.execute(
-                    """
-                    SELECT * FROM jorbs
-                    WHERE status IN ('complete', 'failed', 'cancelled')
-                    ORDER BY updated_at DESC
-                    """
-                )
-            else:
-                cursor = await conn.execute(
-                    "SELECT * FROM jorbs ORDER BY updated_at DESC"
-                )
+        if status_filter == "open":
+            records = [j for j in records if j.status in ("planning", "running", "paused")]
+        elif status_filter == "closed":
+            records = [j for j in records if j.status in ("complete", "failed", "cancelled")]
 
-            rows = await cursor.fetchall()
-            return [_row_to_jorb(row) for row in rows]
+        records.sort(key=lambda j: j.updated_at, reverse=True)
+        return records
 
     async def update_jorb(self, jorb_id: str, **updates: Any) -> Jorb | None:
         """
@@ -643,6 +580,7 @@ class JorbStorage:
             "original_plan",
             "contacts_json",
             "personality",
+            "task_class",
             "progress_summary",
             "paused_reason",
             "needs_approval_for",
@@ -671,19 +609,30 @@ class JorbStorage:
             return await self.get_jorb(jorb_id)
 
         await self._ensure_initialized()
-
-        # Always update updated_at
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-        set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
-        values = list(updates.values()) + [jorb_id]
+        async with self._lock:
+            record = await self._read_record(jorb_id)
+            if record is None or not isinstance(record.get("jorb"), dict):
+                return None
+            jorb_payload = dict(record["jorb"])
+            normalized_updates = dict(updates)
+            if "script_results" in normalized_updates:
+                parsed = _parse_json_string(normalized_updates["script_results"], normalized_updates["script_results"])
+                normalized_updates["script_results"] = parsed if isinstance(parsed, list) else []
+            if "contacts_json" in normalized_updates:
+                raw_contacts = normalized_updates["contacts_json"]
+                if isinstance(raw_contacts, list):
+                    normalized_updates["contacts_json"] = json.dumps(raw_contacts)
+            if "metadata_json" in normalized_updates:
+                raw_meta = normalized_updates["metadata_json"]
+                if isinstance(raw_meta, dict):
+                    normalized_updates["metadata_json"] = json.dumps(raw_meta)
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            await conn.execute(
-                f"UPDATE jorbs SET {set_clause} WHERE id = ?",
-                values,
-            )
-            await conn.commit()
+            jorb_payload.update(normalized_updates)
+            record["jorb"] = jorb_payload
+            record["schema_version"] = STORE_SCHEMA_VERSION
+            await self._write_record(jorb_id, record)
 
         updated_jorb = await self.get_jorb(jorb_id)
         if updated_jorb:
@@ -717,21 +666,13 @@ class JorbStorage:
 
         limit = max(1, min(500, int(limit)))
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute(
-                """
-                SELECT * FROM jorbs
-                WHERE status = 'running'
-                AND wake_at IS NOT NULL
-                AND wake_at <= ?
-                ORDER BY wake_at ASC
-                LIMIT ?
-                """,
-                (now_iso, limit),
-            )
-            rows = await cursor.fetchall()
-            return [_row_to_jorb(row) for row in rows]
+        jorbs = await self.list_jorbs(status_filter="open")
+        due = [
+            j for j in jorbs
+            if j.status == "running" and j.wake_at is not None and j.wake_at <= now_iso
+        ]
+        due.sort(key=lambda j: str(j.wake_at or ""))
+        return due[:limit]
 
     # Message tracking methods (frank_bot-00052)
 
@@ -755,28 +696,14 @@ class JorbStorage:
         # Ensure jorb_id matches
         message.jorb_id = jorb_id
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            await conn.execute(
-                """
-                INSERT INTO jorb_messages (
-                    id, jorb_id, timestamp, direction, channel,
-                    sender, sender_name, recipient, content, agent_reasoning
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    message.id,
-                    message.jorb_id,
-                    message.timestamp,
-                    message.direction,
-                    message.channel,
-                    message.sender,
-                    message.sender_name,
-                    message.recipient,
-                    message.content,
-                    message.agent_reasoning,
-                ),
-            )
-            await conn.commit()
+        async with self._lock:
+            record = await self._read_record(jorb_id)
+            if record is None:
+                raise ValueError(f"Jorb not found: {jorb_id}")
+            messages = list(record.get("messages") or [])
+            messages.append(_message_to_payload(message))
+            record["messages"] = messages
+            await self._write_record(jorb_id, record)
 
         logger.debug("Added message %s to jorb %s", message.id, jorb_id)
         return message.id
@@ -798,19 +725,16 @@ class JorbStorage:
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute(
-                """
-                SELECT * FROM jorb_messages
-                WHERE jorb_id = ?
-                ORDER BY timestamp ASC
-                LIMIT ?
-                """,
-                (jorb_id, limit),
-            )
-            rows = await cursor.fetchall()
-            return [_row_to_message(row) for row in rows]
+        record = await self._read_record(jorb_id)
+        if record is None:
+            return []
+        messages = [
+            _payload_to_message(payload)
+            for payload in list(record.get("messages") or [])
+            if isinstance(payload, dict)
+        ]
+        messages.sort(key=lambda msg: msg.timestamp)
+        return messages[:limit]
 
     async def get_open_jorbs_with_messages(self) -> list[JorbWithMessages]:
         """
@@ -853,15 +777,22 @@ class JorbStorage:
         checkpoint_id = _generate_checkpoint_id()
         timestamp = datetime.now(timezone.utc).isoformat()
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            await conn.execute(
-                """
-                INSERT INTO jorb_checkpoints (id, jorb_id, timestamp, summary, token_count)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (checkpoint_id, jorb_id, timestamp, summary, token_count),
-            )
-            await conn.commit()
+        checkpoint = JorbCheckpoint(
+            id=checkpoint_id,
+            jorb_id=jorb_id,
+            timestamp=timestamp,
+            summary=summary,
+            token_count=token_count,
+        )
+
+        async with self._lock:
+            record = await self._read_record(jorb_id)
+            if record is None:
+                raise ValueError(f"Jorb not found: {jorb_id}")
+            checkpoints = list(record.get("checkpoints") or [])
+            checkpoints.append(_checkpoint_to_payload(checkpoint))
+            record["checkpoints"] = checkpoints
+            await self._write_record(jorb_id, record)
 
         # Increment context_resets counter
         await self.increment_metrics(jorb_id, context_resets=1)
@@ -881,28 +812,16 @@ class JorbStorage:
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute(
-                """
-                SELECT * FROM jorb_checkpoints
-                WHERE jorb_id = ?
-                ORDER BY timestamp ASC
-                """,
-                (jorb_id,),
-            )
-            rows = await cursor.fetchall()
-
-            return [
-                JorbCheckpoint(
-                    id=row["id"],
-                    jorb_id=row["jorb_id"],
-                    timestamp=row["timestamp"],
-                    summary=row["summary"],
-                    token_count=row["token_count"],
-                )
-                for row in rows
-            ]
+        record = await self._read_record(jorb_id)
+        if record is None:
+            return []
+        checkpoints = [
+            _payload_to_checkpoint(payload)
+            for payload in list(record.get("checkpoints") or [])
+            if isinstance(payload, dict)
+        ]
+        checkpoints.sort(key=lambda ckpt: ckpt.timestamp)
+        return checkpoints
 
     # Metrics helper methods
 
@@ -928,29 +847,19 @@ class JorbStorage:
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            await conn.execute(
-                """
-                UPDATE jorbs SET
-                    messages_in = messages_in + ?,
-                    messages_out = messages_out + ?,
-                    tokens_used = tokens_used + ?,
-                    estimated_cost = estimated_cost + ?,
-                    context_resets = context_resets + ?,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    messages_in,
-                    messages_out,
-                    tokens_used,
-                    estimated_cost,
-                    context_resets,
-                    datetime.now(timezone.utc).isoformat(),
-                    jorb_id,
-                ),
-            )
-            await conn.commit()
+        async with self._lock:
+            record = await self._read_record(jorb_id)
+            if record is None or not isinstance(record.get("jorb"), dict):
+                return
+            jorb_payload = dict(record["jorb"])
+            jorb_payload["messages_in"] = int(jorb_payload.get("messages_in") or 0) + messages_in
+            jorb_payload["messages_out"] = int(jorb_payload.get("messages_out") or 0) + messages_out
+            jorb_payload["tokens_used"] = int(jorb_payload.get("tokens_used") or 0) + tokens_used
+            jorb_payload["estimated_cost"] = float(jorb_payload.get("estimated_cost") or 0.0) + estimated_cost
+            jorb_payload["context_resets"] = int(jorb_payload.get("context_resets") or 0) + context_resets
+            jorb_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            record["jorb"] = jorb_payload
+            await self._write_record(jorb_id, record)
 
     async def set_outcome(
         self,
@@ -968,25 +877,12 @@ class JorbStorage:
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            await conn.execute(
-                """
-                UPDATE jorbs SET
-                    outcome_result = ?,
-                    outcome_completed_at = ?,
-                    outcome_failure_reason = ?,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    result,
-                    datetime.now(timezone.utc).isoformat(),
-                    failure_reason,
-                    datetime.now(timezone.utc).isoformat(),
-                    jorb_id,
-                ),
-            )
-            await conn.commit()
+        await self.update_jorb(
+            jorb_id,
+            outcome_result=result,
+            outcome_completed_at=datetime.now(timezone.utc).isoformat(),
+            outcome_failure_reason=failure_reason,
+        )
 
     async def get_all_contacts_from_jorbs(self) -> set[str]:
         """
@@ -1001,24 +897,10 @@ class JorbStorage:
         await self._ensure_initialized()
 
         contacts: set[str] = set()
-
-        async with aiosqlite.connect(self._db_path) as conn:
-            cursor = await conn.execute("SELECT contacts_json FROM jorbs")
-            rows = await cursor.fetchall()
-
-            for row in rows:
-                contacts_json = row[0]
-                if contacts_json:
-                    try:
-                        contact_list = json.loads(contacts_json)
-                        for contact in contact_list:
-                            identifier = contact.get("identifier", "")
-                            if identifier:
-                                # Normalize the identifier
-                                normalized = self._normalize_identifier(identifier)
-                                contacts.add(normalized)
-                    except (json.JSONDecodeError, TypeError):
-                        continue
+        for jorb in await self.list_jorbs(status_filter="all"):
+            for contact in jorb.contacts:
+                if contact.identifier:
+                    contacts.add(self._normalize_identifier(contact.identifier))
 
         logger.debug("Found %d unique contacts across all jorbs", len(contacts))
         return contacts
@@ -1091,28 +973,18 @@ class JorbStorage:
         time_lower = (timestamp - timedelta(seconds=time_window_seconds)).isoformat()
         time_upper = (timestamp + timedelta(seconds=time_window_seconds)).isoformat()
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            # Look for outbound messages with similar content within time window
-            cursor = await conn.execute(
-                """
-                SELECT id, content FROM jorb_messages
-                WHERE direction = 'outbound'
-                AND timestamp >= ?
-                AND timestamp <= ?
-                """,
-                (time_lower, time_upper),
-            )
-            rows = await cursor.fetchall()
-
-            # Check for content similarity (substring match)
-            content_lower = content.lower().strip()
-            for row in rows:
-                db_content = row[1].lower().strip() if row[1] else ""
-                # Match if content is a substring or vice versa
+        content_lower = content.lower().strip()
+        for jorb in await self.list_jorbs(status_filter="all"):
+            for row in await self.get_messages(jorb.id, limit=5000):
+                if row.direction != "outbound":
+                    continue
+                if row.timestamp < time_lower or row.timestamp > time_upper:
+                    continue
+                db_content = row.content.lower().strip() if row.content else ""
                 if content_lower in db_content or db_content in content_lower:
                     logger.debug(
                         "Message matches frank_bot message (id=%s): %s...",
-                        row[0],
+                        row.id,
                         content[:30],
                     )
                     return True
@@ -1134,62 +1006,39 @@ class JorbStorage:
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self._db_path) as conn:
-            conn.row_factory = aiosqlite.Row
+        jorbs = await self.list_jorbs(status_filter=status_filter)
+        by_status = {
+            "planning": 0,
+            "running": 0,
+            "paused": 0,
+            "complete": 0,
+            "failed": 0,
+            "cancelled": 0,
+        }
+        total_messages_in = 0
+        total_messages_out = 0
+        total_tokens = 0
+        total_cost = 0.0
+        total_context_resets = 0
 
-            # Build WHERE clause based on filter
-            if status_filter == "open":
-                where_clause = "WHERE status IN ('planning', 'running', 'paused')"
-            elif status_filter == "closed":
-                where_clause = "WHERE status IN ('complete', 'failed', 'cancelled')"
-            else:
-                where_clause = ""
+        for jorb in jorbs:
+            by_status[jorb.status] = by_status.get(jorb.status, 0) + 1
+            total_messages_in += jorb.messages_in
+            total_messages_out += jorb.messages_out
+            total_tokens += jorb.tokens_used
+            total_cost += jorb.estimated_cost
+            total_context_resets += jorb.context_resets
 
-            # Get aggregate metrics
-            cursor = await conn.execute(
-                f"""
-                SELECT
-                    COUNT(*) as total_jorbs,
-                    SUM(messages_in) as total_messages_in,
-                    SUM(messages_out) as total_messages_out,
-                    SUM(tokens_used) as total_tokens,
-                    SUM(estimated_cost) as total_cost,
-                    SUM(context_resets) as total_context_resets
-                FROM jorbs
-                {where_clause}
-                """
-            )
-            row = await cursor.fetchone()
-
-            # Get counts by status
-            cursor = await conn.execute(
-                f"""
-                SELECT status, COUNT(*) as count
-                FROM jorbs
-                {where_clause}
-                GROUP BY status
-                """
-            )
-            status_rows = await cursor.fetchall()
-            status_counts = {r["status"]: r["count"] for r in status_rows}
-
-            return {
-                "total_jorbs": row["total_jorbs"] or 0,
-                "total_messages_in": row["total_messages_in"] or 0,
-                "total_messages_out": row["total_messages_out"] or 0,
-                "total_messages": (row["total_messages_in"] or 0) + (row["total_messages_out"] or 0),
-                "total_tokens": row["total_tokens"] or 0,
-                "total_cost": row["total_cost"] or 0.0,
-                "total_context_resets": row["total_context_resets"] or 0,
-                "by_status": {
-                    "planning": status_counts.get("planning", 0),
-                    "running": status_counts.get("running", 0),
-                    "paused": status_counts.get("paused", 0),
-                    "complete": status_counts.get("complete", 0),
-                    "failed": status_counts.get("failed", 0),
-                    "cancelled": status_counts.get("cancelled", 0),
-                },
-            }
+        return {
+            "total_jorbs": len(jorbs),
+            "total_messages_in": total_messages_in,
+            "total_messages_out": total_messages_out,
+            "total_messages": total_messages_in + total_messages_out,
+            "total_tokens": total_tokens,
+            "total_cost": round(total_cost, 6),
+            "total_context_resets": total_context_resets,
+            "by_status": by_status,
+        }
 
     # Script results methods (frank_bot-00111)
 
@@ -1225,11 +1074,8 @@ class JorbStorage:
         if jorb is None:
             return False
 
-        # Append new result to the list
-        updated_results = jorb.script_results + [result_dict]
-
-        # Update the jorb with new script results (serialize to JSON)
-        await self.update_jorb(jorb_id, script_results=json.dumps(updated_results))
+        updated_results = list(jorb.script_results) + [result_dict]
+        await self.update_jorb(jorb_id, script_results=updated_results)
 
         logger.debug("Added script result to jorb %s: %s", jorb_id, result_dict["script"])
         return True

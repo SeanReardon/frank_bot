@@ -13,7 +13,8 @@ from datetime import timezone
 from telethon import events
 from telethon.tl.types import User
 
-from services.agent_runner import AgentRunner, IncomingEvent
+from services.agent_runner import AgentRunner
+from services.incoming_events import create_incoming_event
 from services.jorb_storage import JorbStorage
 from services.message_buffer import BufferedEvent, MessageBuffer
 from services.telegram_client import DispatchContext, TelegramClientService
@@ -46,13 +47,14 @@ async def _on_telegram_buffer_flush(event: BufferedEvent) -> None:
         return
 
     # Convert BufferedEvent to IncomingEvent
-    incoming_event = IncomingEvent(
+    incoming_event = await create_incoming_event(
         channel="telegram",
         sender=event.sender,
         sender_name=event.sender_name,
         content=event.content,
         timestamp=event.timestamp,
         message_count=event.message_count,
+        transport="telegram_buffer",
     )
 
     logger.info(

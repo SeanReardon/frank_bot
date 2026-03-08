@@ -256,7 +256,7 @@ When jorbs need phone UI automation, they may launch internal Android execution 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | _unset_ | Dev fallback only (Vault: `secret/frank-bot/openai`) |
-| `JORBS_DB_PATH` | `./data/jorbs.db` | SQLite database for jorb storage |
+| `JORBS_DB_PATH` | `./data/jorbs` | JSON-backed jorb storage directory (legacy `.db` files are migrated on first load) |
 | `JORBS_PROGRESS_LOG` | `./data/jorbs_progress.txt` | Progress log for context resets |
 | `AGENT_SPEND_LIMIT` | `100.0` | Max spending (USD) before requiring approval |
 | `CONTEXT_RESET_DAYS` | `3` | Days before context is reset |

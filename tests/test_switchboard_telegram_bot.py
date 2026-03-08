@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from services.agent_runner import AgentRunner, IncomingEvent
-from services.jorb_storage import Jorb
+from services.jorb_storage import Jorb, JorbWithMessages
 
 
 @pytest.fixture
@@ -53,6 +53,66 @@ def enable_switchboard_mode(monkeypatch):
 
 class TestSwitchboardTelegramBotChannel:
     """Test that telegram_bot channel works with the Switchboard."""
+
+    @pytest.mark.asyncio
+    async def test_comment_only_message_is_logged_without_agent_work(
+        self,
+        runner,
+        mock_storage,
+    ):
+        """Comment-only inbound messages should be logged and otherwise ignored."""
+        event = IncomingEvent(
+            channel="telegram_bot",
+            sender="@alloweduser",
+            sender_name="Allowed User",
+            content="#future self, debug this later",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            metadata={
+                "source": "telegram_bot",
+                "telegram_bot_chat_id": "12345",
+            },
+        )
+
+        jorb = Jorb(
+            id="jorb_comment1",
+            name="Bot: screenshot",
+            status="running",
+            original_plan="Take screenshots on demand",
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            awaiting="human_reply",
+            metadata_json='{"telegram_bot_chat_id":"12345"}',
+        )
+        open_jorbs = [JorbWithMessages(jorb=jorb, messages=[])]
+        mock_storage.increment_metrics = AsyncMock()
+
+        mock_switchboard = MagicMock()
+        mock_switchboard._try_fast_conversation_match.return_value = jorb.id
+        mock_switchboard._try_fast_contact_match.return_value = None
+        mock_switchboard.route = AsyncMock(
+            side_effect=AssertionError("route should not be called")
+        )
+
+        with patch(
+            "services.agent_runner.get_switchboard",
+            return_value=mock_switchboard,
+        ), patch.object(
+            runner,
+            "_enrich_event_with_contact",
+            new_callable=AsyncMock,
+            side_effect=lambda e: e,
+        ), patch.object(
+            runner,
+            "get_open_jorbs",
+            new_callable=AsyncMock,
+            return_value=open_jorbs,
+        ):
+            result = await runner.process_incoming_message(event)
+
+        assert result.success is True
+        assert result.action_taken == "comment_logged"
+        mock_storage.add_message.assert_called_once()
+        stored_message = mock_storage.add_message.call_args[0][1]
+        assert stored_message.content == "#future self, debug this later"
 
     @pytest.mark.asyncio
     async def test_telegram_bot_autocreate_for_allowlisted_sender(self, runner):

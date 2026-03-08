@@ -211,6 +211,56 @@ class TestBuildContext:
         assert context["active_tasks"][0]["recent"][-1]["content"] == "Message 19"
 
 
+class TestStructuredTaskClasses:
+    """Tests for task-class aware jorb creation."""
+
+    @pytest.mark.asyncio
+    async def test_new_jorb_from_event_persists_task_class_and_runtime_metadata(
+        self,
+        runner,
+        storage,
+    ):
+        event = IncomingEvent(
+            channel="telegram_bot",
+            sender="@sean",
+            sender_name="Sean",
+            content="please debug why the telegram bot stopped replying",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            metadata={
+                "source": "telegram_bot",
+                "telegram_bot_chat_id": "12345",
+            },
+            task_class="diagnostic_probe",
+        )
+
+        with patch.object(
+            runner,
+            "process_jorb_event",
+            new_callable=AsyncMock,
+            return_value=ProcessingResult(
+                success=True,
+                jorb_id="placeholder",
+                action_taken="jorb_created",
+            ),
+        ) as mock_process:
+            result = await runner._create_new_jorb_from_event(event)
+
+        created = await storage.list_jorbs(status_filter="all")
+        assert len(created) == 1
+        created_jorb = created[0]
+        assert created_jorb.task_class == "diagnostic_probe"
+        assert "Structured task guidance:" in created_jorb.original_plan
+        assert "Task profile: diagnostic_probe." in created_jorb.original_plan
+        assert "Execution guarantees:" in created_jorb.original_plan
+        assert result.action_taken == "jorb_created"
+
+        refreshed = await storage.get_jorb(created_jorb.id)
+        assert refreshed is not None
+        assert refreshed.metadata["preferred_transport"] == "telegram_bot"
+        assert refreshed.metadata["task_runtime_mode"] == "structured"
+        mock_process.assert_called_once()
+
+
 class TestParseAgentResponse:
     """Tests for parsing agent responses."""
 
@@ -428,6 +478,28 @@ class TestMessageStorage:
         assert messages[0].sender == "@magic"
         assert messages[0].sender_name == "Magic Concierge"
 
+    async def test_store_inbound_message_logs_raw_content(self, runner, storage):
+        """Inbound message storage should preserve stripped comment lines in logs."""
+        jorb = await storage.create_jorb(name="Test", plan="Test plan")
+        await storage.update_jorb(jorb.id, status="running")
+
+        event = IncomingEvent(
+            channel="telegram_bot",
+            sender="@sean",
+            sender_name="Sean",
+            content="hey frank\nscreenshot please",
+            raw_content="hey frank\n#future self debug later\nscreenshot please",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+        await runner.store_inbound_message(jorb.id, event)
+
+        messages = await storage.get_messages(jorb.id)
+        assert len(messages) == 1
+        assert messages[0].content == (
+            "hey frank\n#future self debug later\nscreenshot please"
+        )
+
     async def test_store_outbound_message(self, runner, storage):
         """Test storing an outbound message."""
         jorb = await storage.create_jorb(name="Test", plan="Test plan")
@@ -448,6 +520,27 @@ class TestMessageStorage:
         assert messages[0].channel == "telegram"
         assert messages[0].recipient == "@magic"
         assert messages[0].agent_reasoning == "Initial outreach to Magic"
+
+
+class TestInboundCommentHandling:
+    """Tests for stripping inbound #comment lines before processing."""
+
+    def test_prepare_event_for_processing_strips_comment_lines(self, runner):
+        """Comment lines are hidden from routing/LLM but preserved in raw_content."""
+        event = IncomingEvent(
+            channel="telegram_bot",
+            sender="@sean",
+            sender_name="Sean",
+            content="hey frank\n#future self debug later\nscreenshot please",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+        prepared = runner._prepare_event_for_processing(event)
+
+        assert prepared.content == "hey frank\nscreenshot please"
+        assert prepared.raw_content == (
+            "hey frank\n#future self debug later\nscreenshot please"
+        )
 
 
 class TestJorbStatusUpdates:
@@ -1129,14 +1222,10 @@ class TestPolicyEnforcement:
         from datetime import timedelta
         old_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
         await storage.update_jorb(jorb.id, progress_summary="old")  # Triggers update
-        # Hack: directly update the timestamp in DB
-        import aiosqlite
-        async with aiosqlite.connect(storage._db_path) as conn:
-            await conn.execute(
-                "UPDATE jorbs SET updated_at = ? WHERE id = ?",
-                (old_time, jorb.id),
-            )
-            await conn.commit()
+        record = await storage._read_record(jorb.id)
+        assert record is not None
+        record["jorb"]["updated_at"] = old_time
+        await storage._write_record(jorb.id, record)
 
         # Check for stale jorbs
         paused_ids = await runner_with_policy.check_stale_jorbs()
@@ -1155,13 +1244,10 @@ class TestPolicyEnforcement:
         # Hack: set created_at to 2 days ago (older than 1 day limit)
         from datetime import timedelta
         old_time = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
-        import aiosqlite
-        async with aiosqlite.connect(storage._db_path) as conn:
-            await conn.execute(
-                "UPDATE jorbs SET created_at = ? WHERE id = ?",
-                (old_time, jorb.id),
-            )
-            await conn.commit()
+        record = await storage._read_record(jorb.id)
+        assert record is not None
+        record["jorb"]["created_at"] = old_time
+        await storage._write_record(jorb.id, record)
 
         # Check for expired jorbs
         failed_ids = await runner_with_policy.check_expired_jorbs()

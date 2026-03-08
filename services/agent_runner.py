@@ -35,6 +35,7 @@ from services.jorb_storage import (
 
 # Import new switchboard and session components
 from services.switchboard import Switchboard, RoutingDecision, get_switchboard
+from services.event_traces import get_event_trace_store
 from services.jorb_session import (
     JorbSession,
     JorbSessionResponse,
@@ -42,6 +43,7 @@ from services.jorb_session import (
     create_jorb_session,
 )
 from services.progress_log import get_progress_log
+from services.task_runtime_profiles import get_task_runtime_profile
 
 # Import openai at module level (may be None if not installed)
 # This allows tests to patch it
@@ -179,9 +181,27 @@ class IncomingEvent:
     sender_name: str | None
     content: str
     timestamp: str  # ISO 8601
+    raw_content: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     message_count: int = 1
     is_human_intervention: bool = False  # True when Sean sent this directly (not frank_bot)
+    event_id: str | None = None
+    trace_id: str | None = None
+    transport: str | None = None
+    transport_message_id: str | None = None
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+    task_class: str | None = None
+
+
+def _strip_comment_lines(text: str) -> str:
+    """Remove comment-only lines whose first non-space character is '#'."""
+    if not text:
+        return ""
+    kept_lines = [
+        line for line in text.splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    return "\n".join(kept_lines).strip()
 
 
 @dataclass
@@ -649,6 +669,141 @@ class AgentRunner:
         """Get all open jorbs with their messages."""
         return await self._storage.get_open_jorbs_with_messages()
 
+    def _event_log_content(self, event: IncomingEvent) -> str:
+        """Return the raw inbound text for durable logging."""
+        return event.raw_content if event.raw_content is not None else event.content
+
+    def _prepare_event_for_processing(self, event: IncomingEvent) -> IncomingEvent:
+        """
+        Preserve the raw inbound message for logging while hiding comment lines
+        from routing and LLM processing.
+        """
+        raw_content = event.raw_content if event.raw_content is not None else event.content
+        sanitized_content = _strip_comment_lines(raw_content)
+        return IncomingEvent(
+            channel=event.channel,
+            sender=event.sender,
+            sender_name=event.sender_name,
+            content=sanitized_content,
+            raw_content=raw_content,
+            timestamp=event.timestamp,
+            metadata=dict(event.metadata or {}),
+            message_count=event.message_count,
+            is_human_intervention=event.is_human_intervention,
+            event_id=event.event_id,
+            trace_id=event.trace_id,
+            transport=event.transport,
+            transport_message_id=event.transport_message_id,
+            attachments=list(event.attachments or []),
+            task_class=event.task_class,
+        )
+
+    async def _trace_step(
+        self,
+        event: IncomingEvent | None,
+        phase: str,
+        payload: dict[str, Any],
+    ) -> None:
+        trace_id = str(getattr(event, "trace_id", "") or "").strip()
+        if not trace_id:
+            return
+        try:
+            await get_event_trace_store().append_step(trace_id, phase, payload)
+        except Exception:
+            logger.debug("Failed to append trace step %s for %s", phase, trace_id, exc_info=True)
+
+    async def _trace_routing(
+        self,
+        event: IncomingEvent | None,
+        routing: RoutingDecision,
+    ) -> None:
+        trace_id = str(getattr(event, "trace_id", "") or "").strip()
+        if not trace_id:
+            return
+        try:
+            await get_event_trace_store().set_routing(
+                trace_id,
+                {
+                    "jorb_id": routing.jorb_id,
+                    "confidence": routing.confidence,
+                    "reasoning": routing.reasoning,
+                    "might_be_new_jorb": routing.might_be_new_jorb,
+                    "is_spam": routing.is_spam,
+                    "is_urgent": routing.is_urgent,
+                    "unknown_sender": routing.unknown_sender,
+                    "is_human_intervention": routing.is_human_intervention,
+                    "tokens_used": routing.tokens_used,
+                },
+            )
+        except Exception:
+            logger.debug("Failed to persist routing trace for %s", trace_id, exc_info=True)
+
+    async def _trace_finalize(
+        self,
+        event: IncomingEvent | None,
+        result: ProcessingResult,
+    ) -> None:
+        trace_id = str(getattr(event, "trace_id", "") or "").strip()
+        if not trace_id:
+            return
+        try:
+            await get_event_trace_store().finalize(
+                trace_id,
+                {
+                    "jorb_id": result.jorb_id,
+                    "action_taken": result.action_taken,
+                    "success": result.success,
+                    "error": result.error,
+                    "message_sent": result.message_sent,
+                },
+                status="completed" if result.success else "error",
+            )
+        except Exception:
+            logger.debug("Failed to finalize trace %s", trace_id, exc_info=True)
+
+    def _resolve_comment_only_jorb_id(
+        self,
+        event: IncomingEvent,
+        open_jorbs: list[JorbWithMessages],
+    ) -> str | None:
+        """
+        For comment-only messages, use deterministic routing only.
+
+        Comments should never trigger LLM work or create a new jorb, but we still
+        want to log them to the current conversation when we can identify it
+        cheaply from conversation metadata or exact contact matches.
+        """
+        switchboard = get_switchboard()
+        match = switchboard._try_fast_conversation_match(event.metadata, open_jorbs)
+        if match:
+            return match
+        return switchboard._try_fast_contact_match(event.sender, open_jorbs)
+
+    async def _persist_event_routing_metadata(
+        self,
+        jorb: Jorb,
+        event: IncomingEvent,
+    ) -> None:
+        """Persist routing metadata (for example Telegram bot chat ids)."""
+        if not event.metadata:
+            return
+
+        original_meta = dict(getattr(jorb, "metadata", {}) or {})
+        meta = dict(original_meta)
+        for key in ("source", "telegram_bot_chat_id"):
+            if key in event.metadata and event.metadata.get(key) is not None:
+                meta[key] = event.metadata.get(key)
+
+        source = str(event.metadata.get("source") or "").strip()
+        if source == "telegram_bot":
+            meta["preferred_transport"] = "telegram_bot"
+
+        if meta != original_meta:
+            await self.update_jorb_status(
+                jorb_id=jorb.id,
+                metadata_json=json.dumps(meta),
+            )
+
     async def store_inbound_message(
         self,
         jorb_id: str,
@@ -672,7 +827,7 @@ class AgentRunner:
             channel=event.channel,
             sender=event.sender,
             sender_name=event.sender_name,
-            content=event.content,
+            content=self._event_log_content(event),
         )
         msg_id = await self._storage.add_message(jorb_id, message)
 
@@ -747,7 +902,7 @@ class AgentRunner:
             sender="sean_direct",  # Special marker for human intervention
             sender_name="Sean",
             recipient=event.sender,  # The original sender becomes recipient
-            content=event.content,
+            content=self._event_log_content(event),
         )
         msg_id = await self._storage.add_message(jorb_id, message)
 
@@ -1529,6 +1684,19 @@ class AgentRunner:
                 (action.script or "")[:60],
                 action.await_reply, action.done, action.pause,
             )
+            await self._trace_step(
+                origin_event,
+                "session_action",
+                {
+                    "jorb_id": jorb_id,
+                    "action": action.type,
+                    "args": action.args if isinstance(action.args, dict) else {},
+                    "summary": session_response.summary[:300],
+                    "tokens_used": session_response.tokens_used,
+                    "estimated_cost": session_response.estimated_cost,
+                    "steps_this_run": steps_this_run,
+                },
+            )
 
             # Persist the jorb's current routing/status summary (required field).
             await self.update_jorb_status(
@@ -1669,6 +1837,18 @@ class AgentRunner:
                     )
 
                 script_result = await self._execute_script(jwm.jorb, script_str)
+                await self._trace_step(
+                    origin_event,
+                    "tool_call",
+                    {
+                        "jorb_id": jorb_id,
+                        "tool": "RUN_SCRIPT",
+                        "script": script_str[:800],
+                        "success": bool(script_result.get("success", False)),
+                        "error": script_result.get("error"),
+                        "result_preview": str(script_result.get("result"))[:800],
+                    },
+                )
 
                 # If the agent created a new jorb via `frank.jorbs.create(...)` from within
                 # an existing Telegram/SMS conversation, proactively attach the new jorb to
@@ -2327,6 +2507,17 @@ class AgentRunner:
                                         content=ack,
                                         reasoning="auto_progress_update",
                                     )
+                                await self._trace_step(
+                                    origin_event,
+                                    "transport_send",
+                                    {
+                                        "jorb_id": jorb_id,
+                                        "channel": preferred,
+                                        "recipient": recipient or chat_id,
+                                        "reason": "auto_progress_update",
+                                        "content": ack[:400],
+                                    },
+                                )
                             elif preferred == "telegram" and recipient:
                                 sent_ok = await self._send_message("telegram", recipient, ack)
                                 if sent_ok:
@@ -2337,6 +2528,17 @@ class AgentRunner:
                                         content=ack,
                                         reasoning="auto_progress_update",
                                     )
+                                await self._trace_step(
+                                    origin_event,
+                                    "transport_send",
+                                    {
+                                        "jorb_id": jorb_id,
+                                        "channel": preferred,
+                                        "recipient": recipient or chat_id,
+                                        "reason": "auto_progress_update",
+                                        "content": ack[:400],
+                                    },
+                                )
                             elif preferred == "sms" and recipient:
                                 sent_ok = await self._send_message("sms", recipient, ack)
                                 if sent_ok:
@@ -2570,10 +2772,17 @@ class AgentRunner:
                     sender=event.sender,
                     sender_name=contact.name,
                     content=event.content,
+                    raw_content=event.raw_content,
                     timestamp=event.timestamp,
                     metadata=event.metadata,
                     message_count=event.message_count,
                     is_human_intervention=event.is_human_intervention,
+                    event_id=event.event_id,
+                    trace_id=event.trace_id,
+                    transport=event.transport,
+                    transport_message_id=event.transport_message_id,
+                    attachments=list(event.attachments or []),
+                    task_class=event.task_class,
                 )
         except Exception as e:
             logger.warning("Contact lookup failed for %s: %s", event.sender, e)
@@ -2605,12 +2814,13 @@ class AgentRunner:
         Returns:
             ProcessingResult with jorb_id, action_taken, and success status
         """
-        # Use switchboard mode if enabled
         if _use_switchboard_mode():
-            return await self._process_with_switchboard(event)
+            result = await self._process_with_switchboard(event)
+        else:
+            result = await self._process_legacy(event)
 
-        # Legacy single-stage mode
-        return await self._process_legacy(event)
+        await self._trace_finalize(event, result)
+        return result
 
     async def _process_with_switchboard(
         self,
@@ -2624,17 +2834,64 @@ class AgentRunner:
         """
         try:
             # Step 1: Enrich event with contact info
-            enriched_event = await self._enrich_event_with_contact(event)
+            enriched_event = self._prepare_event_for_processing(
+                await self._enrich_event_with_contact(event)
+            )
             logger.info(
                 "Processing incoming %s message from %s (%s) [switchboard mode]",
                 enriched_event.channel,
                 enriched_event.sender,
                 enriched_event.sender_name or "unknown",
             )
+            await self._trace_step(
+                enriched_event,
+                "event_received",
+                {
+                    "channel": enriched_event.channel,
+                    "sender": enriched_event.sender,
+                    "sender_name": enriched_event.sender_name,
+                    "message_count": enriched_event.message_count,
+                    "task_class": enriched_event.task_class,
+                    "content": enriched_event.content[:400],
+                },
+            )
 
             # Step 2: Fetch open jorbs
             open_jorbs = await self.get_open_jorbs()
             logger.debug("Found %d open jorbs", len(open_jorbs))
+
+            # Comment-only messages should be logged but should not trigger
+            # switchboard/LLM work or create a new jorb.
+            if not (enriched_event.content or "").strip():
+                comment_jorb_id = self._resolve_comment_only_jorb_id(
+                    enriched_event,
+                    open_jorbs,
+                )
+                if comment_jorb_id:
+                    await self.store_inbound_message(comment_jorb_id, enriched_event)
+                    matched_jorb = next(
+                        (
+                            jwm.jorb
+                            for jwm in open_jorbs
+                            if jwm.jorb.id == comment_jorb_id
+                        ),
+                        None,
+                    )
+                    if matched_jorb is not None:
+                        await self._persist_event_routing_metadata(
+                            matched_jorb,
+                            enriched_event,
+                        )
+                    return ProcessingResult(
+                        jorb_id=comment_jorb_id,
+                        action_taken="comment_logged",
+                        success=True,
+                    )
+                return ProcessingResult(
+                    jorb_id=None,
+                    action_taken="comment_ignored",
+                    success=True,
+                )
 
             # Step 2.5: Handle explicit control commands (no switchboard / no LLM).
             normalized = " ".join((enriched_event.content or "").strip().split()).upper()
@@ -2684,6 +2941,7 @@ class AgentRunner:
                 routing.confidence,
                 routing.reasoning[:50],
             )
+            await self._trace_routing(enriched_event, routing)
 
             # Track switchboard tokens
             total_tokens = routing.tokens_used
@@ -2747,21 +3005,10 @@ class AgentRunner:
             await self.store_inbound_message(routing.jorb_id, enriched_event)
 
             # Step 8: Persist routing metadata (e.g. telegram_bot chat_id) onto the jorb
-            if enriched_event.metadata:
-                meta = matched_jorb.jorb.metadata
-                # Merge only known routing keys (avoid unbounded growth)
-                for k in ("source", "telegram_bot_chat_id"):
-                    if k in enriched_event.metadata and enriched_event.metadata.get(k) is not None:
-                        meta[k] = enriched_event.metadata.get(k)
-                # Derive preferred transport from source when present
-                src = str(enriched_event.metadata.get("source") or "").strip()
-                if src == "telegram_bot":
-                    meta["preferred_transport"] = "telegram_bot"
-                if meta != matched_jorb.jorb.metadata:
-                    await self.update_jorb_status(
-                        jorb_id=routing.jorb_id,
-                        metadata_json=json.dumps(meta),
-                    )
+            await self._persist_event_routing_metadata(
+                matched_jorb.jorb,
+                enriched_event,
+            )
 
             # Step 9: Ensure jorb is running when new work arrives
             # If this jorb is currently restricted, do NOT resume the LLM loop.
@@ -3450,7 +3697,10 @@ class AgentRunner:
         else:
             transport = event.channel
 
-        bot_chat_id = str(event.metadata.get("telegram_bot_chat_id") or "").strip() or None
+        bot_chat_id = (
+            str(event.metadata.get("telegram_bot_chat_id") or "").strip() or None
+        )
+        runtime_profile = get_task_runtime_profile(event.task_class)
 
         plan_lines = [
             "You are a jorb agent. Follow the strict command schema in the system prompt.",
@@ -3467,6 +3717,14 @@ class AgentRunner:
             "- Only WAIT_FOR_HUMAN when you truly need a human reply.",
             "- When done: send the final answer, then COMPLETE.",
         ]
+        if runtime_profile["plan_lines"]:
+            plan_lines.extend(["", "Structured task guidance:"])
+            plan_lines.extend(runtime_profile["plan_lines"])
+        if runtime_profile["guarantees"]:
+            plan_lines.extend(["", "Execution guarantees:"])
+            plan_lines.extend(
+                f"- {guarantee}" for guarantee in runtime_profile["guarantees"]
+            )
         if transport == "telegram_bot" and bot_chat_id:
             plan_lines.insert(4, f"- Telegram bot chat_id={bot_chat_id}.")
 
@@ -3491,6 +3749,7 @@ class AgentRunner:
             plan=plan,
             contacts=[contact],
             personality="default",
+            task_class=event.task_class,
         )
 
         # Persist routing metadata for switchboard + SEND_MESSAGE defaults
@@ -3498,6 +3757,7 @@ class AgentRunner:
         if isinstance(event.metadata, dict):
             meta.update(event.metadata)
         meta["preferred_transport"] = transport
+        meta["task_runtime_mode"] = runtime_profile["mode"]
         if transport == "telegram_bot" and bot_chat_id:
             meta["telegram_bot_chat_id"] = bot_chat_id
 
@@ -3700,22 +3960,65 @@ class AgentRunner:
         """
         try:
             # Step 1: Enrich event with contact info
-            enriched_event = await self._enrich_event_with_contact(event)
+            enriched_event = self._prepare_event_for_processing(
+                await self._enrich_event_with_contact(event)
+            )
             logger.info(
                 "Processing incoming %s message from %s (%s)",
                 enriched_event.channel,
                 enriched_event.sender,
                 enriched_event.sender_name or "unknown",
             )
+            await self._trace_step(
+                enriched_event,
+                "event_received_legacy",
+                {
+                    "channel": enriched_event.channel,
+                    "sender": enriched_event.sender,
+                    "sender_name": enriched_event.sender_name,
+                    "message_count": enriched_event.message_count,
+                    "task_class": enriched_event.task_class,
+                    "content": enriched_event.content[:400],
+                },
+            )
 
             # Step 2: Fetch open jorbs
             open_jorbs = await self.get_open_jorbs()
             logger.debug("Found %d open jorbs", len(open_jorbs))
 
+            if not (enriched_event.content or "").strip():
+                comment_jorb_id = self._resolve_comment_only_jorb_id(
+                    enriched_event,
+                    open_jorbs,
+                )
+                if comment_jorb_id:
+                    await self.store_inbound_message(comment_jorb_id, enriched_event)
+                    return ProcessingResult(
+                        jorb_id=comment_jorb_id,
+                        action_taken="comment_logged",
+                        success=True,
+                    )
+                return ProcessingResult(
+                    jorb_id=None,
+                    action_taken="comment_ignored",
+                    success=True,
+                )
+
             # Step 3: Call the LLM for decision
             context = self.build_context(enriched_event, open_jorbs)
             raw_response, tokens_used, estimated_cost = await self.call_agent(context)
             agent_response = self.parse_agent_response(raw_response, tokens_used, estimated_cost)
+            await self._trace_step(
+                enriched_event,
+                "legacy_agent_decision",
+                {
+                    "jorb_id": agent_response.jorb_id,
+                    "action": agent_response.action.type,
+                    "reasoning": agent_response.reasoning[:400],
+                    "tokens_used": tokens_used,
+                    "estimated_cost": estimated_cost,
+                },
+            )
 
             logger.info(
                 "Agent decided: jorb=%s, action=%s, reasoning=%s",

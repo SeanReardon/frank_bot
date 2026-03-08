@@ -52,6 +52,7 @@ from actions.telegram import (
 )
 from actions.telegram_bot import get_telegram_bot_status, test_telegram_bot
 from actions.style_capture import generate_sean_md_action
+from actions.operator_debug import get_operator_debug_action
 from actions.system_status import get_system_status_action
 from actions.android_phone import (
     get_screen_action,
@@ -478,6 +479,13 @@ def build_action_routes(settings: Settings) -> list[Route]:
         stats.get_endpoint_stats("systemStatus").record_call()
         payload = dict(request.query_params)
         responder = _build_responder(get_system_status_action)
+        return await responder(payload)
+
+    async def operator_debug_handler(request: Request):
+        await _require_api_key_or_stytch_session(request)
+        stats.get_endpoint_stats("operatorDebugGet").record_call()
+        payload = dict(request.query_params)
+        responder = _build_responder(get_operator_debug_action)
         return await responder(payload)
 
     # Claudia integration endpoints (protected by API key)
@@ -987,6 +995,7 @@ def build_action_routes(settings: Settings) -> list[Route]:
         Route("/actions/style/generate", style_generate_handler, methods=["GET"]),
         # System status endpoint (orchestration machinery health)
         Route("/system/status", system_status_handler, methods=["GET"]),
+        Route("/actions/operator/debug", operator_debug_handler, methods=["GET"]),
         # Claudia integration endpoints
         Route("/actions/claudia/api/learn", claudia_api_learn_handler, methods=["GET"]),
         Route("/actions/claudia/repos", claudia_repos_handler, methods=["GET"]),

@@ -7,6 +7,7 @@ IncomingEvent with channel='telegram_bot', and lifecycle functions.
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -58,7 +59,11 @@ class TestFlushCallback:
         mock_runner = MagicMock()
         mock_runner.is_configured = True
         mock_runner.process_incoming_message = AsyncMock(
-            return_value=MagicMock(jorb_id="jorb_1", action_taken="matched", success=True)
+            return_value=MagicMock(
+                jorb_id="jorb_1",
+                action_taken="matched",
+                success=True,
+            )
         )
 
         with patch(
@@ -77,6 +82,56 @@ class TestFlushCallback:
         assert incoming.metadata["source"] == "telegram_bot"
         assert incoming.metadata["telegram_bot_chat_id"] == "12345"
         assert incoming.message_count == 1
+        assert incoming.task_class == "freeform"
+        assert incoming.transport == "telegram_bot_buffer"
+        assert incoming.event_id is not None
+        assert incoming.trace_id is not None
+
+    @pytest.mark.asyncio
+    async def test_flush_records_trace_files_for_agentic_replay(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ):
+        """Flushed bot messages should create durable event + trace files."""
+        from services.event_traces import EventTraceStore
+        from services.message_buffer import BufferedEvent
+
+        monkeypatch.setenv("DATA_DIR", str(tmp_path))
+        trace_store = EventTraceStore(data_dir=str(tmp_path))
+        monkeypatch.setattr("services.event_traces._trace_store", trace_store)
+
+        event = BufferedEvent(
+            channel="telegram_bot",
+            sender="@alice",
+            sender_name="Alice",
+            content="what happened to the bot logs?",
+            timestamp="2026-02-13T10:00:00+00:00",
+            message_count=1,
+            metadata={"telegram_bot_chat_id": "12345"},
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.is_configured = True
+        mock_runner.process_incoming_message = AsyncMock(
+            return_value=MagicMock(
+                jorb_id="jorb_1",
+                action_taken="matched",
+                success=True,
+            )
+        )
+
+        with patch("services.telegram_bot_router._agent_runner", mock_runner):
+            await _on_bot_message_flush(event)
+
+        events = await trace_store.list_recent_events(limit=5)
+        traces = await trace_store.list_recent_traces(limit=5)
+
+        assert len(events) == 1
+        assert len(traces) == 1
+        assert events[0]["transport"] == "telegram_bot_buffer"
+        assert events[0]["task_class"] == "diagnostic_probe"
+        assert traces[0]["event"]["channel"] == "telegram_bot"
 
     @pytest.mark.asyncio
     async def test_flush_skips_when_runner_not_configured(self, caplog):

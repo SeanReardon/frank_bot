@@ -28,6 +28,57 @@ _health_cache_time: float = 0
 HEALTH_CACHE_TTL = 30  # seconds
 
 
+def _detect_lockscreen_state(
+    raw_xml: str,
+    clickable_elements: list[dict[str, Any]],
+    dumpsys_window: str | None = None,
+) -> dict[str, Any]:
+    """Best-effort keyguard detection for safer Android automation."""
+    reasons: list[str] = []
+    confidence = "low"
+
+    dumpsys = dumpsys_window or ""
+    if re.search(r"mDreamingLockscreen\s*=\s*true", dumpsys):
+        reasons.append("ambient_lockscreen")
+    if re.search(r"mShowingLockscreen\s*=\s*true", dumpsys):
+        reasons.append("showing_lockscreen")
+    if re.search(r"isStatusBarKeyguard\s*=\s*true", dumpsys):
+        reasons.append("status_bar_keyguard")
+
+    xml_lower = raw_xml.lower()
+    if "com.android.systemui" in xml_lower:
+        reasons.append("systemui_foreground")
+
+    visible_text = " ".join(
+        str(item.get("text") or item.get("content_desc") or "").lower()
+        for item in clickable_elements
+    )
+    for token in (
+        "emergency",
+        "unlock",
+        "swipe to unlock",
+        "fingerprint",
+        "face unlock",
+        "enter pin",
+        "use password",
+        "camera",
+    ):
+        if token in visible_text:
+            reasons.append(f"ui:{token}")
+
+    if {"ambient_lockscreen", "showing_lockscreen", "status_bar_keyguard"} & set(reasons):
+        confidence = "high"
+    elif reasons:
+        confidence = "medium"
+
+    unique_reasons = sorted(set(reasons))
+    return {
+        "lockscreen_detected": bool(unique_reasons),
+        "lockscreen_confidence": confidence if unique_reasons else "none",
+        "lockscreen_reason": ", ".join(unique_reasons) if unique_reasons else None,
+    }
+
+
 async def get_screen_action(
     arguments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -112,6 +163,21 @@ async def get_screen_action(
             }
             clickable_elements.append(element_info)
 
+    dumpsys_window = None
+    try:
+        if hasattr(client, "_run_adb"):
+            window_result = await client._run_adb("shell", "dumpsys", "window")
+            if window_result.success:
+                dumpsys_window = window_result.output or ""
+    except Exception:
+        dumpsys_window = None
+
+    lockscreen_state = _detect_lockscreen_state(
+        raw_xml=raw_xml,
+        clickable_elements=clickable_elements,
+        dumpsys_window=dumpsys_window,
+    )
+
     # Audit log (metadata only; screenshot/xml content is not persisted).
     try:
         get_android_audit_logger().log_action(
@@ -132,6 +198,7 @@ async def get_screen_action(
         "clickable_elements": clickable_elements,
         "element_count": len(elements),
         "dominant_package": dominant_package,
+        **lockscreen_state,
         "message": f"Screen captured with {len(clickable_elements)} interactive elements",
     }
 
@@ -1513,6 +1580,22 @@ async def _execute_task_background(
                 }
             )
 
+        artifacts: list[dict[str, Any]] = []
+        if final_screenshot_path:
+            artifacts.append(
+                {
+                    "kind": "final_screenshot",
+                    "path": final_screenshot_path,
+                }
+            )
+        for path in step_screenshot_paths:
+            artifacts.append(
+                {
+                    "kind": "step_screenshot",
+                    "path": path,
+                }
+            )
+
         # TTL-based cleanup of old screenshots
         try:
             _cleanup_old_screenshots()
@@ -1584,6 +1667,12 @@ async def _execute_task_background(
                 tokens_used=result.total_tokens_used,
                 estimated_cost=result.total_cost,
                 current_step=None,
+                step_history=step_actions,
+                artifacts=artifacts,
+                metadata={
+                    "task_prompt": task_prompt,
+                    "lockscreen_detected": bool((result.extracted_data or {}).get("lockscreen_detected")),
+                },
             )
             logger.info("Task %s: Completed successfully", task_id)
 
@@ -1609,6 +1698,12 @@ async def _execute_task_background(
                 tokens_used=result.total_tokens_used,
                 estimated_cost=result.total_cost,
                 current_step=None,
+                step_history=step_actions,
+                artifacts=artifacts,
+                metadata={
+                    "task_prompt": task_prompt,
+                    "lockscreen_detected": bool((result.extracted_data or {}).get("lockscreen_detected")),
+                },
             )
             logger.info("Task %s: Failed - %s", task_id, result.error)
 

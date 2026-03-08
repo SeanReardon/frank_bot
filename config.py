@@ -526,7 +526,7 @@ def get_settings() -> Settings:
         stytch_secret=secrets["stytch_secret"],
         # Jorb system settings
         openai_api_key=secrets["openai_api_key"],
-        jorbs_db_path=os.getenv("JORBS_DB_PATH", "./data/jorbs.db"),
+        jorbs_db_path=os.getenv("JORBS_DB_PATH", "./data/jorbs"),
         jorbs_progress_log=os.getenv("JORBS_PROGRESS_LOG", "./data/jorbs_progress.txt"),
         agent_spend_limit=float(os.getenv("AGENT_SPEND_LIMIT", "100.0")),
         context_reset_days=int(os.getenv("CONTEXT_RESET_DAYS", "3")),

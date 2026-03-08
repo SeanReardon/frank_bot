@@ -647,6 +647,30 @@ class AndroidPhoneRunner:
                 logger.debug("Step %d: Capturing screen state", step_num)
                 screen_state = await self._capture_screen_state()
                 final_screenshot = screen_state.get("screenshot_base64")
+                if screen_state.get("lockscreen_detected"):
+                    error = (
+                        "Phone appears to be on the lockscreen or ambient display"
+                        f" ({screen_state.get('lockscreen_reason') or 'keyguard detected'}). "
+                        "Unlock the device manually, then retry the task."
+                    )
+                    logger.warning("Lockscreen detected during Android automation: %s", error)
+                    total_tokens = total_input_tokens + total_output_tokens
+                    total_cost = _calculate_token_cost(total_input_tokens, total_output_tokens)
+                    return RunResult(
+                        success=False,
+                        final_action="lockscreen_detected",
+                        steps_taken=max(0, step_num - 1),
+                        total_tokens_used=total_tokens,
+                        total_cost=total_cost,
+                        steps=steps,
+                        error=error,
+                        final_screenshot_base64=final_screenshot,
+                        extracted_data={
+                            "lockscreen_detected": True,
+                            "lockscreen_confidence": screen_state.get("lockscreen_confidence"),
+                            "lockscreen_reason": screen_state.get("lockscreen_reason"),
+                        },
+                    )
                 screen_sig = _screen_signature(screen_state)
                 if screen_sig == last_screen_sig:
                     current_screen_streak += 1

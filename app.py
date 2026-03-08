@@ -59,7 +59,7 @@ except Exception as e:
         "swarm_api_version": os.getenv("SWARM_API_VERSION", "20240501"),
         "notify_numbers": (),
         "telegram_session_name": os.getenv("TELEGRAM_SESSION_NAME", "frank_bot"),
-        "jorbs_db_path": os.getenv("JORBS_DB_PATH", "./data/jorbs.db"),
+        "jorbs_db_path": os.getenv("JORBS_DB_PATH", "./data/jorbs"),
         "jorbs_progress_log": os.getenv("JORBS_PROGRESS_LOG", "./data/jorbs_progress.txt"),
         "agent_spend_limit": float(os.getenv("AGENT_SPEND_LIMIT", "100.0")),
         "context_reset_days": int(os.getenv("CONTEXT_RESET_DAYS", "3")),
